@@ -68,118 +68,82 @@ def _analyze_python_file(file_path: str) -> list[Finding]:
         return []
 
     findings: list[Finding] = []
-
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            func_name = node.name
-            start_line = node.lineno
-
-            # ── Complexity ──
-            complexity = _python_cyclomatic_complexity(node)
-            if complexity > COMPLEXITY_ERROR:
-                findings.append(
-                    Finding(
-                        severity="error",
-                        file=file_path,
-                        rule="V14-HIGH-COMPLEXITY",
-                        message=f"Function '{func_name}' has cyclomatic complexity {complexity} (max {COMPLEXITY_ERROR})",
-                        fix=f"Refactor '{func_name}' at {file_path}:{start_line} into smaller functions. Extract complex conditional logic.",
-                        line=start_line,
-                    )
-                )
-            elif complexity > COMPLEXITY_WARN:
-                findings.append(
-                    Finding(
-                        severity="warning",
-                        file=file_path,
-                        rule="V14-HIGH-COMPLEXITY",
-                        message=f"Function '{func_name}' has cyclomatic complexity {complexity} (recommended max {COMPLEXITY_WARN})",
-                        fix=f"Consider simplifying '{func_name}' at {file_path}:{start_line}. Extract conditionals into helper functions.",
-                        line=start_line,
-                    )
-                )
-
-            # ── Cognitive Complexity ──
-            cognitive = _python_cognitive_complexity(node)
-            if cognitive > COGNITIVE_ERROR:
-                findings.append(
-                    Finding(
-                        severity="error",
-                        file=file_path,
-                        rule="V14-COGNITIVE-COMPLEXITY",
-                        message=f"Function '{func_name}' has cognitive complexity {cognitive} (max {COGNITIVE_ERROR})",
-                        fix=f"Simplify '{func_name}' at {file_path}:{start_line}. Reduce nesting and break into smaller functions.",
-                        line=start_line,
-                    )
-                )
-            elif cognitive > COGNITIVE_WARN:
-                findings.append(
-                    Finding(
-                        severity="warning",
-                        file=file_path,
-                        rule="V14-COGNITIVE-COMPLEXITY",
-                        message=f"Function '{func_name}' has cognitive complexity {cognitive} (recommended max {COGNITIVE_WARN})",
-                        fix=f"Consider simplifying '{func_name}' at {file_path}:{start_line}. Nested conditions increase cognitive load.",
-                        line=start_line,
-                    )
-                )
-
-            # ── Length ──
-            end_line = getattr(node, "end_lineno", None)
-            if end_line:
-                length = end_line - start_line + 1
-                if length > LENGTH_ERROR:
-                    findings.append(
-                        Finding(
-                            severity="error",
-                            file=file_path,
-                            rule="V14-LONG-FUNCTION",
-                            message=f"Function '{func_name}' is {length} lines long (max {LENGTH_ERROR})",
-                            fix=f"Break '{func_name}' at {file_path}:{start_line} into smaller functions. Each should do one thing.",
-                            line=start_line,
-                        )
-                    )
-                elif length > LENGTH_WARN:
-                    findings.append(
-                        Finding(
-                            severity="warning",
-                            file=file_path,
-                            rule="V14-LONG-FUNCTION",
-                            message=f"Function '{func_name}' is {length} lines long (recommended max {LENGTH_WARN})",
-                            fix=f"Consider splitting '{func_name}' at {file_path}:{start_line} into smaller functions.",
-                            line=start_line,
-                        )
-                    )
-
-            # ── Nesting ──
-            max_depth = _python_max_nesting(node)
-            if max_depth > NESTING_WARN:
-                findings.append(
-                    Finding(
-                        severity="warning",
-                        file=file_path,
-                        rule="V14-DEEP-NESTING",
-                        message=f"Function '{func_name}' has nesting depth {max_depth} (max {NESTING_WARN})",
-                        fix=f"Reduce nesting in '{func_name}' at {file_path}:{start_line}. Use early returns, guard clauses, or extract helper functions.",
-                        line=start_line,
-                    )
-                )
-
-            # ── Params ──
-            params = _python_param_count(node)
-            if params > PARAMS_WARN:
-                findings.append(
-                    Finding(
-                        severity="warning",
-                        file=file_path,
-                        rule="V14-TOO-MANY-PARAMS",
-                        message=f"Function '{func_name}' has {params} parameters (max {PARAMS_WARN})",
-                        fix=f"Reduce parameters for '{func_name}' at {file_path}:{start_line}. Use a dataclass/dict for grouped parameters.",
-                        line=start_line,
-                    )
-                )
-
+            findings.extend(_check_python_function(node, file_path))
     return findings
+
+
+def _check_python_function(node: ast.FunctionDef | ast.AsyncFunctionDef, file_path: str) -> list[Finding]:
+    """Check a single Python function for all complexity metrics."""
+    findings: list[Finding] = []
+    func_name = node.name
+    start_line = node.lineno
+
+    findings.extend(_check_threshold(
+        _python_cyclomatic_complexity(node), COMPLEXITY_WARN, COMPLEXITY_ERROR,
+        "V14-HIGH-COMPLEXITY", "cyclomatic complexity", func_name, file_path, start_line,
+    ))
+    findings.extend(_check_threshold(
+        _python_cognitive_complexity(node), COGNITIVE_WARN, COGNITIVE_ERROR,
+        "V14-COGNITIVE-COMPLEXITY", "cognitive complexity", func_name, file_path, start_line,
+    ))
+
+    end_line = getattr(node, "end_lineno", None)
+    if end_line:
+        length = end_line - start_line + 1
+        findings.extend(_check_threshold(
+            length, LENGTH_WARN, LENGTH_ERROR,
+            "V14-LONG-FUNCTION", "lines long", func_name, file_path, start_line,
+        ))
+
+    findings.extend(_check_threshold(
+        _python_max_nesting(node), NESTING_WARN, NESTING_WARN + 1,
+        "V14-DEEP-NESTING", "nesting depth", func_name, file_path, start_line,
+    ))
+    findings.extend(_check_threshold(
+        _python_param_count(node), PARAMS_WARN, PARAMS_WARN + 1,
+        "V14-TOO-MANY-PARAMS", "parameters", func_name, file_path, start_line,
+    ))
+    return findings
+
+
+def _check_threshold(
+    value: int,
+    warn_threshold: int,
+    error_threshold: int,
+    rule: str,
+    metric_name: str,
+    func_name: str,
+    file_path: str,
+    start_line: int,
+) -> list[Finding]:
+    """Check a metric value against warn/error thresholds and return findings."""
+    if value > error_threshold:
+        return [Finding(
+            severity="error",
+            file=file_path,
+            rule=rule,
+            message=f"Function '{func_name}' has {metric_name} {value} (max {error_threshold})",
+            fix=f"Refactor '{func_name}' at {file_path}:{start_line} into smaller functions.",
+            line=start_line,
+        )]
+    if value > warn_threshold:
+        return [Finding(
+            severity="warning",
+            file=file_path,
+            rule=rule,
+            message=f"Function '{func_name}' has {metric_name} {value} (recommended max {warn_threshold})",
+            fix=f"Consider simplifying '{func_name}' at {file_path}:{start_line}.",
+            line=start_line,
+        )]
+    return []
+
+
+_CYCLOMATIC_SINGLE_INCREMENT = (
+    ast.If, ast.IfExp, ast.For, ast.AsyncFor, ast.While,
+    ast.ExceptHandler, ast.With, ast.AsyncWith, ast.Assert,
+)
 
 
 def _python_cyclomatic_complexity(node: ast.AST) -> int:
@@ -190,26 +154,13 @@ def _python_cyclomatic_complexity(node: ast.AST) -> int:
     Base complexity is 1.
     """
     complexity = 1
-
     for child in ast.walk(node):
-        if isinstance(child, (ast.If, ast.IfExp)):
-            complexity += 1
-        elif isinstance(child, (ast.For, ast.AsyncFor)):
-            complexity += 1
-        elif isinstance(child, (ast.While,)):
-            complexity += 1
-        elif isinstance(child, ast.ExceptHandler):
-            complexity += 1
-        elif isinstance(child, (ast.With, ast.AsyncWith)):
-            complexity += 1
-        elif isinstance(child, ast.Assert):
+        if isinstance(child, _CYCLOMATIC_SINGLE_INCREMENT):
             complexity += 1
         elif isinstance(child, ast.BoolOp):
-            # `and` / `or` — each operator adds 1
             complexity += len(child.values) - 1
         elif isinstance(child, ast.comprehension):
             complexity += len(child.ifs)
-
     return complexity
 
 
@@ -650,6 +601,11 @@ def _analyze_ts_file(file_path: str) -> list[Finding]:
     return findings
 
 
+_TS_NON_FUNC_KEYWORDS = frozenset(
+    ("if", "for", "while", "switch", "catch", "import", "from", "return", "new")
+)
+
+
 def _ts_find_functions(lines: list[str], content: str) -> list[tuple[str, int, int, str]]:
     """Find TypeScript function boundaries.
 
@@ -661,44 +617,35 @@ def _ts_find_functions(lines: list[str], content: str) -> list[tuple[str, int, i
     for pattern in TS_FUNC_PATTERNS:
         for match in pattern.finditer(content):
             func_name = match.group(1)
-            param_str = match.group(2)
-
-            # Skip common non-function matches
-            if func_name in ("if", "for", "while", "switch", "catch", "import", "from", "return", "new"):
+            if func_name in _TS_NON_FUNC_KEYWORDS:
                 continue
 
-            # Find line number of match
-            start_pos = match.start()
-            start_line = content[:start_pos].count("\n") + 1
-
+            start_line = content[: match.start()].count("\n") + 1
             if start_line in seen_lines:
                 continue
             seen_lines.add(start_line)
 
-            # Find function body end by brace counting
-            brace_count = 0
-            found_open = False
-            end_line = start_line
-
-            for j in range(start_line - 1, len(lines)):
-                for ch in lines[j]:
-                    if ch == "{":
-                        brace_count += 1
-                        found_open = True
-                    elif ch == "}":
-                        brace_count -= 1
-
-                if found_open and brace_count == 0:
-                    end_line = j + 1
-                    break
-            else:
-                end_line = len(lines)
-
-            # Only include if we actually found a body
+            found_open, end_line = _find_brace_end(lines, start_line)
             if found_open and end_line > start_line:
-                functions.append((func_name, start_line, end_line, param_str))
+                functions.append((func_name, start_line, end_line, match.group(2)))
 
     return functions
+
+
+def _find_brace_end(lines: list[str], start_line: int) -> tuple[bool, int]:
+    """Find the end line of a brace-delimited block starting at start_line."""
+    brace_count = 0
+    found_open = False
+    for j in range(start_line - 1, len(lines)):
+        for ch in lines[j]:
+            if ch == "{":
+                brace_count += 1
+                found_open = True
+            elif ch == "}":
+                brace_count -= 1
+        if found_open and brace_count == 0:
+            return True, j + 1
+    return found_open, len(lines)
 
 
 def _ts_cyclomatic_complexity(func_body: str) -> int:
@@ -773,32 +720,34 @@ class ComplexityGuardValidator(BaseValidator):
         file_path: str | None = None,
         mode: str = "post_tool_use",
     ) -> ValidationResult:
-        findings: list[Finding] = []
-
         if file_path:
-            findings.extend(self._analyze_file(file_path))
-        elif mode == "stop":
-            # In stop mode, analyze all source files
-            if ctx.server_dir and ctx.server_dir.exists():
-                for go_file in ctx.server_dir.rglob("*.go"):
-                    if self._should_skip(str(go_file)):
-                        continue
-                    findings.extend(self._analyze_file(str(go_file)))
+            return ValidationResult(validator_id=self.id, findings=self._analyze_file(file_path))
 
-            if ctx.web_dir and ctx.web_dir.exists():
-                for ext in ("*.ts", "*.tsx"):
-                    for ts_file in ctx.web_dir.rglob(ext):
-                        if self._should_skip(str(ts_file)):
-                            continue
-                        findings.extend(self._analyze_file(str(ts_file)))
+        if mode != "stop":
+            return ValidationResult(validator_id=self.id, findings=[])
 
-            # Python files in project root
-            for py_file in ctx.project_root.rglob("*.py"):
-                if self._should_skip(str(py_file)):
-                    continue
-                findings.extend(self._analyze_file(str(py_file)))
-
+        findings = self._scan_all_files(ctx)
         return ValidationResult(validator_id=self.id, findings=findings)
+
+    def _scan_all_files(self, ctx: ProjectContext) -> list[Finding]:
+        """Scan all source files in the project for complexity issues."""
+        findings: list[Finding] = []
+        findings.extend(self._scan_dir(ctx.server_dir, ["*.go"]))
+        findings.extend(self._scan_dir(ctx.web_dir, ["*.ts", "*.tsx"]))
+        findings.extend(self._scan_dir(ctx.project_root, ["*.py"]))
+        return findings
+
+    def _scan_dir(self, directory: Path | None, globs: list[str]) -> list[Finding]:
+        """Scan a directory with given glob patterns."""
+        findings: list[Finding] = []
+        if not (directory and directory.exists()):
+            return findings
+        for glob_pattern in globs:
+            for src_file in directory.rglob(glob_pattern):
+                fp = str(src_file)
+                if not self._should_skip(fp):
+                    findings.extend(self._analyze_file(fp))
+        return findings
 
     def _analyze_file(self, file_path: str) -> list[Finding]:
         """Route analysis to the correct language-specific analyzer."""

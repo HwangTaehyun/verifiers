@@ -18,6 +18,7 @@ from __future__ import annotations
 import ast
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 # Add parent directories to path so we can import lib/
@@ -506,49 +507,33 @@ class DependencyGuardValidator(BaseValidator):
     ) -> list[Finding]:
         """Check entire project for dependency violations (Stop mode)."""
         findings: list[Finding] = []
+        findings.extend(self._scan_lang_files(ctx.server_dir, ["*.go"], self._check_go_file, ctx, custom_layers))
+        findings.extend(self._scan_lang_files(ctx.web_dir, ["*.ts", "*.tsx"], self._check_ts_file, ctx, custom_layers))
+        findings.extend(self._scan_lang_files(ctx.project_root, ["*.py"], self._check_python_file, ctx, custom_layers))
+        return findings
 
-        # Go files
-        if ctx.server_dir and ctx.server_dir.exists():
-            for go_file in ctx.server_dir.rglob("*.go"):
-                fp = str(go_file)
+    def _scan_lang_files(
+        self,
+        directory: Path | None,
+        globs: list[str],
+        checker: Callable,
+        ctx: ProjectContext,
+        custom_layers: dict[str, dict[str, int]] | None,
+    ) -> list[Finding]:
+        """Scan files in a directory and run a language-specific checker."""
+        findings: list[Finding] = []
+        if not (directory and directory.exists()):
+            return findings
+        for glob_pattern in globs:
+            for src_file in directory.rglob(glob_pattern):
+                fp = str(src_file)
                 if self._should_skip(fp):
                     continue
                 try:
-                    content = go_file.read_text(errors="replace")
+                    content = src_file.read_text(errors="replace")
                 except OSError:
                     continue
-                findings.extend(
-                    self._check_go_file(fp, content, ctx, custom_layers)
-                )
-
-        # TypeScript files
-        if ctx.web_dir and ctx.web_dir.exists():
-            for ext in ("*.ts", "*.tsx"):
-                for ts_file in ctx.web_dir.rglob(ext):
-                    fp = str(ts_file)
-                    if self._should_skip(fp):
-                        continue
-                    try:
-                        content = ts_file.read_text(errors="replace")
-                    except OSError:
-                        continue
-                    findings.extend(
-                        self._check_ts_file(fp, content, ctx, custom_layers)
-                    )
-
-        # Python files
-        for py_file in ctx.project_root.rglob("*.py"):
-            fp = str(py_file)
-            if self._should_skip(fp):
-                continue
-            try:
-                content = py_file.read_text(errors="replace")
-            except OSError:
-                continue
-            findings.extend(
-                self._check_python_file(fp, content, ctx, custom_layers)
-            )
-
+                findings.extend(checker(fp, content, ctx, custom_layers))
         return findings
 
     def _should_skip(self, file_path: str) -> bool:

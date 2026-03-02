@@ -123,29 +123,37 @@ class EnvConfigValidator(BaseValidator):
 
     def _check_env_example_completeness(self, ctx: ProjectContext) -> list[Finding]:
         """Variables referenced in docker-compose/Go must be in .env.example."""
-        findings: list[Finding] = []
-
         env_example = ctx.project_root / ".env.example"
-        example_vars: set[str] = set()
+        example_vars = self._parse_env_example_vars(env_example)
 
+        findings: list[Finding] = []
+        findings.extend(self._check_compose_env_refs(ctx, example_vars, env_example))
+        findings.extend(self._check_go_env_refs(ctx, example_vars, env_example))
+        return findings
+
+    def _parse_env_example_vars(self, env_example: Path) -> set[str]:
+        """Parse variable names from .env.example file."""
+        example_vars: set[str] = set()
         if env_example.exists():
             for line in env_example.read_text().splitlines():
                 line = line.strip()
                 if "=" in line and not line.startswith("#"):
                     example_vars.add(line.split("=", 1)[0].strip())
+        return example_vars
 
-        # Check docker-compose references: ${VAR} without default
+    def _check_compose_env_refs(
+        self, ctx: ProjectContext, example_vars: set[str], env_example: Path
+    ) -> list[Finding]:
+        """Check docker-compose references: ${VAR} without default."""
+        findings: list[Finding] = []
         for compose_file in ctx.project_root.glob("**/docker-compose*.yaml"):
             try:
                 content = compose_file.read_text()
             except OSError:
                 continue
-
             for match in re.finditer(r"\$\{(\w+)\}", content):
                 var = match.group(1)
-                # Skip if it has a default: ${VAR:-default}
                 start = match.start()
-                # Check surrounding context for :-
                 full_ctx = content[start : start + len(match.group(0)) + 20]
                 if ":-" in full_ctx[: full_ctx.find("}") + 1] if "}" in full_ctx else "":
                     continue
@@ -161,32 +169,36 @@ class EnvConfigValidator(BaseValidator):
                             line=line_num,
                         )
                     )
+        return findings
 
-        # Check Go code: os.Getenv("APP_*")
-        if ctx.server_dir and ctx.server_dir.exists():
-            for go_file in ctx.server_dir.rglob("*.go"):
-                if "_test.go" in str(go_file):
-                    continue
-                try:
-                    content = go_file.read_text()
-                except OSError:
-                    continue
-
-                for match in re.finditer(r'os\.Getenv\("(\w+)"\)', content):
-                    var = match.group(1)
-                    if var.startswith("APP_") and var not in example_vars:
-                        line_num = content[: match.start()].count("\n") + 1
-                        findings.append(
-                            Finding(
-                                severity="warning",
-                                file=str(go_file),
-                                rule="V01-ENV-MISSING",
-                                message=f'os.Getenv("{var}") used but not in .env.example',
-                                fix=f"Add '{var}=<placeholder>' to {env_example}",
-                                line=line_num,
-                            )
+    def _check_go_env_refs(
+        self, ctx: ProjectContext, example_vars: set[str], env_example: Path
+    ) -> list[Finding]:
+        """Check Go code: os.Getenv("APP_*")."""
+        findings: list[Finding] = []
+        if not (ctx.server_dir and ctx.server_dir.exists()):
+            return findings
+        for go_file in ctx.server_dir.rglob("*.go"):
+            if "_test.go" in str(go_file):
+                continue
+            try:
+                content = go_file.read_text()
+            except OSError:
+                continue
+            for match in re.finditer(r'os\.Getenv\("(\w+)"\)', content):
+                var = match.group(1)
+                if var.startswith("APP_") and var not in example_vars:
+                    line_num = content[: match.start()].count("\n") + 1
+                    findings.append(
+                        Finding(
+                            severity="warning",
+                            file=str(go_file),
+                            rule="V01-ENV-MISSING",
+                            message=f'os.Getenv("{var}") used but not in .env.example',
+                            fix=f"Add '{var}=<placeholder>' to {env_example}",
+                            line=line_num,
                         )
-
+                    )
         return findings
 
     # ── Check 3: Config file key consistency ─────────────────────────────

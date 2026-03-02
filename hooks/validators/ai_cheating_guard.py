@@ -276,77 +276,101 @@ def _extract_test_functions(text: str, lang: str) -> list[tuple[str, str]]:
     Uses simple heuristic parsing — not a full AST — sufficient for
     detecting mock overuse patterns.
     """
-    results: list[tuple[str, str]] = []
     lines = text.split("\n")
+    extractors = {
+        "python": _extract_python_tests,
+        "go": _extract_go_tests,
+        "typescript": _extract_ts_tests,
+    }
+    extractor = extractors.get(lang)
+    return extractor(lines) if extractor else []
 
-    if lang == "python":
-        # Match def test_xxx(...): and capture until next def/class at same indentation
-        i = 0
+
+def _extract_python_tests(lines: list[str]) -> list[tuple[str, str]]:
+    """Extract Python test functions by indentation-based parsing."""
+    results: list[tuple[str, str]] = []
+    i = 0
+    while i < len(lines):
+        m = re.match(r"^(\s*)def\s+(test_\w+)\s*\(", lines[i])
+        if not m:
+            i += 1
+            continue
+        indent = len(m.group(1))
+        name = m.group(2)
+        func_lines = [lines[i]]
+        i += 1
         while i < len(lines):
-            m = re.match(r"^(\s*)def\s+(test_\w+)\s*\(", lines[i])
-            if m:
-                indent = len(m.group(1))
-                name = m.group(2)
-                func_lines = [lines[i]]
+            if lines[i].strip() == "":
+                func_lines.append(lines[i])
                 i += 1
-                while i < len(lines):
-                    if lines[i].strip() == "":
-                        func_lines.append(lines[i])
-                        i += 1
-                        continue
-                    curr_indent = len(lines[i]) - len(lines[i].lstrip())
-                    if curr_indent <= indent and lines[i].strip():
-                        break
-                    func_lines.append(lines[i])
-                    i += 1
-                results.append((name, "\n".join(func_lines)))
-            else:
-                i += 1
-
-    elif lang == "go":
-        # Match func TestXxx(t *testing.T) { and capture until closing brace
-        i = 0
-        while i < len(lines):
-            m = re.match(r"^func\s+(Test\w+|Benchmark\w+)\s*\(", lines[i])
-            if m:
-                name = m.group(1)
-                brace_depth = 0
-                func_lines = []
-                end = i
-                for j in range(i, len(lines)):
-                    func_lines.append(lines[j])
-                    brace_depth += lines[j].count("{") - lines[j].count("}")
-                    if brace_depth <= 0 and j > i:
-                        end = j
-                        break
-                results.append((name, "\n".join(func_lines)))
-                i = end + 1 if end > i else i + 1
-            else:
-                i += 1
-
-    elif lang == "typescript":
-        # Match it("...", ...) or test("...", ...) blocks
-        # Simple heuristic: capture from it/test line until balanced parens
-        i = 0
-        while i < len(lines):
-            m = re.search(r'\b(it|test)\s*\(\s*["\']([^"\']+)["\']', lines[i])
-            if m:
-                name = m.group(2)
-                paren_depth = 0
-                func_lines = []
-                end = i
-                for j in range(i, len(lines)):
-                    func_lines.append(lines[j])
-                    paren_depth += lines[j].count("(") - lines[j].count(")")
-                    if paren_depth <= 0 and j > i:
-                        end = j
-                        break
-                results.append((name, "\n".join(func_lines)))
-                i = end + 1 if end > i else i + 1
-            else:
-                i += 1
-
+                continue
+            curr_indent = len(lines[i]) - len(lines[i].lstrip())
+            if curr_indent <= indent and lines[i].strip():
+                break
+            func_lines.append(lines[i])
+            i += 1
+        results.append((name, "\n".join(func_lines)))
     return results
+
+
+def _extract_go_tests(lines: list[str]) -> list[tuple[str, str]]:
+    """Extract Go test functions by brace-depth tracking."""
+    results: list[tuple[str, str]] = []
+    i = 0
+    while i < len(lines):
+        m = re.match(r"^func\s+(Test\w+|Benchmark\w+)\s*\(", lines[i])
+        if not m:
+            i += 1
+            continue
+        name = m.group(1)
+        func_lines, end = _collect_brace_block(lines, i)
+        results.append((name, "\n".join(func_lines)))
+        i = end + 1 if end > i else i + 1
+    return results
+
+
+def _extract_ts_tests(lines: list[str]) -> list[tuple[str, str]]:
+    """Extract TypeScript it()/test() blocks by paren-depth tracking."""
+    results: list[tuple[str, str]] = []
+    i = 0
+    while i < len(lines):
+        m = re.search(r'\b(it|test)\s*\(\s*["\']([^"\']+)["\']', lines[i])
+        if not m:
+            i += 1
+            continue
+        name = m.group(2)
+        func_lines, end = _collect_paren_block(lines, i)
+        results.append((name, "\n".join(func_lines)))
+        i = end + 1 if end > i else i + 1
+    return results
+
+
+def _collect_brace_block(lines: list[str], start: int) -> tuple[list[str], int]:
+    """Collect lines from start until braces balance."""
+    brace_depth = 0
+    func_lines: list[str] = []
+    end = start
+    for j in range(start, len(lines)):
+        func_lines.append(lines[j])
+        brace_depth += lines[j].count("{") - lines[j].count("}")
+        if brace_depth <= 0 and j > start:
+            end = j
+            break
+    return func_lines, end
+
+
+def _collect_paren_block(lines: list[str], start: int) -> tuple[list[str], int]:
+    """Collect lines from start until parentheses balance."""
+    paren_depth = 0
+    func_lines: list[str] = []
+    end = start
+    for j in range(start, len(lines)):
+        func_lines.append(lines[j])
+        paren_depth += lines[j].count("(") - lines[j].count(")")
+        if paren_depth <= 0 and j > start:
+            end = j
+            break
+    return func_lines, end
 
 
 def _count_trivial_assertions(text: str, lang: str) -> list[tuple[int, str]]:

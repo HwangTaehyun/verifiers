@@ -91,34 +91,52 @@ class SecurityValidator(BaseValidator):
         findings: list[Finding] = []
 
         if file_path:
-            # Per-file checks (PostToolUse)
-            findings.extend(self._check_secrets(file_path))
-            findings.extend(self._check_cors(file_path))
-            findings.extend(self._check_phi_logging(file_path))
+            findings.extend(self._check_single_file(file_path))
         else:
-            # Project-wide checks (Stop mode)
-            findings.extend(self._check_gitignore(ctx))
-
-            # Also scan recently modified files if available
-            if ctx.server_dir and ctx.server_dir.exists():
-                for go_file in ctx.server_dir.rglob("*.go"):
-                    if any(exc in str(go_file) for exc in EXCLUDE_PATHS):
-                        continue
-                    findings.extend(self._check_secrets(str(go_file)))
-                    findings.extend(self._check_cors(str(go_file)))
-                    findings.extend(self._check_phi_logging(str(go_file)))
-
-            if ctx.web_dir and ctx.web_dir.exists():
-                for ts_file in ctx.web_dir.rglob("*.ts"):
-                    if any(exc in str(ts_file) for exc in EXCLUDE_PATHS):
-                        continue
-                    findings.extend(self._check_secrets(str(ts_file)))
-                for tsx_file in ctx.web_dir.rglob("*.tsx"):
-                    if any(exc in str(tsx_file) for exc in EXCLUDE_PATHS):
-                        continue
-                    findings.extend(self._check_secrets(str(tsx_file)))
+            findings.extend(self._check_project_wide(ctx))
 
         return ValidationResult(validator_id=self.id, findings=findings)
+
+    def _check_single_file(self, file_path: str) -> list[Finding]:
+        """Per-file checks (PostToolUse)."""
+        findings: list[Finding] = []
+        findings.extend(self._check_secrets(file_path))
+        findings.extend(self._check_cors(file_path))
+        findings.extend(self._check_phi_logging(file_path))
+        return findings
+
+    def _check_project_wide(self, ctx: ProjectContext) -> list[Finding]:
+        """Project-wide checks (Stop mode)."""
+        findings: list[Finding] = []
+        findings.extend(self._check_gitignore(ctx))
+        findings.extend(self._scan_go_files(ctx))
+        findings.extend(self._scan_web_files(ctx))
+        return findings
+
+    def _scan_go_files(self, ctx: ProjectContext) -> list[Finding]:
+        """Scan Go source files for security issues."""
+        findings: list[Finding] = []
+        if not (ctx.server_dir and ctx.server_dir.exists()):
+            return findings
+        for go_file in ctx.server_dir.rglob("*.go"):
+            fp = str(go_file)
+            if any(exc in fp for exc in EXCLUDE_PATHS):
+                continue
+            findings.extend(self._check_single_file(fp))
+        return findings
+
+    def _scan_web_files(self, ctx: ProjectContext) -> list[Finding]:
+        """Scan TypeScript/TSX source files for secrets."""
+        findings: list[Finding] = []
+        if not (ctx.web_dir and ctx.web_dir.exists()):
+            return findings
+        for ext in ("*.ts", "*.tsx"):
+            for ts_file in ctx.web_dir.rglob(ext):
+                fp = str(ts_file)
+                if any(exc in fp for exc in EXCLUDE_PATHS):
+                    continue
+                findings.extend(self._check_secrets(fp))
+        return findings
 
     # ── Check: Hardcoded secrets ─────────────────────────────────────────
 
