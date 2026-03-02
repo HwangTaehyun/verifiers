@@ -21,6 +21,7 @@ import ast
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 # Add parent directories to path so we can import lib/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -74,36 +75,42 @@ def _analyze_python_file(file_path: str) -> list[Finding]:
     return findings
 
 
+class _FuncLoc(NamedTuple):
+    """Location info for a function being checked."""
+    func_name: str
+    file_path: str
+    start_line: int
+
+
 def _check_python_function(node: ast.FunctionDef | ast.AsyncFunctionDef, file_path: str) -> list[Finding]:
     """Check a single Python function for all complexity metrics."""
+    loc = _FuncLoc(node.name, file_path, node.lineno)
     findings: list[Finding] = []
-    func_name = node.name
-    start_line = node.lineno
 
     findings.extend(_check_threshold(
         _python_cyclomatic_complexity(node), COMPLEXITY_WARN, COMPLEXITY_ERROR,
-        "V14-HIGH-COMPLEXITY", "cyclomatic complexity", func_name, file_path, start_line,
+        "V14-HIGH-COMPLEXITY", "cyclomatic complexity", loc,
     ))
     findings.extend(_check_threshold(
         _python_cognitive_complexity(node), COGNITIVE_WARN, COGNITIVE_ERROR,
-        "V14-COGNITIVE-COMPLEXITY", "cognitive complexity", func_name, file_path, start_line,
+        "V14-COGNITIVE-COMPLEXITY", "cognitive complexity", loc,
     ))
 
     end_line = getattr(node, "end_lineno", None)
     if end_line:
-        length = end_line - start_line + 1
+        length = end_line - loc.start_line + 1
         findings.extend(_check_threshold(
             length, LENGTH_WARN, LENGTH_ERROR,
-            "V14-LONG-FUNCTION", "lines long", func_name, file_path, start_line,
+            "V14-LONG-FUNCTION", "lines long", loc,
         ))
 
     findings.extend(_check_threshold(
         _python_max_nesting(node), NESTING_WARN, NESTING_WARN + 1,
-        "V14-DEEP-NESTING", "nesting depth", func_name, file_path, start_line,
+        "V14-DEEP-NESTING", "nesting depth", loc,
     ))
     findings.extend(_check_threshold(
         _python_param_count(node), PARAMS_WARN, PARAMS_WARN + 1,
-        "V14-TOO-MANY-PARAMS", "parameters", func_name, file_path, start_line,
+        "V14-TOO-MANY-PARAMS", "parameters", loc,
     ))
     return findings
 
@@ -114,28 +121,26 @@ def _check_threshold(
     error_threshold: int,
     rule: str,
     metric_name: str,
-    func_name: str,
-    file_path: str,
-    start_line: int,
+    loc: _FuncLoc,
 ) -> list[Finding]:
     """Check a metric value against warn/error thresholds and return findings."""
     if value > error_threshold:
         return [Finding(
             severity="error",
-            file=file_path,
+            file=loc.file_path,
             rule=rule,
-            message=f"Function '{func_name}' has {metric_name} {value} (max {error_threshold})",
-            fix=f"Refactor '{func_name}' at {file_path}:{start_line} into smaller functions.",
-            line=start_line,
+            message=f"Function '{loc.func_name}' has {metric_name} {value} (max {error_threshold})",
+            fix=f"Refactor '{loc.func_name}' at {loc.file_path}:{loc.start_line} into smaller functions.",
+            line=loc.start_line,
         )]
     if value > warn_threshold:
         return [Finding(
             severity="warning",
-            file=file_path,
+            file=loc.file_path,
             rule=rule,
-            message=f"Function '{func_name}' has {metric_name} {value} (recommended max {warn_threshold})",
-            fix=f"Consider simplifying '{func_name}' at {file_path}:{start_line}.",
-            line=start_line,
+            message=f"Function '{loc.func_name}' has {metric_name} {value} (recommended max {warn_threshold})",
+            fix=f"Consider simplifying '{loc.func_name}' at {loc.file_path}:{loc.start_line}.",
+            line=loc.start_line,
         )]
     return []
 
