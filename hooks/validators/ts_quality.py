@@ -1,0 +1,460 @@
+"""V07: TypeScript quality validator — any type, hardcoded colors, ESLint, tsc.
+
+PostToolUse checks (fast, <5s):
+  V07-NO-ANY: Explicit 'any' type usage
+  V07-HARDCODED-COLOR: Hardcoded color values instead of theme.palette
+  V07-NO-CONSOLE: console.log/debug/info in production code
+  V07-DEPRECATED-MUI: MUI v4 deprecated patterns (makeStyles, @material-ui/)
+  V07-ESLINT-*: ESLint single-file findings
+
+Stop checks (slow, comprehensive):
+  V07-TSC-*: TypeScript compilation errors (tsc --noEmit)
+  V07-ESLINT-*: ESLint full project findings
+  V07-CIRCULAR-IMPORT: Circular dependencies (madge)
+  V07-UNUSED-CODE: Unused exports/files/dependencies (knip)
+"""
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pyyaml>=6.0"]
+# ///
+
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+# Add parent directories to path so we can import lib/
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from hooks.validators.base import BaseValidator, Finding, ValidationResult, read_hook_input, write_hook_output
+from lib.project_context import ProjectContext
+
+# ── Hardcoded color pattern ──────────────────────────────────────────────────
+
+COLOR_PATTERN = re.compile(
+    r"""(?:color|backgroundColor|background|borderColor|fill|stroke)\s*[:=]\s*['"]#[0-9a-fA-F]{3,8}['"]"""
+    r"""|(?:color|backgroundColor|background|borderColor|fill|stroke)\s*[:=]\s*['"](?:rgb|rgba|hsl)\("""
+)
+
+# ── Deprecated MUI v4 patterns ───────────────────────────────────────────────
+
+DEPRECATED_MUI: list[tuple[str, str]] = [
+    (r"\bmakeStyles\b", "makeStyles is deprecated in MUI v5. Use 'sx' prop or 'styled()' instead."),
+    (r"\bwithStyles\b", "withStyles is deprecated in MUI v5. Use 'sx' prop or 'styled()' instead."),
+    (r"from\s+['\"]@material-ui/", "@material-ui/ is MUI v4 import. Use @mui/material/ instead."),
+]
+
+
+class TsQualityValidator(BaseValidator):
+    """V07: TypeScript Quality Validator."""
+
+    id = "V07-ts-quality"
+    name = "TypeScript Quality Validator"
+    file_patterns: list[str] = [
+        "**/*.ts",
+        "**/*.tsx",
+        "**/package.json",
+        "**/tsconfig.json",
+    ]
+
+    def validate(
+        self,
+        ctx: ProjectContext,
+        file_path: str | None = None,
+        mode: str = "post_tool_use",
+    ) -> ValidationResult:
+        findings: list[Finding] = []
+
+        if not ctx.web_dir or not ctx.web_dir.exists():
+            return ValidationResult(validator_id=self.id, findings=findings)
+
+        # Fast checks (PostToolUse) — per-file
+        if file_path and file_path.endswith((".ts", ".tsx")):
+            findings.extend(self._check_any_type(file_path))
+            findings.extend(self._check_hardcoded_colors(file_path))
+            findings.extend(self._check_console_log(file_path))
+            findings.extend(self._check_deprecated_mui(file_path))
+            findings.extend(self._check_eslint_single(ctx, file_path))
+
+        # Slow checks (Stop mode)
+        if mode == "stop":
+            findings.extend(self._check_tsc(ctx))
+            findings.extend(self._check_eslint_full(ctx))
+            findings.extend(self._check_circular_imports(ctx))
+            findings.extend(self._check_unused_code(ctx))
+
+        return ValidationResult(validator_id=self.id, findings=findings)
+
+    # ── Check 1: any type ────────────────────────────────────────────────
+
+    def _check_any_type(self, file_path: str) -> list[Finding]:
+        """Detect explicit 'any' type usage."""
+        try:
+            content = Path(file_path).read_text(errors="replace")
+        except OSError:
+            return []
+
+        findings: list[Finding] = []
+        for i, line in enumerate(content.split("\n"), 1):
+            if re.search(r":\s*any\b|as\s+any\b|<any>", line):
+                stripped = line.strip()
+                if stripped.startswith(("//", "*", "/*")):
+                    continue
+                findings.append(
+                    Finding(
+                        severity="error",
+                        file=file_path,
+                        rule="V07-NO-ANY",
+                        message=f"Explicit 'any' type found: {stripped[:80]}",
+                        fix=(
+                            f"Replace 'any' with a specific type at {file_path}:{i}. "
+                            f"Use 'unknown' if type is truly unknown, or define a proper interface."
+                        ),
+                        line=i,
+                    )
+                )
+
+        return findings
+
+    # ── Check 2: Hardcoded colors ────────────────────────────────────────
+
+    def _check_hardcoded_colors(self, file_path: str) -> list[Finding]:
+        """Detect hardcoded color values instead of theme.palette."""
+        try:
+            content = Path(file_path).read_text(errors="replace")
+        except OSError:
+            return []
+
+        findings: list[Finding] = []
+        for i, line in enumerate(content.split("\n"), 1):
+            if COLOR_PATTERN.search(line):
+                stripped = line.strip()
+                if stripped.startswith(("//", "*", "/*")):
+                    continue
+                findings.append(
+                    Finding(
+                        severity="warning",
+                        file=file_path,
+                        rule="V07-HARDCODED-COLOR",
+                        message="Hardcoded color value found — use theme.palette instead",
+                        fix=(
+                            f"Replace hardcoded color at {file_path}:{i} with "
+                            f"theme.palette.* (e.g., theme.palette.primary.main)"
+                        ),
+                        line=i,
+                    )
+                )
+
+        return findings
+
+    # ── Check 3: console.log ─────────────────────────────────────────────
+
+    def _check_console_log(self, file_path: str) -> list[Finding]:
+        """Detect console.log/debug/info in production code."""
+        if any(exc in file_path for exc in [".test.", ".stories.", "__tests__", ".spec."]):
+            return []
+
+        try:
+            content = Path(file_path).read_text(errors="replace")
+        except OSError:
+            return []
+
+        findings: list[Finding] = []
+        for i, line in enumerate(content.split("\n"), 1):
+            if re.search(r"\bconsole\.(log|debug|info)\b", line):
+                stripped = line.strip()
+                if stripped.startswith("//"):
+                    continue
+                findings.append(
+                    Finding(
+                        severity="warning",
+                        file=file_path,
+                        rule="V07-NO-CONSOLE",
+                        message="console.log/debug/info found in production code",
+                        fix=(
+                            f"Remove console.log at {file_path}:{i}. "
+                            f"Use console.warn/error for actual warnings, or a proper logger."
+                        ),
+                        line=i,
+                    )
+                )
+
+        return findings
+
+    # ── Check 4: Deprecated MUI v4 patterns ──────────────────────────────
+
+    def _check_deprecated_mui(self, file_path: str) -> list[Finding]:
+        """Detect MUI v4 deprecated patterns."""
+        try:
+            content = Path(file_path).read_text(errors="replace")
+        except OSError:
+            return []
+
+        findings: list[Finding] = []
+        for i, line in enumerate(content.split("\n"), 1):
+            for pattern, msg in DEPRECATED_MUI:
+                if re.search(pattern, line):
+                    findings.append(
+                        Finding(
+                            severity="error",
+                            file=file_path,
+                            rule="V07-DEPRECATED-MUI",
+                            message=msg,
+                            fix=f"Update the import/usage at {file_path}:{i}. {msg}",
+                            line=i,
+                        )
+                    )
+
+        return findings
+
+    # ── Check 5: ESLint single file ──────────────────────────────────────
+
+    def _check_eslint_single(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Run ESLint on a single file."""
+        findings: list[Finding] = []
+
+        try:
+            result = subprocess.run(
+                [
+                    "bun",
+                    "run",
+                    "eslint",
+                    "--no-warn-ignored",
+                    "--max-warnings",
+                    "0",
+                    "--format",
+                    "json",
+                    file_path,
+                ],
+                cwd=str(ctx.web_dir),
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return findings
+
+        if result.returncode != 0 and result.stdout:
+            try:
+                data = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                return findings
+
+            for file_result in data:
+                for msg in file_result.get("messages", []):
+                    rule_id = msg.get("ruleId") or "unknown"
+                    findings.append(
+                        Finding(
+                            severity="error" if msg.get("severity") == 2 else "warning",
+                            file=file_path,
+                            rule=f"V07-ESLINT-{rule_id}",
+                            message=msg.get("message", ""),
+                            fix=(
+                                f"Fix ESLint error '{rule_id}' at "
+                                f"{file_path}:{msg.get('line')}: {msg.get('message', '')}"
+                            ),
+                            line=msg.get("line"),
+                        )
+                    )
+
+        return findings
+
+    # ── Check 6: tsc --noEmit (Stop mode) ────────────────────────────────
+
+    def _check_tsc(self, ctx: ProjectContext) -> list[Finding]:
+        """Full TypeScript type checking."""
+        findings: list[Finding] = []
+
+        try:
+            result = subprocess.run(
+                ["bun", "run", "tsc", "--noEmit", "--pretty"],
+                cwd=str(ctx.web_dir),
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return findings
+
+        if result.returncode != 0:
+            for line in result.stdout.strip().split("\n"):
+                match = re.search(r"(.+)\((\d+),\d+\): error (TS\d+): (.+)", line)
+                if match:
+                    findings.append(
+                        Finding(
+                            severity="error",
+                            file=str(ctx.web_dir / match.group(1)),
+                            rule=f"V07-TSC-{match.group(3)}",
+                            message=match.group(4),
+                            fix=f"Fix TypeScript error {match.group(3)}: {match.group(4)}",
+                            line=int(match.group(2)),
+                        )
+                    )
+
+        return findings
+
+    # ── Check 7: ESLint full project (Stop mode) ────────────────────────
+
+    def _check_eslint_full(self, ctx: ProjectContext) -> list[Finding]:
+        """Run ESLint on entire project."""
+        findings: list[Finding] = []
+
+        try:
+            result = subprocess.run(
+                [
+                    "bun",
+                    "run",
+                    "eslint",
+                    "--no-warn-ignored",
+                    "--max-warnings",
+                    "0",
+                    "--format",
+                    "json",
+                    "src/",
+                ],
+                cwd=str(ctx.web_dir),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return findings
+
+        if result.returncode != 0 and result.stdout:
+            try:
+                data = json.loads(result.stdout)
+            except json.JSONDecodeError:
+                return findings
+
+            for file_result in data:
+                file_name = file_result.get("filePath", "")
+                for msg in file_result.get("messages", []):
+                    rule_id = msg.get("ruleId") or "unknown"
+                    findings.append(
+                        Finding(
+                            severity="error" if msg.get("severity") == 2 else "warning",
+                            file=file_name,
+                            rule=f"V07-ESLINT-{rule_id}",
+                            message=msg.get("message", ""),
+                            fix=(
+                                f"Fix ESLint error '{rule_id}' at "
+                                f"{file_name}:{msg.get('line')}: {msg.get('message', '')}"
+                            ),
+                            line=msg.get("line"),
+                        )
+                    )
+
+        return findings
+
+    # ── Check 8: Circular imports (Stop mode) ────────────────────────────
+
+    def _check_circular_imports(self, ctx: ProjectContext) -> list[Finding]:
+        """Detect circular dependencies using madge."""
+        findings: list[Finding] = []
+
+        try:
+            result = subprocess.run(
+                ["bunx", "madge", "--circular", "--extensions", "ts,tsx", "src/"],
+                cwd=str(ctx.web_dir),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return findings
+
+        if result.returncode != 0 or result.stdout.strip():
+            cycles = [line for line in result.stdout.strip().split("\n") if line.strip()]
+            if cycles:
+                findings.append(
+                    Finding(
+                        severity="warning",
+                        file=str(ctx.web_dir / "src"),
+                        rule="V07-CIRCULAR-IMPORT",
+                        message=f"Circular imports detected: {len(cycles)} cycles found",
+                        fix=(
+                            f"Break circular dependencies. Cycles: "
+                            f"{'; '.join(cycles[:3])}{'...' if len(cycles) > 3 else ''}"
+                        ),
+                    )
+                )
+
+        return findings
+
+    # ── Check 9: Unused code (Stop mode) ─────────────────────────────────
+
+    def _check_unused_code(self, ctx: ProjectContext) -> list[Finding]:
+        """Detect unused exports/files/dependencies using knip."""
+        findings: list[Finding] = []
+
+        try:
+            result = subprocess.run(
+                ["bunx", "knip", "--no-progress"],
+                cwd=str(ctx.web_dir),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return findings
+
+        if result.returncode != 0 and result.stdout.strip():
+            sections = result.stdout.strip().split("\n\n")
+            for section in sections:
+                if section.strip():
+                    findings.append(
+                        Finding(
+                            severity="warning",
+                            file=str(ctx.web_dir),
+                            rule="V07-UNUSED-CODE",
+                            message=f"Unused code detected: {section.strip()[:200]}",
+                            fix="Remove unused exports/files/dependencies reported by knip",
+                        )
+                    )
+
+        return findings
+
+
+# ── Standalone execution ─────────────────────────────────────────────────────
+
+
+def main() -> None:
+    """Run as standalone PostToolUse hook script."""
+    input_data = read_hook_input()
+    if not input_data:
+        write_hook_output({})
+        return
+
+    tool_name = input_data.get("tool_name", "")
+    if tool_name not in ("Edit", "Write", "MultiEdit"):
+        write_hook_output({})
+        return
+
+    tool_input = input_data.get("tool_input", {})
+    file_path = tool_input.get("file_path", "")
+    cwd = input_data.get("cwd", ".")
+
+    if not file_path:
+        write_hook_output({})
+        return
+
+    ctx = ProjectContext(cwd)
+    validator = TsQualityValidator()
+
+    if not validator.should_run(file_path):
+        write_hook_output({})
+        return
+
+    result = validator.run(ctx, file_path, mode="post_tool_use")
+
+    from hooks.validators.base import format_output
+
+    output = format_output(result.findings, mode="post_tool_use")
+    write_hook_output(output)
+
+
+if __name__ == "__main__":
+    main()

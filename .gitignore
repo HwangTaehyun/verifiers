@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# uv
+.python-version
+
+# Logs
+logs/*.jsonl
+logs/*.json
+logs/.gen-hash-cache.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Security (required by V08-GITIGNORE-MISSING)
+.env
+.env.local
+*.pem
+*.key
+*.p12
+
+# Verifier temp files
+.verifier-block-count
+
+# OS
+.DS_Store

@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""Run a single validator by name.
+
+Usage:
+    echo '{"cwd": "/project"}' | uv run --script hooks/run_single.py env-config
+    echo '{"cwd": "/project"}' | uv run --script hooks/run_single.py security
+"""
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pyyaml>=6.0"]
+# ///
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+# Add parent directory to path so we can import lib/
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from hooks.validators import get_all_validators
+from hooks.validators.base import Finding, format_output, read_hook_input, write_hook_output
+from lib.project_context import ProjectContext
+
+# Map of short names to validator IDs
+NAME_MAP = {
+    "env-config": "V01-env-config",
+    "env": "V01-env-config",
+    "graphql-gen": "V02-graphql-gen",
+    "graphql": "V02-graphql-gen",
+    "proto-connect": "V03-proto-connect",
+    "proto": "V03-proto-connect",
+    "hasura-migration": "V04-hasura-migration",
+    "hasura": "V04-hasura-migration",
+    "docker-compose": "V05-docker-compose",
+    "docker": "V05-docker-compose",
+    "go-quality": "V06-go-quality",
+    "go": "V06-go-quality",
+    "ts-quality": "V07-ts-quality",
+    "ts": "V07-ts-quality",
+    "security": "V08-security",
+    "go-test": "V09-go-test-runner",
+    "go-test-runner": "V09-go-test-runner",
+    "ts-test": "V10-ts-test-runner",
+    "ts-test-runner": "V10-ts-test-runner",
+    "py-test": "V11-py-test-runner",
+    "py-test-runner": "V11-py-test-runner",
+    "commit-discipline": "V12-commit-discipline",
+    "commit": "V12-commit-discipline",
+    "ai-cheating-guard": "V13-ai-cheating-guard",
+    "cheating": "V13-ai-cheating-guard",
+    "complexity-guard": "V14-complexity-guard",
+    "complexity": "V14-complexity-guard",
+    "dependency-guard": "V15-dependency-guard",
+    "deps": "V15-dependency-guard",
+    "linter-config-guard": "V16-linter-config-guard",
+    "linter-config": "V16-linter-config-guard",
+    "linter": "V16-linter-config-guard",
+}
+
+
+def main() -> None:
+    if len(sys.argv) < 2:
+        print("Usage: run_single.py <validator-name>", file=sys.stderr)
+        print(f"Available: {', '.join(sorted(NAME_MAP.keys()))}", file=sys.stderr)
+        sys.exit(1)
+
+    name = sys.argv[1].lower().strip()
+    target_id = NAME_MAP.get(name)
+
+    if not target_id:
+        # Try matching by ID directly
+        target_id = name
+
+    input_data = read_hook_input()
+    cwd = input_data.get("cwd", ".")
+    ctx = ProjectContext(cwd)
+
+    # Find the matching validator
+    validator = None
+    for v in get_all_validators():
+        if v.id == target_id or v.id.lower() == target_id.lower():
+            validator = v
+            break
+
+    if not validator:
+        print(f"Error: validator '{name}' not found", file=sys.stderr)
+        print(f"Available: {', '.join(sorted(NAME_MAP.keys()))}", file=sys.stderr)
+        sys.exit(1)
+
+    # Run the validator in stop mode (comprehensive)
+    all_findings: list[Finding] = []
+    try:
+        result = validator.run(ctx, file_path=None, mode="stop")
+        all_findings.extend(result.findings)
+    except Exception as e:
+        print(f"Error running {validator.id}: {e}", file=sys.stderr)
+
+    output = format_output(all_findings, mode="stop")
+    write_hook_output(output)
+
+
+if __name__ == "__main__":
+    main()
