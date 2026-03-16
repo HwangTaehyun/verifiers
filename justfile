@@ -40,6 +40,7 @@ install:
     ln -sf {{justfile_directory()}}/skills/verify-deps/ ~/.claude/skills/verify-deps
     ln -sf {{justfile_directory()}}/skills/verify-linter/ ~/.claude/skills/verify-linter
     ln -sf {{justfile_directory()}}/skills/verify-input/ ~/.claude/skills/verify-input
+    ln -sf {{justfile_directory()}}/skills/verify-mock/ ~/.claude/skills/verify-mock
     # Agents
     ln -sf {{justfile_directory()}}/agents/stack-verifier.md ~/.claude/agents/stack-verifier.md
     ln -sf {{justfile_directory()}}/agents/ui-verifier.md ~/.claude/agents/ui-verifier.md
@@ -97,6 +98,7 @@ install-project project_dir:
     ln -sf {{justfile_directory()}}/skills/verify-deps/ {{project_dir}}/.claude/skills/verify-deps
     ln -sf {{justfile_directory()}}/skills/verify-linter/ {{project_dir}}/.claude/skills/verify-linter
     ln -sf {{justfile_directory()}}/skills/verify-input/ {{project_dir}}/.claude/skills/verify-input
+    ln -sf {{justfile_directory()}}/skills/verify-mock/ {{project_dir}}/.claude/skills/verify-mock
     ln -sf {{justfile_directory()}}/agents/stack-verifier.md {{project_dir}}/.claude/agents/stack-verifier.md
     ln -sf {{justfile_directory()}}/agents/ui-verifier.md {{project_dir}}/.claude/agents/ui-verifier.md
     ln -sf {{justfile_directory()}}/agents/tdd-writer.md {{project_dir}}/.claude/agents/tdd-writer.md

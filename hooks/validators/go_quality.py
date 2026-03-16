@@ -51,6 +51,12 @@ class GoQualityValidator(BaseValidator):
         if not ctx.server_dir or not ctx.server_dir.exists():
             return ValidationResult(validator_id=self.id, findings=findings)
 
+        # Skip if no Go files exist in server directory (e.g. Python/Node projects)
+        has_go_files = any(ctx.server_dir.rglob("*.go"))
+        has_go_mod = (ctx.server_dir / "go.mod").exists()
+        if not has_go_files and not has_go_mod:
+            return ValidationResult(validator_id=self.id, findings=findings)
+
         # Fast checks (PostToolUse) — always run
         findings.extend(self._check_go_vet(ctx))
 

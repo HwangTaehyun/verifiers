@@ -63,6 +63,10 @@ def tmp_project(tmp_path: Path) -> Path:
     # docker-compose.yaml
     (tmp_path / "docker-compose.yaml").write_text("version: '3'\nservices: {}\nnetworks: {}\n")
 
+    # Go files for Go quality validator tests
+    (server / "go.mod").write_text("module testproject\n\ngo 1.21\n")
+    (server / "main.go").write_text("package main\n\nfunc main() {\n}\n")
+
     return tmp_path
 
 

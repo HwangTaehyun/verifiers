@@ -31,7 +31,8 @@ SECRET_REGEXES: list[tuple[str, str]] = [
 ]
 
 # Paths to exclude (false positives)
-EXCLUDE_PATHS = [".env.example", "_test.go", "test_", "fixtures/", "testdata/", "mock", "__tests__"]
+# .env files (except .env.example) are allowed to contain secrets
+EXCLUDE_PATHS = [".env", ".env.production", ".env.development", "_test.go", "test_", "fixtures/", "testdata/", "mock", "__tests__"]
 
 
 def check_secrets(file_path: str) -> list[dict]:

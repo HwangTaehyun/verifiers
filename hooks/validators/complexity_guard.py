@@ -774,6 +774,8 @@ class ComplexityGuardValidator(BaseValidator):
             "gen/",
             "__pycache__",
             ".venv/",
+            "/.config/ranger/commands_full.py",  # Third-party ranger configuration
+            ".oh-my-zsh/",  # Third-party zsh plugin files
         ]
         return any(p in file_path for p in skip_patterns)
 
