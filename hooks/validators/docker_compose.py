@@ -109,17 +109,17 @@ class DockerValidator(BaseValidator):
             findings.extend(self._check_dev_volume_mount(data, compose_file))
             findings.extend(self._check_dev_build_target(data, compose_file))
 
-        # Validate dockerfiles (V17 checks)
+        # Validate dockerfiles (V17 checks + new DOCKER_BEST_PRACTICES.md rules)
         for dockerfile in dockerfiles:
             findings.extend(self._check_dockerfile_multistage(dockerfile))
             findings.extend(self._check_dockerfile_user(dockerfile))
             findings.extend(self._check_dockerfile_expose(dockerfile))
             findings.extend(self._check_dockerfile_copy_all(ctx, dockerfile))
+            findings.extend(self._check_base_image_latest(dockerfile))
+            findings.extend(self._check_dockerignore_exists(dockerfile))
 
-        # New cross-file validations
-        findings.extend(self._check_build_target_exists(ctx, compose_files, dockerfiles))
-        findings.extend(self._check_base_image_latest(dockerfiles))
-        findings.extend(self._check_dockerignore_exists(ctx, dockerfiles))
+        # Cross-file validations
+        findings.extend(self._check_build_target_exists(compose_files))
 
         return ValidationResult(validator_id=self.id, findings=findings)
 
@@ -696,6 +696,145 @@ class DockerValidator(BaseValidator):
                             ),
                         )
                     )
+
+        return findings
+
+    def _load_compose_file(self, compose_file: Path) -> dict:
+        """Load and parse a docker-compose YAML file."""
+        try:
+            return yaml.safe_load(compose_file.read_text()) or {}
+        except (yaml.YAMLError, OSError):
+            return {}
+
+    def _check_base_image_latest(self, dockerfile: Path) -> list[Finding]:
+        """Warn against using :latest tags or no tags (implicit latest)."""
+        findings: list[Finding] = []
+        try:
+            content = dockerfile.read_text()
+        except OSError:
+            return findings
+
+        lines = content.split("\n")
+        for line_num, line in enumerate(lines, 1):
+            line = line.strip()
+            if not line.startswith("FROM "):
+                continue
+
+            # Check for :latest tag or no tag (implicit latest)
+            from_match = re.match(r"^FROM\s+([^\s]+)(?:\s+AS\s+\S+)?\s*$", line, re.IGNORECASE)
+            if from_match:
+                image = from_match.group(1)
+
+                # Skip scratch, ARG variables, and multi-stage references
+                if image in ("scratch",) or image.startswith("$"):
+                    continue
+
+                # Check if image has no tag (implicit latest) or explicit latest
+                if ":" not in image or image.endswith(":latest"):
+                    findings.append(
+                        Finding(
+                            severity="warning",
+                            file=str(dockerfile),
+                            rule="V05-BASE-IMAGE-LATEST",
+                            message=f"Base image '{image}' uses :latest tag (implicit or explicit)",
+                            fix=(
+                                f"Pin to specific version instead of :latest in {dockerfile.name} "
+                                f"(e.g., node:20-slim, python:3.11-alpine, ubuntu:22.04)"
+                            ),
+                            line=line_num,
+                        )
+                    )
+
+        return findings
+
+    def _check_dockerignore_exists(self, dockerfile: Path) -> list[Finding]:
+        """Ensure .dockerignore exists when COPY . . is used."""
+        findings: list[Finding] = []
+        try:
+            content = dockerfile.read_text()
+        except OSError:
+            return findings
+
+        # Check if Dockerfile contains "COPY . ." pattern
+        has_copy_all = re.search(r"^COPY\s+\.\s+\.", content, re.MULTILINE)
+        if has_copy_all:
+            dockerignore_path = dockerfile.parent / ".dockerignore"
+            if not dockerignore_path.exists():
+                findings.append(
+                    Finding(
+                        severity="warning",
+                        file=str(dockerfile),
+                        rule="V05-MISSING-DOCKERIGNORE",
+                        message="Dockerfile uses 'COPY . .' but .dockerignore is missing",
+                        fix=(
+                            f"Create .dockerignore in {dockerfile.parent} to exclude unnecessary files "
+                            f"(.git/, node_modules/, *.log, .env, etc.) and reduce build context size"
+                        ),
+                    )
+                )
+
+        return findings
+
+    def _check_build_target_exists(self, compose_files: list[Path]) -> list[Finding]:
+        """Validate that docker-compose.yml build.target references exist in Dockerfiles."""
+        findings: list[Finding] = []
+
+        for compose_file in compose_files:
+            try:
+                data = self._load_compose_file(compose_file)
+                if not data:
+                    continue
+            except Exception:
+                continue
+
+            for svc_name, svc_def in (data.get("services") or {}).items():
+                if not isinstance(svc_def, dict):
+                    continue
+
+                build = svc_def.get("build")
+                if not isinstance(build, dict):
+                    continue
+
+                target = build.get("target")
+                if not target:
+                    continue
+
+                # Find corresponding Dockerfile
+                dockerfile_path = build.get("dockerfile", "Dockerfile")
+                context_path = Path(build.get("context", compose_file.parent))
+
+                # Resolve dockerfile path relative to context
+                if not Path(dockerfile_path).is_absolute():
+                    dockerfile = context_path / dockerfile_path
+                else:
+                    dockerfile = Path(dockerfile_path)
+
+                if not dockerfile.exists():
+                    continue
+
+                # Check if target stage exists in Dockerfile
+                try:
+                    dockerfile_content = dockerfile.read_text()
+                    # Look for "FROM ... AS target_name" pattern
+                    stage_pattern = rf"^FROM\s+.*\s+AS\s+{re.escape(target)}\s*$"
+                    if not re.search(stage_pattern, dockerfile_content, re.MULTILINE | re.IGNORECASE):
+                        findings.append(
+                            Finding(
+                                severity="error",
+                                file=str(compose_file),
+                                rule="V05-BUILD-TARGET-MISSING",
+                                message=(
+                                    f"Service '{svc_name}' references build target '{target}' "
+                                    f"which doesn't exist in {dockerfile.name}"
+                                ),
+                                fix=(
+                                    f"Add 'FROM ... AS {target}' stage to {dockerfile.name} "
+                                    f"or fix the target name in {compose_file.name}"
+                                ),
+                            )
+                        )
+                except OSError:
+                    continue
 
         return findings
 
