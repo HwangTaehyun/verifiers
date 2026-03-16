@@ -328,6 +328,122 @@ class DockerValidator(BaseValidator):
 
         return findings
 
+    # ── V17 Dockerfile Methods ──────────────────────────────────────────────
+
+    def _check_dockerfile_multistage(self, dockerfile: Path) -> list[Finding]:
+        """Production Dockerfile should use multi-stage builds."""
+        findings: list[Finding] = []
+        try:
+            content = dockerfile.read_text()
+        except OSError:
+            return findings
+
+        from_count = len(re.findall(r"^FROM\s+", content, re.MULTILINE))
+        if from_count < 2:
+            findings.append(
+                Finding(
+                    severity="warning",
+                    file=str(dockerfile),
+                    rule="V05-DOCKERFILE-NO-MULTISTAGE",
+                    message="Dockerfile has only one FROM stage (no multi-stage build)",
+                    fix=(
+                        f"Use multi-stage build in {dockerfile.name}: "
+                        f"dev stage (hot reload), builder stage (compile), "
+                        f"prod stage (minimal runtime like alpine)"
+                    ),
+                )
+            )
+        return findings
+
+    def _check_dockerfile_user(self, dockerfile: Path) -> list[Finding]:
+        """Production stage should not run as root (must have USER directive)."""
+        findings: list[Finding] = []
+        try:
+            content = dockerfile.read_text()
+        except OSError:
+            return findings
+
+        # Find the last stage (after the last FROM)
+        stages = re.split(r"^FROM\s+", content, flags=re.MULTILINE)
+        if len(stages) < 2:
+            return findings  # Single stage handled by multistage check
+
+        last_stage = stages[-1]
+
+        # Check if the last stage (assumed to be prod) has a USER directive
+        if not re.search(r"^USER\s+", last_stage, re.MULTILINE):
+            # Check if the stage name suggests it's a prod stage
+            first_line = last_stage.strip().split("\n")[0]
+            stage_name = ""
+            as_match = re.search(r"\bAS\s+(\S+)", first_line, re.IGNORECASE)
+            if as_match:
+                stage_name = as_match.group(1).lower()
+
+            # Only flag if the stage looks like a production stage
+            if stage_name in ("prod", "production", "release", "final", "runtime", ""):
+                findings.append(
+                    Finding(
+                        severity="error",
+                        file=str(dockerfile),
+                        rule="V05-DOCKERFILE-NO-USER",
+                        message=f"Production stage runs as root (missing USER directive)",
+                        fix=(
+                            f"Add a non-root user to the production stage in {dockerfile.name}: "
+                            f"RUN addgroup -S app && adduser -S app -G app, then USER app"
+                        ),
+                    )
+                )
+        return findings
+
+    def _check_dockerfile_expose(self, dockerfile: Path) -> list[Finding]:
+        """Dockerfile should have at least one EXPOSE directive."""
+        findings: list[Finding] = []
+        try:
+            content = dockerfile.read_text()
+        except OSError:
+            return findings
+
+        if not re.search(r"^EXPOSE\s+", content, re.MULTILINE):
+            findings.append(
+                Finding(
+                    severity="warning",
+                    file=str(dockerfile),
+                    rule="V05-DOCKERFILE-NO-EXPOSE",
+                    message="No EXPOSE directive found in Dockerfile",
+                    fix=f"Add EXPOSE <port> to {dockerfile.name} to document the container port",
+                )
+            )
+        return findings
+
+    def _check_dockerfile_copy_all(self, ctx: ProjectContext, dockerfile: Path) -> list[Finding]:
+        """COPY . . without .dockerignore may send secrets to Docker daemon."""
+        findings: list[Finding] = []
+        try:
+            content = dockerfile.read_text()
+        except OSError:
+            return findings
+
+        has_copy_all = bool(re.search(r"^COPY\s+\.\s+\.", content, re.MULTILINE))
+        if not has_copy_all:
+            return findings
+
+        # Check if .dockerignore exists in the same directory
+        dockerignore = dockerfile.parent / ".dockerignore"
+        if not dockerignore.exists():
+            findings.append(
+                Finding(
+                    severity="warning",
+                    file=str(dockerfile),
+                    rule="V05-DOCKERFILE-COPY-ALL",
+                    message="COPY . . used but no .dockerignore found — secrets may leak to Docker daemon",
+                    fix=(
+                        f"Create {dockerfile.parent}/.dockerignore to exclude "
+                        f".env, .git, node_modules, and other sensitive files"
+                    ),
+                )
+            )
+        return findings
+
 
 # ── Standalone execution ─────────────────────────────────────────────────────
 
