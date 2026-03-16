@@ -444,6 +444,195 @@ class DockerValidator(BaseValidator):
             )
         return findings
 
+    # ── V17 Production Methods ──────────────────────────────────────────────
+
+    def _check_prod_port_exposed(self, data: dict, compose_file: Path) -> list[Finding]:
+        """Production compose should not expose host ports (use reverse proxy)."""
+        findings: list[Finding] = []
+
+        for svc_name, svc_def in (data.get("services") or {}).items():
+            if not isinstance(svc_def, dict):
+                continue
+
+            ports = svc_def.get("ports")
+            if ports is None:
+                continue
+
+            # Allow !override [] (empty list) — that's the correct pattern
+            if isinstance(ports, list) and len(ports) > 0:
+                findings.append(
+                    Finding(
+                        severity="warning",
+                        file=str(compose_file),
+                        rule="V05-PROD-PORT-EXPOSED",
+                        message=f"Service '{svc_name}' exposes host ports in production compose",
+                        fix=(
+                            f"Remove ports from '{svc_name}' in {compose_file.name} "
+                            f"or use 'ports: !override []' to route through Traefik instead"
+                        ),
+                    )
+                )
+
+        return findings
+
+    def _check_prod_dev_mode(self, data: dict, compose_file: Path) -> list[Finding]:
+        """Production compose should not have dev mode enabled."""
+        findings: list[Finding] = []
+
+        for svc_name, svc_def in (data.get("services") or {}).items():
+            if not isinstance(svc_def, dict):
+                continue
+
+            env = svc_def.get("environment") or {}
+            if isinstance(env, list):
+                env = dict(e.split("=", 1) for e in env if "=" in e)
+
+            for key, val in env.items():
+                val_str = str(val).lower().strip('"').strip("'")
+                # Check for common dev mode flags set to true
+                if key.upper() in ("APP_DEV", "DEV", "DEBUG", "NODE_ENV") and val_str in (
+                    "true",
+                    "1",
+                    "yes",
+                    "development",
+                ):
+                    findings.append(
+                        Finding(
+                            severity="error",
+                            file=str(compose_file),
+                            rule="V05-PROD-DEV-MODE",
+                            message=(
+                                f"Service '{svc_name}' has dev mode enabled: {key}={val_str}"
+                            ),
+                            fix=(
+                                f"Set '{key}' to 'false' (or 'production' for NODE_ENV) "
+                                f"in service '{svc_name}' in {compose_file.name}"
+                            ),
+                        )
+                    )
+
+                # Check Hasura dev mode
+                if key == "HASURA_GRAPHQL_DEV_MODE" and val_str == "true":
+                    findings.append(
+                        Finding(
+                            severity="error",
+                            file=str(compose_file),
+                            rule="V05-PROD-DEV-MODE",
+                            message=f"Service '{svc_name}' has Hasura dev mode enabled in production",
+                            fix=(
+                                f"Set HASURA_GRAPHQL_DEV_MODE to 'false' "
+                                f"in service '{svc_name}' in {compose_file.name}"
+                            ),
+                        )
+                    )
+
+        return findings
+
+    def _check_prod_wildcard_cors(self, data: dict, compose_file: Path) -> list[Finding]:
+        """Production compose should not use wildcard CORS origins."""
+        findings: list[Finding] = []
+
+        for svc_name, svc_def in (data.get("services") or {}).items():
+            if not isinstance(svc_def, dict):
+                continue
+
+            env = svc_def.get("environment") or {}
+            if isinstance(env, list):
+                env = dict(e.split("=", 1) for e in env if "=" in e)
+
+            for key, val in env.items():
+                if "CORS" in key.upper() and str(val).strip('"').strip("'") == "*":
+                    findings.append(
+                        Finding(
+                            severity="error",
+                            file=str(compose_file),
+                            rule="V05-PROD-WILDCARD-CORS",
+                            message=f"Service '{svc_name}' has wildcard CORS '{key}=*' in production",
+                            fix=(
+                                f"Restrict {key} to production domains "
+                                f"(e.g., 'https://example.com') in {compose_file.name}"
+                            ),
+                        )
+                    )
+
+        return findings
+
+    def _check_prod_traefik_labels(self, data: dict, compose_file: Path) -> list[Finding]:
+        """Services in production should have Traefik routing labels."""
+        findings: list[Finding] = []
+
+        for svc_name, svc_def in (data.get("services") or {}).items():
+            if not isinstance(svc_def, dict):
+                continue
+
+            # Skip infrastructure services (DB, cache) that don't need external access
+            infra_services = {"postgres", "redis", "neo4j", "minio", "hasura"}
+            if svc_name.lower() in infra_services:
+                continue
+
+            labels = svc_def.get("labels")
+            if labels is None:
+                continue
+
+            # !override [] explicitly removes labels — that's ok for infra services
+            if isinstance(labels, list) and len(labels) == 0:
+                continue
+
+            # Check if Traefik is enabled
+            if isinstance(labels, list):
+                has_traefik = any("traefik.enable=true" in str(l) for l in labels)
+                has_router = any("traefik.http.routers" in str(l) for l in labels)
+                if has_traefik and not has_router:
+                    findings.append(
+                        Finding(
+                            severity="warning",
+                            file=str(compose_file),
+                            rule="V05-PROD-NO-TRAEFIK-LABELS",
+                            message=(
+                                f"Service '{svc_name}' has traefik.enable=true "
+                                f"but no router/service label for domain routing"
+                            ),
+                            fix=(
+                                f"Add traefik.http.routers and traefik.http.services labels "
+                                f"to '{svc_name}' in {compose_file.name} for production domain routing"
+                            ),
+                        )
+                    )
+
+        return findings
+
+    def _check_prod_resource_limits(self, data: dict, compose_file: Path) -> list[Finding]:
+        """Production services should have resource limits."""
+        findings: list[Finding] = []
+
+        for svc_name, svc_def in (data.get("services") or {}).items():
+            if not isinstance(svc_def, dict):
+                continue
+
+            # Only check application services with a build section
+            if "build" not in svc_def and "image" not in svc_def:
+                continue
+
+            deploy = svc_def.get("deploy") or {}
+            resources = deploy.get("resources") or {}
+            limits = resources.get("limits") or {}
+
+            if not limits:
+                findings.append(
+                    Finding(
+                        severity="info",
+                        file=str(compose_file),
+                        rule="V05-PROD-NO-RESOURCE-LIMITS",
+                        message=f"Service '{svc_name}' has no resource limits in production",
+                        fix=(
+                            f"Add deploy.resources.limits (cpus, memory) to "
+                            f"'{svc_name}' in {compose_file.name} to prevent resource starvation"
+                        ),
+                    )
+                )
+
+        return findings
+
 
 # ── Standalone execution ─────────────────────────────────────────────────────
 
@@ -469,7 +658,7 @@ def main() -> None:
         return
 
     ctx = ProjectContext(cwd)
-    validator = DockerComposeValidator()
+    validator = DockerValidator()
 
     if not validator.should_run(file_path):
         write_hook_output({})
