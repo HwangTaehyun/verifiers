@@ -801,7 +801,13 @@ class DockerValidator(BaseValidator):
 
                 # Find corresponding Dockerfile
                 dockerfile_path = build.get("dockerfile", "Dockerfile")
-                context_path = Path(build.get("context", compose_file.parent))
+                context = build.get("context", ".")
+
+                # Resolve context relative to compose file location
+                if Path(context).is_absolute():
+                    context_path = Path(context)
+                else:
+                    context_path = compose_file.parent / context
 
                 # Resolve dockerfile path relative to context
                 if not Path(dockerfile_path).is_absolute():
