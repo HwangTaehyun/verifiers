@@ -27,15 +27,47 @@ from hooks.validators.base import BaseValidator, Finding, ValidationResult, read
 from lib.project_context import ProjectContext
 
 
-class DockerComposeValidator(BaseValidator):
-    """V05: Docker Compose Validator."""
+class DockerValidator(BaseValidator):
+    """V05: 통합 Docker 검증 (Compose + Dockerfile + Production)
 
-    id = "V05-docker-compose"
-    name = "Docker Compose Validator"
+    Checks:
+      Compose Files (5 rules):
+        V05-PORT-CONFLICT: Two services mapping same host port
+        V05-VHOST-NO-NETWORK: VIRTUAL_HOST set but not on nginx-proxy network
+        V05-UNDEFINED-NETWORK: Service references network not defined in top-level
+        V05-MISSING-HEALTHCHECK: depends_on condition: service_healthy but no healthcheck
+        V05-MISSING-ENV-VAR: ${VAR} referenced without default and not in .env
+
+      Dockerfile (4 rules):
+        V05-DOCKERFILE-NO-USER: Production stage runs as root (missing USER directive)
+        V05-DOCKERFILE-NO-EXPOSE: Missing EXPOSE directive in production stage
+        V05-DOCKERFILE-COPY-ALL: COPY . . without .dockerignore may leak secrets
+        V05-DOCKERFILE-NO-MULTISTAGE: Single-stage Dockerfile (no multi-stage build)
+
+      Production Safety (5 rules):
+        V05-PROD-PORT-EXPOSED: Production compose should not expose host ports
+        V05-PROD-DEV-MODE: Dev mode enabled in production config
+        V05-PROD-WILDCARD-CORS: CORS set to "*" in production
+        V05-PROD-TRAEFIK-LABELS: Service missing Traefik labels
+        V05-PROD-RESOURCE-LIMITS: No resource limits in production
+
+      Development Setup (2 rules):
+        V05-DEV-NO-VOLUME-MOUNT: Dev override should mount source code for hot reload
+        V05-DEV-NO-BUILD-TARGET: Dev override should set build.target to 'dev'
+
+      Best Practices (3 rules):
+        V05-BUILD-TARGET-MISSING: build.target doesn't exist in Dockerfile
+        V05-BASE-IMAGE-LATEST: Using latest tag (not recommended)
+        V05-MISSING-DOCKERIGNORE: .dockerignore missing with COPY . .
+    """
+
+    id = "V05-docker"
+    name = "Docker Validator"
     file_patterns: list[str] = [
         "**/docker-compose*.yaml",
         "**/docker-compose*.yml",
         "**/Dockerfile*",
+        "**/*.Dockerfile",
     ]
 
     def validate(
@@ -46,16 +78,16 @@ class DockerComposeValidator(BaseValidator):
     ) -> ValidationResult:
         findings: list[Finding] = []
 
-        # Find all compose files
+        # Find all compose files and dockerfiles
         compose_files = list(ctx.project_root.glob("**/docker-compose*.yaml"))
         compose_files.extend(ctx.project_root.glob("**/docker-compose*.yml"))
+        compose_files = self._filter_excluded_files(compose_files)
 
-        # Exclude vendor/node_modules
-        compose_files = [f for f in compose_files if "vendor" not in str(f) and "node_modules" not in str(f)]
+        dockerfiles = list(ctx.project_root.glob("**/Dockerfile*"))
+        dockerfiles.extend(ctx.project_root.glob("**/*.Dockerfile"))
+        dockerfiles = self._filter_excluded_files(dockerfiles)
 
-        if not compose_files:
-            return ValidationResult(validator_id=self.id, findings=findings)
-
+        # Validate compose files (existing V05 checks)
         for compose_file in compose_files:
             try:
                 data = yaml.safe_load(compose_file.read_text()) or {}
@@ -68,7 +100,33 @@ class DockerComposeValidator(BaseValidator):
             findings.extend(self._check_depends_on_healthcheck(data, compose_file))
             findings.extend(self._check_env_var_references(ctx, data, compose_file))
 
+            # V17 production checks
+            findings.extend(self._check_prod_port_exposed(data, compose_file))
+            findings.extend(self._check_prod_dev_mode(data, compose_file))
+            findings.extend(self._check_prod_wildcard_cors(data, compose_file))
+            findings.extend(self._check_prod_traefik_labels(data, compose_file))
+            findings.extend(self._check_prod_resource_limits(data, compose_file))
+            findings.extend(self._check_dev_volume_mount(data, compose_file))
+            findings.extend(self._check_dev_build_target(data, compose_file))
+
+        # Validate dockerfiles (V17 checks)
+        for dockerfile in dockerfiles:
+            findings.extend(self._check_dockerfile_multistage(dockerfile))
+            findings.extend(self._check_dockerfile_user(dockerfile))
+            findings.extend(self._check_dockerfile_expose(dockerfile))
+            findings.extend(self._check_dockerfile_copy_all(ctx, dockerfile))
+
+        # New cross-file validations
+        findings.extend(self._check_build_target_exists(ctx, compose_files, dockerfiles))
+        findings.extend(self._check_base_image_latest(dockerfiles))
+        findings.extend(self._check_dockerignore_exists(ctx, dockerfiles))
+
         return ValidationResult(validator_id=self.id, findings=findings)
+
+    def _filter_excluded_files(self, files: list[Path]) -> list[Path]:
+        """Exclude vendor, node_modules, .git directories."""
+        exclude = {"vendor", "node_modules", ".git", "__pycache__", ".venv"}
+        return [f for f in files if not any(p in str(f) for p in exclude)]
 
     # ── Check 1: Port conflicts ──────────────────────────────────────────
 
