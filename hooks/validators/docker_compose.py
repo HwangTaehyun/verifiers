@@ -633,6 +633,72 @@ class DockerValidator(BaseValidator):
 
         return findings
 
+    def _check_dev_volume_mount(self, data: dict, compose_file: Path) -> list[Finding]:
+        """Dev override should mount source code for hot reload."""
+        findings: list[Finding] = []
+
+        for svc_name, svc_def in (data.get("services") or {}).items():
+            if not isinstance(svc_def, dict):
+                continue
+
+            # Only check services that have a build section (application services)
+            build = svc_def.get("build")
+            if not build:
+                continue
+
+            volumes = svc_def.get("volumes") or []
+            if not volumes:
+                findings.append(
+                    Finding(
+                        severity="warning",
+                        file=str(compose_file),
+                        rule="V05-DEV-NO-VOLUME-MOUNT",
+                        message=(
+                            f"Service '{svc_name}' in dev override has no volume mounts "
+                            f"for source code hot reload"
+                        ),
+                        fix=(
+                            f"Add volume mounts to '{svc_name}' in {compose_file.name} "
+                            f"to enable hot reload (e.g., './src:/app/src:ro' or '.:/app')"
+                        ),
+                    )
+                )
+
+        return findings
+
+    def _check_dev_build_target(self, data: dict, compose_file: Path) -> list[Finding]:
+        """Dev override should set build target to 'dev'."""
+        findings: list[Finding] = []
+
+        for svc_name, svc_def in (data.get("services") or {}).items():
+            if not isinstance(svc_def, dict):
+                continue
+
+            build = svc_def.get("build")
+            if not build:
+                continue
+
+            if isinstance(build, dict):
+                target = build.get("target", "")
+                if target and target.lower() != "dev":
+                    findings.append(
+                        Finding(
+                            severity="warning",
+                            file=str(compose_file),
+                            rule="V05-DEV-NO-BUILD-TARGET",
+                            message=(
+                                f"Service '{svc_name}' in dev override has build target '{target}' "
+                                f"instead of 'dev'"
+                            ),
+                            fix=(
+                                f"Set build.target to 'dev' for '{svc_name}' in "
+                                f"{compose_file.name} to use the development stage with hot reload"
+                            ),
+                        )
+                    )
+
+        return findings
+
 
 # ── Standalone execution ─────────────────────────────────────────────────────
 
