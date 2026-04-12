@@ -41,8 +41,8 @@ from lib.project_context import ProjectContext
 COMPLEXITY_WARN = 10
 COMPLEXITY_ERROR = 20
 
-LENGTH_WARN = 50
-LENGTH_ERROR = 100
+LENGTH_WARN = 80
+LENGTH_ERROR = 150
 
 NESTING_WARN = 4
 

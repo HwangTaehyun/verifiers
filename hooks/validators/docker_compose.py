@@ -358,6 +358,12 @@ class DockerValidator(BaseValidator):
     def _check_dockerfile_user(self, dockerfile: Path) -> list[Finding]:
         """Production stage should not run as root (must have USER directive)."""
         findings: list[Finding] = []
+
+        # Skip third-party base images that must run as root
+        fname = dockerfile.name.lower()
+        if "hasura" in fname:
+            return findings
+
         try:
             content = dockerfile.read_text()
         except OSError:
