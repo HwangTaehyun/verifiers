@@ -479,6 +479,11 @@ class DockerValidator(BaseValidator):
         """Production compose should not have dev mode enabled."""
         findings: list[Finding] = []
 
+        # Skip dev-intended files: override (auto-loaded dev), base compose (defaults)
+        fname = compose_file.name.lower()
+        if "override" in fname or fname == "docker-compose.yaml" or fname == "docker-compose.yml":
+            return findings
+
         for svc_name, svc_def in (data.get("services") or {}).items():
             if not isinstance(svc_def, dict):
                 continue
@@ -531,6 +536,11 @@ class DockerValidator(BaseValidator):
     def _check_prod_wildcard_cors(self, data: dict, compose_file: Path) -> list[Finding]:
         """Production compose should not use wildcard CORS origins."""
         findings: list[Finding] = []
+
+        # Skip dev-intended files
+        fname = compose_file.name.lower()
+        if "override" in fname or fname == "docker-compose.yaml" or fname == "docker-compose.yml":
+            return findings
 
         for svc_name, svc_def in (data.get("services") or {}).items():
             if not isinstance(svc_def, dict):
