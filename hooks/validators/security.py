@@ -220,7 +220,15 @@ class SecurityValidator(BaseValidator):
             # Check Go log patterns
             if re.search(r"log\.(Info|Debug|Warn|Print|Printf|Error)\(", line):
                 for field in PHI_FIELDS:
-                    if field in line.lower():
+                    # Only flag actual data binding: Str("email", var), not fixed strings like "email and password"
+                    # Match: .Str("email", ...) or Sprintf("%s", email) but not fmt.Errorf("email is required")
+                    has_binding = re.search(
+                        rf'Str\(\s*"{field}"'  # zerolog: .Str("email", val)
+                        rf'|"[^"]*%[svd][^"]*"[^)]*{field}'  # Sprintf with variable
+                        rf'|{field}\s*[,\)]'  # bare variable reference: email, or email)
+                        , line, re.IGNORECASE
+                    )
+                    if has_binding:
                         findings.append(
                             Finding(
                                 severity="error",
@@ -238,7 +246,13 @@ class SecurityValidator(BaseValidator):
             # Check JS/TS console patterns
             elif re.search(r"console\.(log|debug|info|warn|error)\(", line):
                 for field in PHI_FIELDS:
-                    if field in line.lower():
+                    # Only flag variable references, not fixed strings
+                    has_binding = re.search(
+                        rf'{field}\s*[,\)\}}]'  # variable: console.log(email) or console.log({email})
+                        rf'|`[^`]*\$\{{[^}}]*{field}'  # template literal: `${email}`
+                        , line, re.IGNORECASE
+                    )
+                    if has_binding:
                         findings.append(
                             Finding(
                                 severity="error",

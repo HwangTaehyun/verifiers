@@ -14,8 +14,8 @@ def get_all_validators() -> list[BaseValidator]:
     from .commit_discipline import CommitDisciplineValidator
     from .complexity_guard import ComplexityGuardValidator
     from .dependency_guard import DependencyGuardValidator
-    from .docker_compose import DockerComposeValidator
-    from .docker_prod_deploy import DockerProdDeployValidator
+    from .docker_compose import DockerValidator as DockerComposeValidator
+    # from .docker_prod_deploy import DockerProdDeployValidator  # TODO: not yet implemented
     from .env_config import EnvConfigValidator
     from .go_quality import GoQualityValidator
     from .go_test_runner import GoTestRunnerValidator
@@ -38,7 +38,7 @@ def get_all_validators() -> list[BaseValidator]:
         ProtoConnectValidator(),  # V03
         HasuraMigrationValidator(),  # V04
         DockerComposeValidator(),  # V05
-        DockerProdDeployValidator(),  # V17
+        # DockerProdDeployValidator(),  # V17 — not yet implemented
         GoQualityValidator(),  # V06
         TsQualityValidator(),  # V07
         GoTestRunnerValidator(),  # V09

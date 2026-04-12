@@ -99,6 +99,10 @@ class EnvConfigValidator(BaseValidator):
 
                 for pattern in SECRET_PATTERNS:
                     if re.search(pattern, line, re.IGNORECASE):
+                        # Skip if value is an env var reference: ${...}
+                        value_part = line.split(":", 1)[-1].strip().strip("\"'")
+                        if value_part.startswith("${") or value_part.startswith("$"):
+                            continue
                         key = line.split(":")[0].strip()
                         env_var = "APP_" + key.upper()
                         findings.append(
