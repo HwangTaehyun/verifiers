@@ -777,6 +777,7 @@ class ComplexityGuardValidator(BaseValidator):
             "/.config/ranger/commands_full.py",  # Third-party ranger configuration
             ".oh-my-zsh/",  # Third-party zsh plugin files
             ".claude/",  # Claude Code hooks, skills, plugins (third-party)
+            "/theme/",  # MUI/CSS theme config (large config objects, not complex logic)
         ]
         return any(p in file_path for p in skip_patterns)
 
