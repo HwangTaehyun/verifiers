@@ -198,11 +198,22 @@ class ProtoConnectValidator(BaseValidator):
         if not rpc_methods:
             return findings
 
-        # Extract implemented methods from handler files
+        # Extract implemented methods from handler files.
+        #
+        # NOTE: We scan every .go file under internal/* (except *_test.go)
+        # because Go projects use many naming conventions for handlers:
+        #   - internal/auth/handler.go                    (template convention)
+        #   - internal/finance/billing_schedule.go        (domain-split)
+        #   - internal/user/user_handler.go               (suffix convention)
+        # The previous glob `internal/*/handler*.go` only matched the first
+        # style and produced false positives (V03-UNIMPLEMENTED-RPC) whenever
+        # handlers lived in domain-named files.
         implemented: set[str] = set()
-        for handler_file in ctx.server_dir.glob("internal/*/handler*.go"):
+        for go_file in ctx.server_dir.glob("internal/*/*.go"):
+            if go_file.name.endswith("_test.go"):
+                continue
             try:
-                content = handler_file.read_text()
+                content = go_file.read_text()
             except OSError:
                 continue
             for match in re.finditer(r"func \([^)]+\) (\w+)\(", content):
@@ -234,9 +245,42 @@ class ProtoConnectValidator(BaseValidator):
         if not ctx.server_dir:
             return findings
 
+        # Resolve the git *common* directory so this works inside git worktrees.
+        #
+        # In a worktree, `.git` is either missing (subdirectory) or a text
+        # pointer file instead of a real git dir, so `buf breaking --against
+        # .git#branch=main` fails with "does not appear to be a git
+        # repository". We ask git for the absolute path to the shared git
+        # directory and pass it to buf verbatim, which works in both normal
+        # clones and worktrees.
+        try:
+            git_dir_result = subprocess.run(
+                ["git", "rev-parse", "--git-common-dir"],
+                cwd=str(ctx.server_dir),
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return findings
+
+        if git_dir_result.returncode != 0:
+            return findings
+
+        git_common_dir = Path(git_dir_result.stdout.strip())
+        if not git_common_dir.is_absolute():
+            # `git rev-parse --git-common-dir` can return a relative path
+            # when run inside the main worktree — resolve it against cwd.
+            git_common_dir = (Path(ctx.server_dir) / git_common_dir).resolve()
+
+        if not git_common_dir.exists():
+            return findings
+
+        against = f"{git_common_dir}#branch=main"
+
         try:
             result = subprocess.run(
-                ["buf", "breaking", "--against", ".git#branch=main"],
+                ["buf", "breaking", "--against", against],
                 cwd=str(ctx.server_dir),
                 capture_output=True,
                 text=True,
@@ -246,7 +290,22 @@ class ProtoConnectValidator(BaseValidator):
             return findings
 
         if result.returncode != 0 and result.stderr.strip():
-            for line in result.stderr.strip().split("\n"):
+            stderr = result.stderr.strip()
+            # Filter out git-clone plumbing errors that are not actual proto
+            # breakages — they indicate infrastructure trouble, not an API
+            # contract change, and spamming them as 5 separate warnings is
+            # worse than useless.
+            noise = (
+                "does not appear to be a git repository",
+                "Could not read from remote repository",
+                "Please make sure you have the correct access rights",
+                "and the repository exists",
+                "could not clone",
+            )
+            if any(pattern in stderr for pattern in noise):
+                return findings
+
+            for line in stderr.split("\n"):
                 if line.strip():
                     findings.append(
                         Finding(

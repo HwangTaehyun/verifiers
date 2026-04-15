@@ -352,12 +352,27 @@ class TsQualityValidator(BaseValidator):
     # ── Check 8: Circular imports (Stop mode) ────────────────────────────
 
     def _check_circular_imports(self, ctx: ProjectContext) -> list[Finding]:
-        """Detect circular dependencies using madge."""
+        """Detect circular dependencies using madge.
+
+        Use --json so we get deterministic parseable output: an empty array
+        `[]` means no cycles, any other array means cycles were found. The
+        previous implementation checked `stdout.strip()` which matched
+        madge's success banner ("✔ No circular dependency found!") and
+        produced a guaranteed false positive on every successful run.
+        """
         findings: list[Finding] = []
 
         try:
             result = subprocess.run(
-                ["bunx", "madge", "--circular", "--extensions", "ts,tsx", "src/"],
+                [
+                    "bunx",
+                    "madge",
+                    "--circular",
+                    "--json",
+                    "--extensions",
+                    "ts,tsx",
+                    "src/",
+                ],
                 cwd=str(ctx.web_dir),
                 capture_output=True,
                 text=True,
@@ -366,21 +381,54 @@ class TsQualityValidator(BaseValidator):
         except (FileNotFoundError, subprocess.TimeoutExpired):
             return findings
 
-        if result.returncode != 0 or result.stdout.strip():
-            cycles = [line for line in result.stdout.strip().split("\n") if line.strip()]
-            if cycles:
-                findings.append(
-                    Finding(
-                        severity="warning",
-                        file=str(ctx.web_dir / "src"),
-                        rule="V07-CIRCULAR-IMPORT",
-                        message=f"Circular imports detected: {len(cycles)} cycles found",
-                        fix=(
-                            f"Break circular dependencies. Cycles: "
-                            f"{'; '.join(cycles[:3])}{'...' if len(cycles) > 3 else ''}"
-                        ),
-                    )
+        # madge --json writes `[]` on success and an array of cycle arrays
+        # on failure. Parse it; on parse failure, fall through to the legacy
+        # regex-based extraction so we don't regress older madge versions.
+        cycles: list[str] = []
+        stdout = result.stdout.strip()
+
+        if stdout.startswith("["):
+            try:
+                data = json.loads(stdout)
+                if isinstance(data, list):
+                    for cycle in data:
+                        if isinstance(cycle, list) and cycle:
+                            cycles.append(" > ".join(str(x) for x in cycle))
+                        elif isinstance(cycle, str) and cycle.strip():
+                            cycles.append(cycle.strip())
+            except json.JSONDecodeError:
+                pass
+        else:
+            # Legacy text fallback: real cycles look like `a.ts > b.ts > a.ts`.
+            # Filter out madge's own status banners so we don't count them as
+            # cycles (the root cause of the false positive we're fixing).
+            banner_markers = (
+                "No circular dependency found",
+                "Processed ",
+                "Finding files",
+                "Skipped",
+            )
+            for line in stdout.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                if any(marker in line for marker in banner_markers):
+                    continue
+                cycles.append(line)
+
+        if cycles:
+            findings.append(
+                Finding(
+                    severity="warning",
+                    file=str(ctx.web_dir / "src"),
+                    rule="V07-CIRCULAR-IMPORT",
+                    message=f"Circular imports detected: {len(cycles)} cycles found",
+                    fix=(
+                        f"Break circular dependencies. Cycles: "
+                        f"{'; '.join(cycles[:3])}{'...' if len(cycles) > 3 else ''}"
+                    ),
                 )
+            )
 
         return findings
 
