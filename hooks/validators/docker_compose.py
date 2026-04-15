@@ -452,9 +452,32 @@ class DockerValidator(BaseValidator):
 
     # ── V17 Production Methods ──────────────────────────────────────────────
 
+    @staticmethod
+    def _is_dev_intended_compose(compose_file: Path) -> bool:
+        """True when this compose file is meant for local dev, not production.
+
+        Convention:
+          - docker-compose.yaml / .yml → base (dev defaults on most projects)
+          - *override*.yaml             → auto-loaded dev layer
+          - docker-compose.production.yaml / .prod.yaml → explicit prod target
+
+        Production-only checks (port exposure, resource limits, dev-mode
+        flags) skip dev-intended files so local setups can bind host ports
+        without spraying warnings.
+        """
+        fname = compose_file.name.lower()
+        if "override" in fname:
+            return True
+        if fname in ("docker-compose.yaml", "docker-compose.yml"):
+            return True
+        return False
+
     def _check_prod_port_exposed(self, data: dict, compose_file: Path) -> list[Finding]:
         """Production compose should not expose host ports (use reverse proxy)."""
         findings: list[Finding] = []
+
+        if self._is_dev_intended_compose(compose_file):
+            return findings
 
         for svc_name, svc_def in (data.get("services") or {}).items():
             if not isinstance(svc_def, dict):
@@ -485,9 +508,7 @@ class DockerValidator(BaseValidator):
         """Production compose should not have dev mode enabled."""
         findings: list[Finding] = []
 
-        # Skip dev-intended files: override (auto-loaded dev), base compose (defaults)
-        fname = compose_file.name.lower()
-        if "override" in fname or fname == "docker-compose.yaml" or fname == "docker-compose.yml":
+        if self._is_dev_intended_compose(compose_file):
             return findings
 
         for svc_name, svc_def in (data.get("services") or {}).items():
@@ -620,6 +641,9 @@ class DockerValidator(BaseValidator):
     def _check_prod_resource_limits(self, data: dict, compose_file: Path) -> list[Finding]:
         """Production services should have resource limits."""
         findings: list[Finding] = []
+
+        if self._is_dev_intended_compose(compose_file):
+            return findings
 
         for svc_name, svc_def in (data.get("services") or {}).items():
             if not isinstance(svc_def, dict):

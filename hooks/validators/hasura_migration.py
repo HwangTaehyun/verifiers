@@ -188,7 +188,17 @@ class HasuraMigrationValidator(BaseValidator):
     # ── Check 4: Dangerous DDL in up.sql ─────────────────────────────────
 
     def _check_dangerous_ddl(self, file_path: str) -> list[Finding]:
-        """Detect dangerous DDL patterns in up.sql files."""
+        """Detect dangerous DDL patterns in up.sql files.
+
+        A match is suppressed when:
+          1. The match itself is inside a SQL line comment (`-- ...`). This
+             prevents the "INTENTIONAL" acknowledgement comment — which by
+             definition *contains* the dangerous keyword — from being
+             counted as its own violation.
+          2. The immediately preceding non-blank line is an intent marker
+             of the form `-- INTENTIONAL: ...`. This lets authors opt into
+             a destructive DDL statement with an audit trail.
+        """
         if not file_path.endswith("up.sql"):
             return []
 
@@ -197,10 +207,49 @@ class HasuraMigrationValidator(BaseValidator):
         except OSError:
             return []
 
+        lines = content.split("\n")
         findings: list[Finding] = []
+
         for pattern, desc in DANGEROUS_PATTERNS:
             for match in re.finditer(pattern, content, re.IGNORECASE):
                 line_num = content[: match.start()].count("\n") + 1
+                line_text = lines[line_num - 1] if line_num - 1 < len(lines) else ""
+
+                # Rule 1: skip if the match is inside a line comment. SQL
+                # line comments start with `--` and run to end-of-line, so
+                # if `--` appears before the match column on the same line,
+                # we're inside a comment.
+                stripped = line_text.lstrip()
+                if stripped.startswith("--"):
+                    continue
+                comment_start = line_text.find("--")
+                if comment_start != -1:
+                    # Convert absolute match.start() to column on this line.
+                    line_start = content.rfind("\n", 0, match.start()) + 1
+                    col = match.start() - line_start
+                    if col >= comment_start:
+                        continue
+
+                # Rule 2: skip if any of the few lines immediately above the
+                # statement is an `-- INTENTIONAL:` acknowledgement. We look
+                # up to 3 lines back to tolerate a short rationale block.
+                acknowledged = False
+                for offset in range(1, 4):
+                    prev_idx = line_num - 1 - offset
+                    if prev_idx < 0:
+                        break
+                    prev = lines[prev_idx].strip()
+                    if not prev:
+                        continue
+                    if prev.upper().startswith("-- INTENTIONAL"):
+                        acknowledged = True
+                        break
+                    if not prev.startswith("--"):
+                        # Hit a real SQL line — stop walking back.
+                        break
+                if acknowledged:
+                    continue
+
                 findings.append(
                     Finding(
                         severity="warning",
