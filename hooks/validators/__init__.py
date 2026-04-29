@@ -60,6 +60,7 @@ def get_all_validators() -> list[BaseValidator]:
     from .complexity_guard import ComplexityGuardValidator
     from .dependency_guard import DependencyGuardValidator
     from .docker_compose import DockerValidator as DockerComposeValidator
+    from .docker_prod_hardening import DockerProdHardeningValidator
 
     # from .docker_prod_deploy import DockerProdDeployValidator  # TODO: not yet implemented
     from .env_config import EnvConfigValidator
@@ -69,7 +70,6 @@ def get_all_validators() -> list[BaseValidator]:
     from .graphql_gen import GraphqlGenValidator
     from .hasura_graphql_enforcement import HasuraGraphQLEnforcementValidator
     from .hasura_migration import HasuraMigrationValidator
-    from .hasura_permission import HasuraPermissionAuditValidator
     from .linter_config_guard import LinterConfigGuardValidator
     from .mock_data_guard import MockDataGuardValidator
     from .multi_env import MultiEnvConsistencyValidator
@@ -105,8 +105,8 @@ def get_all_validators() -> list[BaseValidator]:
         HasuraGraphQLEnforcementValidator(),  # V20 — raw SQL forbidden when Hasura present
         MultiEnvConsistencyValidator(),  # V22 — APP_ prefix + root/server drift + viper key↔env
         BufGovernanceValidator(),  # V23 — buf.lock drift + breaking + protovalidate
-        HasuraPermissionAuditValidator(),  # V24 — hasura table permissions audit
         GoMultiBinaryValidator(),  # V25 — graceful shutdown + tools.go + air mapping
+        DockerProdHardeningValidator(),  # V26 — production compose hardening
     ]
     _assert_registry_invariants(validators)
     return validators

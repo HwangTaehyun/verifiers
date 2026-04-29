@@ -92,12 +92,12 @@ NAME_MAP = {
     # V23 — buf governance (lock drift + breaking + protovalidate)
     "buf-governance": "V23-buf-governance",
     "buf": "V23-buf-governance",
-    # V24 — Hasura permission audit (no-perms / wildcard cols / empty filter)
-    "hasura-permission": "V24-hasura-permission",
-    "hasura-perm": "V24-hasura-permission",
     # V25 — Go multi-binary discipline (graceful shutdown + tools.go + air mapping)
     "go-multibinary": "V25-go-multibinary",
     "multibinary": "V25-go-multibinary",
+    # V26 — Docker compose production hardening (resource limits + healthcheck + secret-mount + localhost)
+    "docker-prod": "V26-docker-prod",
+    "docker-prod-hardening": "V26-docker-prod",
 }
 
 
