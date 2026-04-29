@@ -18,7 +18,16 @@ from lib.project_context import ProjectContext
 
 @dataclass
 class Finding:
-    """A single validation finding."""
+    """A single validation finding.
+
+    ``kind`` distinguishes ordinary findings (the validator detected a
+    rule violation) from sentinels (the validator itself crashed or
+    timed out). Sentinels must NEVER be silenced by ``exclude.paths``
+    — that would let a worker death pass as a clean approve, defeating
+    the whole point of having a sentinel. The Phase36 (A4) audit fix
+    is that ``stop_validator._apply_exclude_filters`` checks
+    ``f.kind == "sentinel"`` and short-circuits before the glob match.
+    """
 
     severity: str  # "error" | "warning" | "info"
     file: str  # Absolute file path
@@ -26,6 +35,7 @@ class Finding:
     message: str  # Human-readable description
     fix: str  # Specific fix instruction for the agent
     line: int | None = None  # Line number (if applicable)
+    kind: str = "finding"  # "finding" (default) | "sentinel" (V##-CRASHED, V##-TIMEOUT)
 
 
 @dataclass

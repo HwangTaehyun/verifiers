@@ -83,8 +83,19 @@ class TestFindingDataclass:
         assert warning_finding.line is None
 
     def test_field_names(self) -> None:
+        # Phase36 (A4 audit): ``kind`` was added to distinguish ordinary
+        # findings from sentinels (V##-CRASHED, V##-TIMEOUT) so the Tier 3
+        # exclude.paths filter can short-circuit on sentinels.
         names = {f.name for f in fields(Finding)}
-        assert names == {"severity", "file", "rule", "message", "fix", "line"}
+        assert names == {"severity", "file", "rule", "message", "fix", "line", "kind"}
+
+    def test_default_kind_is_finding(self) -> None:
+        f = Finding("error", "/a.py", "R01", "msg", "fix")
+        assert f.kind == "finding"
+
+    def test_sentinel_kind_can_be_set(self) -> None:
+        f = Finding("warning", "/proj", "V14-CRASHED", "boom", "see logs", kind="sentinel")
+        assert f.kind == "sentinel"
 
     def test_equality(self) -> None:
         a = Finding("error", "/a.py", "R01", "msg", "fix", 1)

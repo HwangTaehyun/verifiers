@@ -56,6 +56,13 @@ def _apply_exclude_filters(findings: list[Finding], ctx: ProjectContext) -> list
 
     out: list[Finding] = []
     for f in findings:
+        # Phase36 (A4 audit): sentinel findings (V##-CRASHED, V##-TIMEOUT)
+        # must never be silenced by exclude.paths. The whole point of
+        # the sentinel is to surface a worker death; filtering it would
+        # turn a crashed validator back into a silent approve.
+        if f.kind == "sentinel":
+            out.append(f)
+            continue
         # Some findings (e.g., schema-level proto warnings) have file=""
         # or a non-file marker. Skip filtering for those.
         if not f.file:
