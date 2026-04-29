@@ -1,0 +1,168 @@
+# verifiers
+
+> AI 에이전트 코딩 워크플로우를 위한 재사용 가능한 검증 시스템 (Claude Code hooks + skills + agents)
+
+`verifiers`는 Claude Code 가 생성한 코드를 **세 단계(Tier 1/2/3)** 로 검증하는 모듈입니다.
+보안 위반은 즉시 차단하고, 상황별 품질 점검은 skill 로 호출하며, 턴 종료 시점에는 21개의 validator (V01~V16) 가 일괄 실행됩니다. 현재 **782 개의 pytest** 가 검증 로직을 보호합니다.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Tier 1 │ security_hook.py  │ PostToolUse, <100ms            │
+│         │ (Edit|Write|MultiEdit) regex 기반 보안 즉시 차단    │
+├─────────────────────────────────────────────────────────────┤
+│  Tier 2 │ skills/verify-*   │ 상황별 검증 (총 20개 skill)     │
+│         │ verify-go, verify-ts, verify-docker, ...           │
+├─────────────────────────────────────────────────────────────┤
+│  Tier 3 │ stop_validator.py │ Stop hook, 종합 검증 (≤120s)    │
+│         │ V01~V16 모든 validator 일괄 실행                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Requirements
+
+- macOS / Linux
+- [Claude Code](https://docs.claude.com/claude-code) 설치
+- [`uv`](https://docs.astral.sh/uv/) (Python 의존성 격리 실행)
+- [`just`](https://github.com/casey/just) (설치 레시피 실행)
+- Python ≥ 3.11
+
+## Installation
+
+verifiers 를 클론한 뒤, **글로벌** 또는 **프로젝트별** 중 원하는 모드로 설치하세요. 두 모드는 공존 가능합니다.
+
+```bash
+git clone https://github.com/<YOUR_GITHUB_USER>/verifiers.git
+cd verifiers
+just setup            # uv 가 의존성 설치 (.venv 생성)
+```
+
+> 이 README 의 모든 예시에서 `<VERIFIERS_REPO>` 는 위에서 클론한 `verifiers` 저장소의 절대 경로를 의미합니다 (예: `~/code/verifiers`). `<PROJECT_DIR>` 는 verifier 를 적용할 다른 프로젝트의 절대 경로입니다.
+
+### 1) 글로벌 설치 — 모든 프로젝트에 적용
+
+`~/.claude/` 아래에 hooks · skills · agents · commands 를 심볼릭 링크로 설치하고, `~/.claude/settings.json` 에 Tier 1/3 hook 을 등록합니다.
+
+```bash
+cd <VERIFIERS_REPO>
+just install
+```
+
+설치되는 항목:
+
+| 항목                    | 위치                                              |
+| ----------------------- | ------------------------------------------------- |
+| 베이스 심볼릭 링크      | `~/.claude/verifiers`                             |
+| Tier 2 skills (20개)    | `~/.claude/skills/verify*`                        |
+| Agents (5개)            | `~/.claude/agents/{stack-verifier,ui-verifier,tdd-writer}.md`, `~/.claude/agents/team/{builder,validator}.md` |
+| Slash commands (5개)    | `~/.claude/commands/{verify,build-with-validation,tdd,tdd-write,tdd-update}.md` |
+| Tier 1 + Tier 3 hooks   | `~/.claude/settings.json` 에 머지                 |
+
+삭제:
+```bash
+just uninstall
+```
+> `merge_settings.py` 는 `verifiers/` 문자열로 식별되는 hook 만 제거하므로 사용자 커스텀 hook 은 보존됩니다.
+
+### 2) 프로젝트별 설치 — 특정 프로젝트에만 적용
+
+```bash
+cd <VERIFIERS_REPO>
+just install-project <PROJECT_DIR>
+```
+
+`<PROJECT_DIR>/.claude/` 아래에 동일한 구조로 설치되고, 그 프로젝트의 `settings.json` 에만 hook 이 등록됩니다.
+
+삭제:
+```bash
+just uninstall-project <PROJECT_DIR>
+```
+
+### 3) 설치 검증
+
+```bash
+ls -l ~/.claude/skills | grep verify             # 20개 verify-* 심볼릭 링크 확인
+grep -i verifiers ~/.claude/settings.json        # hook 등록 확인
+```
+
+설치 후 **Claude Code 를 재시작**하면 hook 이 활성화됩니다.
+
+## Usage
+
+### Claude Code 안에서 자동 실행
+
+| 시점                    | 무엇이 실행되나                                                |
+| ----------------------- | -------------------------------------------------------------- |
+| Edit / Write / MultiEdit 직후 | Tier 1 `security_hook.py` 가 보안 위반 패턴을 즉시 차단         |
+| Claude 가 turn 을 끝낼 때     | Tier 3 `stop_validator.py` 가 V01~V16 전체를 종합 실행          |
+| Claude 가 적합하다고 판단할 때 | Tier 2 `skills/verify-*` 를 상황에 맞게 호출 (예: TS 변경 시 `verify-ts`) |
+
+### 수동 실행 (CLI)
+
+```bash
+cd <PROJECT_DIR>
+just --justfile <VERIFIERS_REPO>/justfile verify          # V01~V16 전체
+just --justfile <VERIFIERS_REPO>/justfile verify-one V03  # 특정 validator 만
+```
+
+설치 없이 hook 을 직접 호출:
+
+```bash
+echo '{"cwd": "'"$(pwd)"'"}' | \
+  uv run --script <VERIFIERS_REPO>/hooks/stop_validator.py
+```
+
+### Slash commands (글로벌 설치 후)
+
+| 명령                          | 용도                                                 |
+| ----------------------------- | ---------------------------------------------------- |
+| `/verify`                     | 현재 프로젝트에 V01~V16 종합 검증 즉시 실행          |
+| `/build-with-validation`      | Builder ↔ Validator 패턴으로 구현/검증 분리 실행      |
+| `/tdd`, `/tdd-write`, `/tdd-update` | TDD Red 단계 (테스트 먼저 작성) 워크플로우      |
+
+### Agents
+
+| Agent             | 역할                                            |
+| ----------------- | ----------------------------------------------- |
+| `stack-verifier`  | 스택별 (Go/TS/Python/...) 종합 검증 실행         |
+| `ui-verifier`     | UI/UX 변경 시각 검증                            |
+| `tdd-writer`      | 명세 → pytest 테스트 코드 자동 생성              |
+| `team/builder`    | 구현 담당 (모든 도구 접근)                      |
+| `team/validator`  | 검증 담당 (read-only, 코드 수정 불가)           |
+
+## Validators
+
+`hooks/validators/` 에 위치한 21개 모듈이 V01~V16 검증을 수행합니다:
+
+- 보안: `security.py`, `dependency_guard.py`, `linter_config_guard.py`
+- 품질: `complexity_guard.py`, `mock_data_guard.py`, `ai_cheating_guard.py`, `commit_discipline.py`
+- Python: `py_quality.py`, `py_test_runner.py`
+- TypeScript: `ts_quality.py`, `ts_test_runner.py`
+- Go: `go_quality.py`, `go_test_runner.py`
+- 인프라: `docker_compose.py`, `env_config.py`
+- API/스키마: `graphql_gen.py`, `proto_connect.py`, `hasura_graphql_enforcement.py`, `hasura_migration.py`
+
+각 validator 는 `tests/test_*.py` 에 1:1 대응하는 단위 테스트를 갖습니다 (총 782 tests).
+
+## Development
+
+```bash
+cd <VERIFIERS_REPO>
+just test               # pytest 전체 실행
+just lint               # ruff check
+just format             # ruff format
+just logs               # logs/*.jsonl tail
+just clean-logs         # 로그 + 캐시 초기화
+```
+
+추가 레시피는 `just --list` 또는 `justfile` 을 참조하세요.
+
+## Architecture Notes
+
+- **심볼릭 링크 우선**: 설치 시 코드를 복사하지 않고 링크합니다. `git pull` 한 번으로 모든 설치 지점이 갱신됩니다.
+- **Marker 기반 안전 제거**: `unmerge_settings.py` 가 `verifiers/` 문자열 marker 로 자기 hook 만 식별 제거 → 사용자 커스텀 hook 보호.
+- **Circuit breaker**: `stop_validator.py` 는 `.verifier-block-count` 파일에 연속 차단 횟수를 기록하고, 3 회 연속 차단되면 통과시켜 무한 루프를 방지합니다.
+- **Tier 분리**: 빠른 보안 차단 (Tier 1, <100ms) / 상황별 호출 (Tier 2) / 무거운 종합 검증 (Tier 3, ≤120s) 으로 비용·블로킹 정책을 분리.
+
+## License
+
+MIT
