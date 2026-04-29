@@ -271,25 +271,76 @@ def format_output(findings: list[Finding], mode: str) -> dict[str, Any]:
         return {"additionalContext": context}
 
 
-# Phase38 (A5 audit): Claude Code hook payloads are tiny (a few hundred
-# bytes typically), but the standalone CLI surface (``echo '{...}' |
-# uv run --script stop_validator.py``) is documented in the README.
-# A 1 MiB cap blocks ``yes ... | head -c 10G`` style local DoS without
-# clipping any real Claude payload.
-_MAX_STDIN_BYTES = 1_048_576
+# Phase38 / Phase38b (A5 audit): cap stdin reads so a misuse of the
+# documented standalone CLI surface (``echo '{...}' | uv run --script
+# stop_validator.py``) can't OOM the worker. 10 MiB covers every
+# realistic Claude Code payload — measured transcript max line was
+# ~528 KiB, lockfile / generated-asset writes top out a few MiB —
+# while still cutting off ``yes ... | head -c 10G`` early.
+_MAX_STDIN_BYTES = 10 * 1_048_576
+
+# Sentinel key set by ``read_hook_input`` when the cap was hit. The
+# Tier 2 / Tier 3 hook entry points check for it and emit a
+# ``VERIFIERS-STDIN-TRUNCATED`` warning so a truncated JSON parse
+# never silently passes validation.
+_TRUNCATED_SENTINEL_KEY = "_verifiers_stdin_truncated"
 
 
 def read_hook_input() -> dict[str, Any]:
     """Read JSON input from stdin (Claude Code hook protocol).
 
-    Caps the read at ``_MAX_STDIN_BYTES`` so a misuse of the standalone
-    CLI surface (e.g. piping a huge stream into a hook script for
-    debugging) can't OOM the worker.
+    Reads at most ``_MAX_STDIN_BYTES + 1`` bytes. If the extra byte
+    arrived, the payload was longer than the cap and the resulting
+    JSON is almost certainly truncated. In that case we still attempt
+    to parse the capped slice (some inputs may be valid JSON for the
+    first N bytes) but mark the result with the
+    ``_verifiers_stdin_truncated`` sentinel key so the hook entry
+    points can emit a warning instead of silent-passing.
+
+    Failed parse → empty dict (legacy behavior preserved). The
+    truncation sentinel is appended in either case when the cap was
+    hit, so the caller can distinguish "small bad JSON" from "input
+    too large".
     """
+    raw = sys.stdin.read(_MAX_STDIN_BYTES + 1)
+    truncated = len(raw) > _MAX_STDIN_BYTES
+    payload = raw[:_MAX_STDIN_BYTES] if truncated else raw
+
     try:
-        return json.loads(sys.stdin.read(_MAX_STDIN_BYTES))
+        data = json.loads(payload)
+        if not isinstance(data, dict):
+            data = {}
     except (json.JSONDecodeError, EOFError):
-        return {}
+        data = {}
+
+    if truncated:
+        data[_TRUNCATED_SENTINEL_KEY] = _MAX_STDIN_BYTES
+    return data
+
+
+def stdin_truncation_finding(cap_bytes: int) -> Finding:
+    """Build the warning Finding for a stdin cap-hit (Phase38b, A5).
+
+    Stop / router / security_hook all check ``read_hook_input``'s
+    output for the truncation sentinel and emit this finding before
+    bailing — silent-passing on truncated input would defeat the
+    point of having a hook.
+    """
+    return Finding(
+        severity="warning",
+        file="stdin",
+        rule="VERIFIERS-STDIN-TRUNCATED",
+        message=(
+            f"Hook input exceeded the {cap_bytes:,}-byte stdin cap and was truncated. "
+            "Validators did not run for this invocation."
+        ),
+        fix=(
+            "Reduce the size of the edit (e.g., split a huge generated-file "
+            "rewrite into smaller chunks) or, if the payload is legitimately "
+            "this large, raise ``_MAX_STDIN_BYTES`` in lib/validators/base.py."
+        ),
+        kind="sentinel",
+    )
 
 
 def write_hook_output(output: dict[str, Any]) -> None:

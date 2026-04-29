@@ -17,8 +17,10 @@ from hooks.validators.base import (
     _dedup_findings,
     format_output,
     read_hook_input,
+    stdin_truncation_finding,
     write_hook_output,
 )
+from hooks.validators.base import _MAX_STDIN_BYTES, _TRUNCATED_SENTINEL_KEY
 from lib.project_context import ProjectContext
 
 
@@ -462,6 +464,52 @@ class TestReadHookInput:
         with patch("sys.stdin", new=io.StringIO(json.dumps(payload, ensure_ascii=False))):
             result = read_hook_input()
         assert result == payload
+
+    def test_under_cap_no_truncation_sentinel(self) -> None:
+        # Phase38b: a payload that fits in the cap must not carry the
+        # truncation sentinel key — that would make every hook call
+        # emit a false-positive STDIN-TRUNCATED warning.
+        payload = {"tool_name": "Edit"}
+        with patch("sys.stdin", new=io.StringIO(json.dumps(payload))):
+            result = read_hook_input()
+        assert _TRUNCATED_SENTINEL_KEY not in result
+
+    def test_oversized_stdin_marks_truncated(self) -> None:
+        # Phase38b: when stdin holds more than _MAX_STDIN_BYTES, the
+        # returned dict must carry the truncation sentinel so the
+        # hook entry points emit a STDIN-TRUNCATED warning instead of
+        # silent-passing on a partial JSON parse.
+        oversize = "x" * (_MAX_STDIN_BYTES + 5)
+        with patch("sys.stdin", new=io.StringIO(oversize)):
+            result = read_hook_input()
+        assert result.get(_TRUNCATED_SENTINEL_KEY) == _MAX_STDIN_BYTES
+
+    def test_truncation_sentinel_independent_of_parse_success(self) -> None:
+        # Even if the *capped slice* happens to be valid JSON (the
+        # JSON has a complete root object inside the first N bytes),
+        # the truncation flag must still be set — otherwise an
+        # attacker could pad with junk after a clean ``{}`` to hide
+        # the cap-hit.
+        prefix = json.dumps({"tool_name": "Edit"})
+        # ``prefix`` length is a few dozen bytes; pad to push past cap.
+        payload = prefix + " " + "x" * (_MAX_STDIN_BYTES + 1 - len(prefix))
+        with patch("sys.stdin", new=io.StringIO(payload)):
+            result = read_hook_input()
+        assert result.get(_TRUNCATED_SENTINEL_KEY) == _MAX_STDIN_BYTES
+
+
+class TestStdinTruncationFinding:
+    """Phase38b — stdin_truncation_finding factory shape."""
+
+    def test_finding_is_warning_sentinel(self) -> None:
+        f = stdin_truncation_finding(_MAX_STDIN_BYTES)
+        assert f.severity == "warning"
+        assert f.kind == "sentinel"
+        assert f.rule == "VERIFIERS-STDIN-TRUNCATED"
+
+    def test_finding_message_includes_cap(self) -> None:
+        f = stdin_truncation_finding(123_456)
+        assert "123,456" in f.message
 
 
 # ---------------------------------------------------------------------------

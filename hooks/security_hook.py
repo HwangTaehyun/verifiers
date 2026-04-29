@@ -74,12 +74,27 @@ def check_secrets(file_path: str) -> list[dict]:
 
 
 def main() -> None:
-    # Phase38 (A5 audit): cap stdin at 1 MiB. Claude Code hook payloads
-    # are far smaller than this; the cap exists to neutralize the
-    # documented standalone CLI surface (``echo '{...}' | hook``) so a
-    # misbehaving wrapper can't pipe gigabytes and pin the process.
+    # Phase38 / Phase38b (A5 audit): cap stdin at 10 MiB and detect when
+    # the cap was hit. Reading ``cap+1`` bytes lets us tell apart
+    # "input fits in the cap" from "input was truncated" — the latter
+    # would otherwise produce a JSON parse error and a silent pass,
+    # which on a security gate is the wrong outcome.
+    cap = 10 * 1_048_576
+    raw = sys.stdin.read(cap + 1)
+    if len(raw) > cap:
+        # Surface the truncation as a hook-block so the security gate
+        # never silent-passes on an input we couldn't fully read.
+        block = {
+            "decision": "block",
+            "reason": (
+                f"Tier 1 security hook: stdin payload exceeded {cap:,}-byte cap "
+                "and was truncated; validation skipped to avoid silent pass."
+            ),
+        }
+        print(json.dumps(block))
+        return
     try:
-        input_data = json.loads(sys.stdin.read(1_048_576))
+        input_data = json.loads(raw)
     except (json.JSONDecodeError, EOFError):
         print("{}")
         return

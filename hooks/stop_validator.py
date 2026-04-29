@@ -80,6 +80,13 @@ def _apply_exclude_filters(findings: list[Finding], ctx: ProjectContext) -> list
 
 def main() -> None:
     input_data = read_hook_input()
+    # Phase38b (A5 audit): truncation warning before any other processing.
+    truncated = input_data.get("_verifiers_stdin_truncated")
+    if truncated:
+        from hooks.validators.base import stdin_truncation_finding
+
+        write_hook_output(format_output([stdin_truncation_finding(truncated)], mode="stop"))
+        return
     if not input_data:
         write_hook_output({"decision": "approve"})
         return

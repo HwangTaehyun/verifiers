@@ -42,6 +42,14 @@ from lib.router_cache import file_content_hash, load_cache, record_hit, save_cac
 
 def main() -> None:
     input_data = read_hook_input()
+    # Phase38b (A5 audit): if read_hook_input hit the stdin cap, surface
+    # a warning instead of silent-passing on truncated input.
+    truncated = input_data.get("_verifiers_stdin_truncated")
+    if truncated:
+        from hooks.validators.base import stdin_truncation_finding
+
+        write_hook_output(format_output([stdin_truncation_finding(truncated)], mode="post_tool_use"))
+        return
     if not input_data:
         write_hook_output({})
         return
