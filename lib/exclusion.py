@@ -63,3 +63,38 @@ def filter_disabled_validators(validators, disabled: list[str]):
             continue
         out.append(v)
     return out
+
+
+def is_excluded_for_validator(
+    file_path: str,
+    project_root: Path,
+    per_validator: dict[str, list[str]],
+    validator_id: str,
+) -> bool:
+    """Per-validator exclusion: should ``validator_id`` skip ``file_path``?
+
+    ``per_validator`` is the user's
+    ``ctx.config.exclude.per_validator`` map. Keys may be the full
+    validator id (``"V14-complexity-guard"``) or just the V-ID prefix
+    (``"V14"``); both forms are checked so configs can use whichever the
+    user prefers in ``.verifiers/config.yaml``.
+
+    Returns False fast when the map is empty (the common case).
+    """
+    if not per_validator:
+        return False
+
+    prefix = validator_id.split("-", 1)[0]  # "V14-complexity-guard" → "V14"
+
+    # Patterns can be registered under either form; merge both buckets.
+    patterns: list[str] = []
+    if validator_id in per_validator:
+        patterns.extend(per_validator[validator_id])
+    if prefix != validator_id and prefix in per_validator:
+        patterns.extend(per_validator[prefix])
+
+    if not patterns:
+        return False
+
+    rel = _relativize(file_path, project_root)
+    return any(fnmatch(rel, pattern) for pattern in patterns)

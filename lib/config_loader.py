@@ -83,9 +83,20 @@ class Thresholds:
 
 @dataclass
 class ExcludeConfig:
-    """Glob patterns (gitignore-style) relative to project root."""
+    """Glob patterns (gitignore-style) relative to project root.
+
+    ``paths`` is the global exclusion list — files matching any pattern
+    are skipped before any validator runs.
+
+    ``per_validator`` is a {validator-id-or-prefix: [globs]} map: a file
+    matching one of those globs is skipped only for that validator.
+    Other validators still see the file. The key may be a full id
+    (``"V14-complexity-guard"``) or just the V-ID prefix (``"V14"``);
+    both are accepted so users can write the shorter form in YAML.
+    """
 
     paths: list[str] = field(default_factory=list)
+    per_validator: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -195,6 +206,16 @@ def _build_config(raw: dict[str, Any]) -> VerifiersConfig:
     excl_raw = raw.get("exclude")
     if isinstance(excl_raw, dict):
         cfg.exclude.paths = _coerce_str_list(excl_raw.get("paths"))
+        per_validator_raw = excl_raw.get("per_validator")
+        if isinstance(per_validator_raw, dict):
+            per_v: dict[str, list[str]] = {}
+            for key, value in per_validator_raw.items():
+                if not isinstance(key, str):
+                    continue
+                patterns = _coerce_str_list(value)
+                if patterns:
+                    per_v[key] = patterns
+            cfg.exclude.per_validator = per_v
 
     val_raw = raw.get("validators")
     if isinstance(val_raw, dict):

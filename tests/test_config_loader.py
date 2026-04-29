@@ -87,6 +87,32 @@ class TestPartialOverrides:
         assert cfg.validators.enabled == ["V01", "V08"]
         assert cfg.validators.disabled == ["V04"]
 
+    def test_per_validator_exclude(self, tmp_path: Path) -> None:
+        _write_config(
+            tmp_path,
+            "exclude:\n"
+            "  per_validator:\n"
+            "    V14:\n"
+            '      - "legacy/**"\n'
+            '      - "scripts/**"\n'
+            "    V08-security:\n"
+            '      - "test-fixtures/**"\n',
+        )
+        cfg = load_config(tmp_path)
+        assert cfg.exclude.per_validator == {
+            "V14": ["legacy/**", "scripts/**"],
+            "V08-security": ["test-fixtures/**"],
+        }
+
+    def test_per_validator_drops_invalid_entries(self, tmp_path: Path) -> None:
+        # Non-string keys ignored, empty pattern lists ignored.
+        _write_config(
+            tmp_path,
+            'exclude:\n  per_validator:\n    V14: ["legacy/**"]\n    V99: []\n',
+        )
+        cfg = load_config(tmp_path)
+        assert cfg.exclude.per_validator == {"V14": ["legacy/**"]}
+
 
 # ---------------------------------------------------------------------------
 # 3. Robustness — malformed input never crashes

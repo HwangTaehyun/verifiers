@@ -31,7 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from hooks.validators import get_all_validators
 from hooks.validators.base import Finding, format_output, read_hook_input, write_hook_output
-from lib.exclusion import filter_disabled_validators, is_excluded
+from lib.exclusion import filter_disabled_validators, is_excluded, is_excluded_for_validator
 from lib.json_logger import log_exception
 from lib.project_context import ProjectContext
 from lib.router_cache import file_content_hash, load_cache, record_hit, save_cache, should_skip
@@ -67,11 +67,19 @@ def main() -> None:
     # ── P1-3: drop validators the project explicitly disabled ────────
     active = filter_disabled_validators(get_all_validators(), ctx.config.validators.disabled)
 
+    # ── Phase15: per-validator file exclusion ────────────────────────
+    # Drop validators that the user told to skip *this specific file*
+    # (e.g. ``exclude.per_validator.V14: ["legacy/**"]``). Other
+    # validators still see the file normally.
+    per_v = ctx.config.exclude.per_validator
+    active = [v for v in active if not is_excluded_for_validator(file_path, ctx.project_root, per_v, v.id)]
+
     # ── P2-1 prefilter 1: extension matching ─────────────────────────
     # If no active validator declares interest in this file, exit
     # immediately — saves the cost of opening + hashing the file
     # for every Markdown / lockfile / yaml edit Claude makes.
-    if not any(v.should_run(file_path) for v in active):
+    matching = [v for v in active if v.should_run(file_path)]
+    if not matching:
         write_hook_output({})
         return
 
@@ -88,19 +96,18 @@ def main() -> None:
     # ── Run matching validators ──────────────────────────────────────
     all_findings: list[Finding] = []
 
-    for validator in active:
-        if validator.should_run(file_path):
-            try:
-                result = validator.run(ctx, file_path, mode="post_tool_use")
-                all_findings.extend(result.findings)
-            except Exception as exc:
-                # Individual validator failure shouldn't block others — but
-                # we record it so debugging is possible (P0-4).
-                log_exception(
-                    source=f"router/{validator.id}",
-                    error=exc,
-                    context={"file_path": file_path, "cwd": cwd, "mode": "post_tool_use"},
-                )
+    for validator in matching:
+        try:
+            result = validator.run(ctx, file_path, mode="post_tool_use")
+            all_findings.extend(result.findings)
+        except Exception as exc:
+            # Individual validator failure shouldn't block others — but
+            # we record it so debugging is possible (P0-4).
+            log_exception(
+                source=f"router/{validator.id}",
+                error=exc,
+                context={"file_path": file_path, "cwd": cwd, "mode": "post_tool_use"},
+            )
 
     # Update the cache so an immediately-following Edit on the same
     # file with identical content takes the fast path next time.

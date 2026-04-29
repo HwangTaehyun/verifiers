@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.exclusion import filter_disabled_validators, is_excluded
+from lib.exclusion import filter_disabled_validators, is_excluded, is_excluded_for_validator
 
 
 # ---------------------------------------------------------------------------
@@ -97,3 +97,65 @@ class TestFilterDisabledValidators:
         assert out is not validators
         out.pop()
         assert len(validators) == 4
+
+
+# ---------------------------------------------------------------------------
+# 3. is_excluded_for_validator — per-validator file ignores (Phase15)
+# ---------------------------------------------------------------------------
+
+
+class TestIsExcludedForValidator:
+    def test_empty_map_returns_false(self, tmp_path: Path) -> None:
+        # No per-validator config → never excluded.
+        assert is_excluded_for_validator(str(tmp_path / "src/main.go"), tmp_path, {}, "V14-complexity-guard") is False
+
+    def test_full_id_match(self, tmp_path: Path) -> None:
+        target = tmp_path / "legacy" / "old.go"
+        target.parent.mkdir(parents=True)
+        target.write_text("")
+        per_v = {"V14-complexity-guard": ["legacy/**"]}
+        assert is_excluded_for_validator(str(target), tmp_path, per_v, "V14-complexity-guard") is True
+
+    def test_v_id_prefix_match(self, tmp_path: Path) -> None:
+        # Users can write the shorter prefix in YAML.
+        target = tmp_path / "legacy" / "old.go"
+        target.parent.mkdir(parents=True)
+        target.write_text("")
+        per_v = {"V14": ["legacy/**"]}
+        assert is_excluded_for_validator(str(target), tmp_path, per_v, "V14-complexity-guard") is True
+
+    def test_other_validator_not_affected(self, tmp_path: Path) -> None:
+        target = tmp_path / "legacy" / "old.go"
+        target.parent.mkdir(parents=True)
+        target.write_text("")
+        per_v = {"V14": ["legacy/**"]}
+        # V08 isn't mentioned in per_v — must still see the file.
+        assert is_excluded_for_validator(str(target), tmp_path, per_v, "V08-security") is False
+
+    def test_no_match_returns_false(self, tmp_path: Path) -> None:
+        target = tmp_path / "src" / "main.go"
+        target.parent.mkdir(parents=True)
+        target.write_text("")
+        per_v = {"V14": ["legacy/**"]}
+        assert is_excluded_for_validator(str(target), tmp_path, per_v, "V14-complexity-guard") is False
+
+    def test_full_id_and_prefix_buckets_merged(self, tmp_path: Path) -> None:
+        # The user wrote both the prefix AND the full id with different
+        # patterns. Both should apply for V14-complexity-guard.
+        prefix_target = tmp_path / "legacy" / "a.go"
+        full_target = tmp_path / "scripts" / "b.go"
+        prefix_target.parent.mkdir(parents=True)
+        full_target.parent.mkdir(parents=True)
+        prefix_target.write_text("")
+        full_target.write_text("")
+        per_v = {
+            "V14": ["legacy/**"],
+            "V14-complexity-guard": ["scripts/**"],
+        }
+        assert is_excluded_for_validator(str(prefix_target), tmp_path, per_v, "V14-complexity-guard") is True
+        assert is_excluded_for_validator(str(full_target), tmp_path, per_v, "V14-complexity-guard") is True
+
+    def test_outside_project_root_falls_back_to_raw_path(self, tmp_path: Path) -> None:
+        per_v = {"V14": ["legacy/**"]}
+        # Path outside root — relativize fails, raw fnmatch is used.
+        assert is_excluded_for_validator("/tmp/elsewhere/legacy/x.go", tmp_path, per_v, "V14-complexity-guard") is False
