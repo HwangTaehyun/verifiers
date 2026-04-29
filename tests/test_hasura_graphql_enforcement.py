@@ -189,6 +189,47 @@ class TestCheckGoFile:
         findings = validator._check_go_file(str(go_file))
         assert not any(f.rule == "V20-MISSING-GRAPHQL" for f in findings)
 
+    def test_service_struct_without_db_signal_no_warning(
+        self, validator: HasuraGraphQLEnforcementValidator, hasura_project: Path
+    ) -> None:
+        """A Service struct that doesn't touch the DB at all (S3 adapter,
+        Stripe client, file parser, in-memory cache, etc.) must NOT trigger
+        V20-MISSING-GRAPHQL. The "missing graphql.Client" rule is only
+        meaningful when the Service is actually doing DB work."""
+        go_file = hasura_project / "server" / "internal" / "storage.go"
+        go_file.parent.mkdir(parents=True)
+        go_file.write_text(
+            "package internal\n\n"
+            "import (\n"
+            '\t"github.com/aws/aws-sdk-go-v2/service/s3"\n'
+            ")\n\n"
+            "type Service struct {\n"
+            "\ts3Client *s3.Client\n"
+            "\tbucket   string\n"
+            "}\n"
+        )
+        findings = validator._check_go_file(str(go_file))
+        assert not any(f.rule == "V20-MISSING-GRAPHQL" for f in findings)
+
+    def test_service_struct_with_pgx_warns(
+        self, validator: HasuraGraphQLEnforcementValidator, hasura_project: Path
+    ) -> None:
+        """A Service that uses pgx (or any DB driver) without a graphql.Client
+        IS a real V20 smell — flag it."""
+        go_file = hasura_project / "server" / "internal" / "repo.go"
+        go_file.parent.mkdir(parents=True)
+        go_file.write_text(
+            "package internal\n\n"
+            "import (\n"
+            '\t"github.com/jackc/pgx/v5"\n'
+            ")\n\n"
+            "type Service struct {\n"
+            "\tconn *pgx.Conn\n"
+            "}\n"
+        )
+        findings = validator._check_go_file(str(go_file))
+        assert any(f.rule == "V20-MISSING-GRAPHQL" for f in findings)
+
     def test_clean_file_no_findings(self, validator: HasuraGraphQLEnforcementValidator, hasura_project: Path) -> None:
         go_file = hasura_project / "server" / "internal" / "clean.go"
         go_file.parent.mkdir(parents=True)

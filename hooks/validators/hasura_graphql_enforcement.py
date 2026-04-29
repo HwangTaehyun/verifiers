@@ -77,6 +77,27 @@ _SQL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 _DATABASE_SQL_IMPORT = re.compile(r'^\s*"database/sql"', re.MULTILINE)
 _SERVICE_STRUCT = re.compile(r"\btype\s+\w*Service\s+struct\b")
 
+# Signals that a file is "DB-handling": presence of any of these implies
+# the Service is talking to Postgres directly and SHOULD route through
+# the GraphQL client. Used by the V20-MISSING-GRAPHQL heuristic to
+# suppress the warning on Services that legitimately have nothing to do
+# with the DB (S3/MinIO adapters, third-party API clients, in-memory
+# caches, file parsers, health-check services, etc.). Without this
+# guard the check fires on every `type *Service struct` regardless of
+# domain — a high false-positive rate that forced per_validator config
+# bloat in downstream projects.
+_DB_DRIVER_SIGNAL = re.compile(
+    r"\b("
+    r"runHasuraSQL"  # project-local raw-SQL helper
+    r"|sqlx\."  # github.com/jmoiron/sqlx
+    r"|pgx\."  # github.com/jackc/pgx
+    r"|gorm\."  # gorm.io/gorm
+    r"|sql\.DB\b"  # *sql.DB type usage
+    r"|sql\.Open\b"  # database/sql.Open call site
+    r"|pgxpool\."  # pgxpool from pgx/v5
+    r")",
+)
+
 
 class HasuraGraphQLEnforcementValidator(BaseValidator):
     """V20: Hasura GraphQL Enforcement — forbids raw SQL when Hasura is present."""
@@ -215,24 +236,44 @@ class HasuraGraphQLEnforcementValidator(BaseValidator):
                     )
                     break  # one finding per line is enough
 
-        # Service struct missing GraphQL client
+        # Service struct missing GraphQL client.
+        #
+        # Only fires when the file shows real DB-handling intent — otherwise
+        # a Service is allowed to omit graphql.Client. Without this guard
+        # the check has a high false-positive rate (S3 adapters, Stripe
+        # clients, file parsers, in-memory caches, health-check services
+        # all have a `type *Service struct` but legitimately never touch
+        # Postgres, so demanding a graphql.Client field is meaningless).
+        #
+        # DB-handling signals:
+        #   1. raw SQL pattern in the file body (_SQL_PATTERNS)
+        #   2. database/sql import
+        #   3. driver-level call site (sqlx, pgx, gorm, sql.DB, ...)
+        #
+        # Guard: a Service file with NONE of those signals doesn't need
+        # a graphql.Client → suppress the warning so per_validator config
+        # doesn't accumulate one-off file exemptions per project.
         if _SERVICE_STRUCT.search(content) and "gqlClient" not in content:
-            for i, line in enumerate(content.split("\n"), 1):
-                if _SERVICE_STRUCT.search(line):
-                    findings.append(
-                        Finding(
-                            severity="warning",
-                            file=file_path,
-                            rule="V20-MISSING-GRAPHQL",
-                            message="Service struct does not declare a GraphQL client field",
-                            fix=(
-                                f"Add 'gqlClient graphql.Client' (or your project's equivalent) "
-                                f"to the Service struct at {file_path}:{i}."
-                            ),
-                            line=i,
+            has_sql_pattern = any(p.search(content) for p, _ in _SQL_PATTERNS)
+            has_sql_import = _DATABASE_SQL_IMPORT.search(content) is not None
+            has_db_driver = _DB_DRIVER_SIGNAL.search(content) is not None
+            if has_sql_pattern or has_sql_import or has_db_driver:
+                for i, line in enumerate(content.split("\n"), 1):
+                    if _SERVICE_STRUCT.search(line):
+                        findings.append(
+                            Finding(
+                                severity="warning",
+                                file=file_path,
+                                rule="V20-MISSING-GRAPHQL",
+                                message="Service struct does not declare a GraphQL client field",
+                                fix=(
+                                    f"Add 'gqlClient graphql.Client' (or your project's equivalent) "
+                                    f"to the Service struct at {file_path}:{i}."
+                                ),
+                                line=i,
+                            )
                         )
-                    )
-                    break
+                        break
 
         return findings
 
