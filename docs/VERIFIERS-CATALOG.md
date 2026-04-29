@@ -6,47 +6,36 @@
 
 ## 0. 핵심 아키텍처 (한 눈에)
 
+| Tier | 발동 이벤트 | 진입점 | matcher / 시점 | 핵심 역할 |
+| :--: | ----------- | ------ | -------------- | --------- |
+| **1** | `PostToolUse` | `hooks/security_hook.py` | `Edit \| Write \| MultiEdit` · timeout 10s · <100ms | regex 기반 시크릿(V08) 즉시 차단 — 가장 가벼운 첫 줄 방어 |
+| **2** | (hook 미등록) | `hooks/router.py` + `skills/verify-*` (20개) | Claude 가 자율 판단해 skill 호출 / 사용자가 `/verify` 실행 / `just verify-one V##` | file_path 매칭 validator 만 골라 실행 — 상황별 비용 통제 |
+| **3** | `Stop` | `hooks/stop_validator.py` | turn 종료 시도 시 단일 발동 · timeout 120s | 등록된 19개 validator (V01~V19) 일괄 실행 · circuit breaker x3 · FeedbackTracker |
+
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                       Claude Code 도구 호출 흐름                         │
-└────────────────────────────────────────────────────────────────────────┘
+PostToolUse (Edit/Write/MultiEdit)
+   └─> Tier 1: security_hook.py
+         · 시크릿 regex 매칭 시 decision:"block" + reason
+         · 매칭 없으면 {} 반환
 
-   Edit / Write / MultiEdit             ─── PostToolUse 이벤트 ──┐
-                                                                  │
-                                                                  v
-                                                       ┌──────────────────────────┐
-                                                       │ Tier 1: security_hook.py │
-                                                       │ matcher: Edit|Write|...  │  ← settings.json 에 등록
-                                                       │ regex only, < 100 ms     │
-                                                       │ V08 (시크릿) 즉시 차단    │
-                                                       └─────────┬────────────────┘
-                                                                  │ {} or block
-                                                                  v
-                                                     (Tier 2 는 hook 자동등록 X)
-                                                     /verify skill / Claude 판단으로
-                                                     hooks/router.py 또는 개별 skill 호출
-                                                       ┌──────────────────────────┐
-                                                       │ Tier 2: skills/verify-*  │
-                                                       │ 20 개 skill — 상황별      │
-                                                       │ V01~V19 중 매칭 실행      │
-                                                       └──────────────────────────┘
+(Tier 2 는 settings.json 의 hook 으로 자동 등록되지 않음)
+   └─> Claude/사용자가 호출했을 때만:
+         · /verify 슬래시 명령 → hooks/router.py
+         · Claude 가 verify-* skill 자율 호출
+         · just verify-one V## (디버그)
 
-   Claude 가 turn 종료 시도            ─── Stop 이벤트 ────────────┐
-                                                                  v
-                                                       ┌──────────────────────────┐
-                                                       │ Tier 3: stop_validator.py│
-                                                       │ matcher: 없음 (Stop 단일)│
-                                                       │ 등록된 19 개 validator    │
-                                                       │ 일괄 실행 (≤ 120 s)      │
-                                                       │ + circuit breaker x3     │
-                                                       │ + FeedbackTracker        │
-                                                       └──────────────────────────┘
+Stop 이벤트 (Claude turn 종료 시도)
+   └─> Tier 3: stop_validator.py
+         · get_all_validators() 19개 일괄 실행 (mode="stop")
+         · errors 있음 → block + reason → Claude 다시 수정
+         · stop_hook_active && block 누적 ≥ 3 → 강제 approve (deadlock 방지)
+         · FeedbackTracker 가 같은 rule+file 반복 시 메시지 추가
 ```
 
 **우선 읽을 것**:
-- Tier 1 은 `~/.claude/settings.json` 의 `hooks.PostToolUse[matcher: Edit|Write|MultiEdit]` 항목.
-- Tier 3 은 `hooks.Stop` 항목. 둘 다 `scripts/merge_settings.py` 가 자동 등록.
-- Tier 2 는 `settings.json` 에 hook 으로 직접 묶이지 않음 — Claude 가 skill 시스템으로 호출하거나 사용자가 `/verify` 명령으로 `hooks/router.py` 직접 실행.
+- Tier 1 은 `~/.claude/settings.json` 의 `hooks.PostToolUse[matcher: Edit|Write|MultiEdit]` 항목, Tier 3 은 `hooks.Stop` 항목 — 둘 다 `scripts/merge_settings.py` 가 자동 등록.
+- Tier 1 (timeout 10s) ↔ Tier 3 (timeout 120s) — 비용 분리.
+- Tier 2 는 settings.json 에 hook 으로 직접 묶이지 않음 — Claude 가 skill 시스템으로 호출하거나 사용자가 `/verify` 명령으로 `hooks/router.py` 직접 실행.
 
 ---
 

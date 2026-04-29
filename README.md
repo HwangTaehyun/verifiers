@@ -5,18 +5,11 @@
 `verifiers`는 Claude Code 가 생성한 코드를 **세 단계(Tier 1/2/3)** 로 검증하는 모듈입니다.
 보안 위반은 즉시 차단하고, 상황별 품질 점검은 skill 로 호출하며, 턴 종료 시점에는 19개의 등록 validator (V01~V19, V17 UI 미구현) 가 일괄 실행됩니다. 현재 **782 개의 pytest** 가 검증 로직을 보호합니다. 각 validator·hook 의 상세 동작은 [`docs/VERIFIERS-CATALOG.md`](docs/VERIFIERS-CATALOG.md) 를 참조하세요.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Tier 1 │ security_hook.py  │ PostToolUse, <100ms            │
-│         │ (Edit|Write|MultiEdit) regex 기반 보안 즉시 차단    │
-├─────────────────────────────────────────────────────────────┤
-│  Tier 2 │ skills/verify-*   │ 상황별 검증 (총 20개 skill)     │
-│         │ verify-go, verify-ts, verify-docker, ...           │
-├─────────────────────────────────────────────────────────────┤
-│  Tier 3 │ stop_validator.py │ Stop hook, 종합 검증 (≤120s)    │
-│         │ V01~V19 등록 validator 일괄 실행                    │
-└─────────────────────────────────────────────────────────────┘
-```
+| Tier | 진입점 | 트리거 / 시점 | 역할 |
+| :--: | ------ | ------------- | ---- |
+| **1** | `security_hook.py` | PostToolUse · `Edit \| Write \| MultiEdit` · <100ms | regex 기반 보안 즉시 차단 |
+| **2** | `skills/verify-*` (20개) | Claude/사용자가 명시적 호출 (자동 hook 미등록) | 상황별 검증 — `verify-go`, `verify-ts`, `verify-docker`, ... |
+| **3** | `stop_validator.py` | Stop · ≤120s | V01~V19 등록 validator 일괄 실행 (+ circuit breaker · FeedbackTracker) |
 
 ## Requirements
 
@@ -31,7 +24,7 @@
 verifiers 를 클론한 뒤, **글로벌** 또는 **프로젝트별** 중 원하는 모드로 설치하세요. 두 모드는 공존 가능합니다.
 
 ```bash
-git clone https://github.com/<YOUR_GITHUB_USER>/verifiers.git
+git clone https://github.com/HwangTaehyun/verifiers.git
 cd verifiers
 just setup            # uv 가 의존성 설치 (.venv 생성)
 ```
