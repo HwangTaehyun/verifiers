@@ -21,17 +21,15 @@ from pathlib import Path
 # Add parent directory to path so we can import lib/
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from hooks.validators import get_all_validators
 from hooks.validators.base import Finding, format_output, read_hook_input, write_hook_output
 from lib.exclusion import (
-    filter_disabled_validators,
-    filter_enabled_validators,
     is_excluded,
     is_excluded_for_validator,
 )
 from lib.feedback_tracker import FeedbackTracker
 from lib.json_logger import log_exception
 from lib.parallel_runner import run_all
+from lib.validator_registry import resolve_active_validators
 from lib.project_context import ProjectContext
 
 
@@ -90,35 +88,17 @@ def main() -> None:
     # Create project context
     ctx = ProjectContext(cwd)
 
-    # P1-3: enabled allowlist + disabled deny-list (disabled wins on
-    # conflict). Empty enabled list means "no allowlist filtering" so
-    # the default behaviour (all validators run) is preserved.
-    #
-    # ``filter_enabled_validators`` raises ``ValueError`` when the
-    # allowlist is non-empty but matches zero validators (user typo).
-    # Surface that as a blocking finding rather than silent-approving —
-    # this is the S1 false-approve guard from phase22.
-    try:
-        active = filter_enabled_validators(get_all_validators(), ctx.config.validators.enabled)
-    except ValueError as exc:
-        log_exception(
-            source="stop_validator/filter_enabled_validators",
-            error=exc,
-            context={"cwd": cwd, "enabled": list(ctx.config.validators.enabled)},
-        )
-        config_finding = Finding(
-            severity="error",
-            file=str(ctx.project_root / ".verifiers" / "config.yaml"),
-            rule="VERIFIERS-CONFIG-EMPTY-ALLOWLIST",
-            message=str(exc),
-            fix="Edit .verifiers/config.yaml: fix the typo in validators.enabled "
-            "or remove the key entirely to run every validator.",
-        )
-        output = format_output([config_finding], mode="stop")
+    # P1-3: enabled allowlist + disabled deny-list (disabled wins).
+    # Phase35 (A1 audit): the four-step filter pipeline is shared with
+    # ``hooks/router.py`` via ``lib/validator_registry``. The hard-fail
+    # on a non-empty allowlist matching zero validators stays — the
+    # ``VERIFIERS-CONFIG-EMPTY-ALLOWLIST`` finding bubbles up so the
+    # Stop hook never silent-approves on a typo.
+    active, config_error = resolve_active_validators(ctx, source="stop_validator/resolve_active_validators")
+    if config_error is not None:
+        output = format_output([config_error], mode="stop")
         write_hook_output(output)
         return
-
-    active = filter_disabled_validators(active, ctx.config.validators.disabled)
 
     # Parallel by default (4 workers, 30s per-validator timeout). Set
     # VERIFIERS_PARALLEL=0 to fall back to the legacy sequential loop.
