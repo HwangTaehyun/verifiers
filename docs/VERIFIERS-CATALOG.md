@@ -217,6 +217,14 @@ Stop 이벤트 (Claude turn 종료 시도)
 - **검사**: post_tool_use — `V19-RUFF-CHECK` (단일 파일 `ruff check --output-format text --no-fix`, `(.+?):(\d+):(\d+): (\S+) (.+)` → `V19-RUFF-{CODE}` rule id 보존), `V19-RUFF-FORMAT` (`ruff format --check`). stop — `V19-RUFF-ALL` (프로젝트 전체 `ruff check .`, 최대 20 개 finding 후 요약).
 - **목적**: ruff lint/format. Phase28 에서 pytest 분리되어 V21 로 이동 — parallel runner 가 lint 와 test 실행을 독립 단위로 본다.
 
+#### V20 · `hasura_graphql_enforcement.py` · `**/*.go`, `**/hasura/**`
+- **검사**: Hasura 가 프로젝트에 감지될 때만 동작 (감지 안 되면 `_detect_hasura()` early-exit, 비용 0).
+  - `V20-RAW-SQL-FORBIDDEN` — Go 파일에서 `db.Query(...)`, `.QueryRow(...)`, `.ExecContext(...)`, `.PrepareContext(...)`, 또는 `SELECT/INSERT/UPDATE/DELETE` 리터럴 검출. raw SQL 대신 GraphQL 사용 강제.
+  - `V20-SQL-IMPORT` — `database/sql` 또는 `github.com/jmoiron/sqlx` 등 raw-SQL 라이브러리 import 검출.
+  - `V20-MISSING-GRAPHQL` — Service struct 가 GraphQL client 필드 (gqlClient / graphqlClient / hasura* 등) 없이 정의됐을 때 경고.
+- **모드**: post_tool_use (편집된 단일 Go 파일) + stop (프로젝트 전체 Go 파일).
+- **목적**: Hasura 도입 후에도 코드가 raw SQL 로 우회하면 schema/permission 보호가 무력화됨. Phase3 에서 V15→V20 prefix 재할당으로 dependency_guard 와 모듈 1:1 매핑 회복. **Hasura 없는 프로젝트에는 영향 0** — 비용도 false positive 도 없음.
+
 #### V21 · `py_pytest.py` · `**/*.py`, `**/pyproject.toml` · stop 전용
 - **검사**: stop 모드만 동작. `V21-TEST-FAIL` (`pytest -x -q --tb=no`, `(\d+) failed`, `FAILED\s+(\S+)`, 최대 5 개 테스트 이름 포함).
 - **모드 게이팅**: `stop.run_pytest` config 키 (Phase28+) — `"smart"` (기본; `git diff --name-only HEAD` 결과에 `.py` 또는 `pyproject.toml` 있을 때만), `"always"` (legacy 동작), `"never"` (CI 에 위임). git 이 없거나 실패하면 fail-open (pytest 돎).
