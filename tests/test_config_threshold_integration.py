@@ -465,3 +465,22 @@ class TestV05DockerConfig:
         result = DockerValidator().validate(ctx, file_path=None, mode="stop")
         rules = [f.rule for f in result.findings]
         assert "V05-VHOST-NO-NETWORK" in rules
+
+    def test_empty_reverse_proxy_networks_yields_self_explanatory_message(self, tmp_path: Path) -> None:
+        # Phase24 (A4): user explicitly empties reverse_proxy_networks —
+        # the prior cryptic "<none configured>" message is replaced with
+        # actionable remediation that names the two ways out.
+        from hooks.validators.docker_compose import DockerValidator
+
+        ctx = _project_with_config(tmp_path, "docker:\n  reverse_proxy_networks: []\n")
+        self._write_compose(tmp_path, self._VHOST_BODY, "docker-compose.production.yaml")
+
+        result = DockerValidator().validate(ctx, file_path=None, mode="stop")
+        vhost = [f for f in result.findings if f.rule == "V05-VHOST-NO-NETWORK"]
+        assert len(vhost) == 1
+        # Message names the misconfig directly (no <none configured> filler)
+        assert "configured to []" in vhost[0].message
+        assert "<none configured>" not in vhost[0].message
+        # Fix lists BOTH escape hatches the user can take
+        assert "vhost_check_mode" in vhost[0].fix
+        assert "reverse_proxy_networks" in vhost[0].fix

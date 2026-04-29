@@ -31,10 +31,11 @@ from lib.project_context import ProjectContext
 
 
 # ── V05 built-in defaults (used when DockerConfig field is empty) ────────────
-# Each list is the fallback when the user hasn't customized the
-# corresponding DockerConfig field. See lib/config_loader.py:DockerConfig
-# for the "empty = defaults, non-empty = replace" semantics.
-_DEFAULT_REVERSE_PROXY_NETWORKS: tuple[str, ...] = ("nginx-proxy",)
+# Each list below is the fallback for fields whose dataclass default is
+# ``field(default_factory=list)`` (i.e. empty unless user opts in). The
+# reverse-proxy-networks list is *not* in this group — its dataclass
+# default is ["nginx-proxy"] so an explicit user [] is preserved as
+# "no proxy is acceptable" rather than collapsed to the default.
 _DEFAULT_DEV_FILENAME_PATTERNS: tuple[str, ...] = (
     "*override*",
     "docker-compose.yaml",
@@ -214,9 +215,12 @@ class DockerValidator(BaseValidator):
         if cfg.vhost_check_mode == "production" and self._is_dev_intended_compose(compose_file):
             return findings
 
-        proxy_nets = cfg.reverse_proxy_networks or list(_DEFAULT_REVERSE_PROXY_NETWORKS)
-        # Empty list (explicit) means "no proxy network is acceptable" — every
-        # VHOST-bearing service trips. That's a corner case; we still respect it.
+        # Read directly — the DockerConfig dataclass already defaults to
+        # ["nginx-proxy"] when the user omits the key. An explicit empty
+        # list ([]) is a distinct user signal ("no proxy is acceptable")
+        # and is preserved here. ``or`` fallback would erroneously rescue
+        # the empty case to the default.
+        proxy_nets = cfg.reverse_proxy_networks
 
         for svc_name, svc_def in (data.get("services") or {}).items():
             if not isinstance(svc_def, dict):
@@ -235,17 +239,41 @@ class DockerValidator(BaseValidator):
             on_proxy = any(n in svc_networks for n in proxy_nets)
 
             if has_virtual_host and not on_proxy:
-                primary_proxy = proxy_nets[0] if proxy_nets else "nginx-proxy"
+                if proxy_nets:
+                    primary_proxy = proxy_nets[0]
+                    message = (
+                        f"Service '{svc_name}' has VIRTUAL_HOST but is not on any reverse-proxy network "
+                        f"(expected one of: {', '.join(proxy_nets)})"
+                    )
+                    fix = (
+                        f"Add '{primary_proxy}' to the networks list of service '{svc_name}' "
+                        f"in {compose_file}"
+                    )
+                else:
+                    # User explicitly set ``docker.reverse_proxy_networks: []`` —
+                    # this almost always means a misconfig (forgot to fill the
+                    # list) rather than a deliberate "no proxy is acceptable"
+                    # policy. Surface a self-explanatory remediation rather
+                    # than a cryptic "<none configured>".
+                    message = (
+                        f"Service '{svc_name}' has VIRTUAL_HOST but "
+                        "docker.reverse_proxy_networks is configured to [] "
+                        '(empty list = "no proxy network is acceptable").'
+                    )
+                    fix = (
+                        "Either add a network name to docker.reverse_proxy_networks "
+                        "(e.g. 'nginx-proxy', 'traefik') in .verifiers/config.yaml, "
+                        "or set docker.vhost_check_mode: 'off' to disable the "
+                        "V05-VHOST-NO-NETWORK rule entirely."
+                    )
+
                 findings.append(
                     Finding(
                         severity="error",
                         file=str(compose_file),
                         rule="V05-VHOST-NO-NETWORK",
-                        message=(
-                            f"Service '{svc_name}' has VIRTUAL_HOST but is not on any reverse-proxy network "
-                            f"({', '.join(proxy_nets) or '<none configured>'})"
-                        ),
-                        fix=(f"Add '{primary_proxy}' to the networks list of service '{svc_name}' in {compose_file}"),
+                        message=message,
+                        fix=fix,
                     )
                 )
 
