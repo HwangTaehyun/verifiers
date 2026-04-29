@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 
 from lib.config_loader import VerifiersConfig, load_config
+from lib.exclusion import is_excluded as _is_excluded_glob
 
 
 class ProjectContext:
@@ -101,6 +102,22 @@ class ProjectContext:
         if (self.project_root / "Makefile").exists():
             return "make"
         return "make"  # default
+
+    def is_excluded(self, file_path: str) -> bool:
+        """Return True if ``file_path`` matches the project's exclude.paths config.
+
+        Phase34 (S1 audit): centralizes the gitignore-style glob check
+        so every validator's scan loop can short-circuit with one call,
+        instead of re-implementing substring exclusions like
+        ``"vendor" in path`` (which is exactly the bug ``lib/exclusion``
+        was created to abolish).
+
+        Returns False if no patterns are configured. Per-validator
+        overrides (``exclude.per_validator``) are NOT applied here —
+        they need the validator id, so the router still calls
+        ``is_excluded_for_validator`` separately at registration time.
+        """
+        return _is_excluded_glob(file_path, self.project_root, self.config.exclude.paths)
 
     @property
     def metrics_log_dir(self) -> Path:

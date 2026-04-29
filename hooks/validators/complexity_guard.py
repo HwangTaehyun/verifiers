@@ -814,26 +814,38 @@ class ComplexityGuardValidator(BaseValidator):
     def _scan_all_files(self, ctx: ProjectContext, thresholds: ComplexityThresholds) -> list[Finding]:
         """Scan all source files in the project for complexity issues."""
         findings: list[Finding] = []
-        findings.extend(self._scan_dir(ctx.server_dir, ["*.go"], thresholds))
-        findings.extend(self._scan_dir(ctx.web_dir, ["*.ts", "*.tsx"], thresholds))
-        findings.extend(self._scan_dir(ctx.project_root, ["*.py"], thresholds))
+        findings.extend(self._scan_dir(ctx, ctx.server_dir, ["*.go"], thresholds))
+        findings.extend(self._scan_dir(ctx, ctx.web_dir, ["*.ts", "*.tsx"], thresholds))
+        findings.extend(self._scan_dir(ctx, ctx.project_root, ["*.py"], thresholds))
         return findings
 
     def _scan_dir(
         self,
+        ctx: ProjectContext,
         directory: Path | None,
         globs: list[str],
         thresholds: ComplexityThresholds,
     ) -> list[Finding]:
-        """Scan a directory with given glob patterns."""
+        """Scan a directory with given glob patterns.
+
+        Phase34 (S1 audit): file_path is filtered by both
+        ``ctx.is_excluded`` (user's ``exclude.paths`` config — gitignore
+        glob) and the validator's hard-coded ``_should_skip`` defaults
+        (vendor / node_modules / .gen / __pycache__ / etc). The user
+        config gets first crack so noisy projects can opt-out without
+        touching validator code.
+        """
         findings: list[Finding] = []
         if not (directory and directory.exists()):
             return findings
         for glob_pattern in globs:
             for src_file in directory.rglob(glob_pattern):
                 fp = str(src_file)
-                if not self._should_skip(fp):
-                    findings.extend(self._analyze_file(fp, thresholds))
+                if ctx.is_excluded(fp):
+                    continue
+                if self._should_skip(fp):
+                    continue
+                findings.extend(self._analyze_file(fp, thresholds))
         return findings
 
     def _analyze_file(self, file_path: str, thresholds: ComplexityThresholds | None = None) -> list[Finding]:

@@ -53,6 +53,14 @@ _DEFAULT_DEV_STAGE_NAMES: tuple[str, ...] = ("dev",)
 
 
 class DockerValidator(BaseValidator):
+    # Phase34 (A8 audit): explicit class-level default so helpers can
+    # type-narrow ``self._docker_cfg`` without ``getattr(...)`` fallbacks.
+    # ``validate_project`` reassigns this to ``ctx.config.docker`` on
+    # entry; tests that call helpers directly (without going through
+    # ``run`` / ``validate_project``) see the None default and the
+    # built-in defaults kick in.
+    _docker_cfg: DockerConfig | None = None
+
     """V05: 통합 Docker 검증 (Compose + Dockerfile + Production)
 
     Checks:
@@ -112,17 +120,19 @@ class DockerValidator(BaseValidator):
         # the helper methods (called many times during a project scan)
         # don't have to re-read ctx. Each parallel-runner worker gets
         # its own pickled instance, so this is safe in parallel mode.
-        self._docker_cfg: DockerConfig = ctx.config.docker
+        # The class-level default (None) is shadowed here for the duration
+        # of this validate_project call.
+        self._docker_cfg = ctx.config.docker
 
         findings: list[Finding] = []
 
         compose_files = list(ctx.project_root.glob("**/docker-compose*.yaml"))
         compose_files.extend(ctx.project_root.glob("**/docker-compose*.yml"))
-        compose_files = self._filter_excluded_files(compose_files)
+        compose_files = self._filter_excluded_files(ctx, compose_files)
 
         dockerfiles = list(ctx.project_root.glob("**/Dockerfile*"))
         dockerfiles.extend(ctx.project_root.glob("**/*.Dockerfile"))
-        dockerfiles = self._filter_excluded_files(dockerfiles)
+        dockerfiles = self._filter_excluded_files(ctx, dockerfiles)
 
         for compose_file in compose_files:
             try:
@@ -156,10 +166,25 @@ class DockerValidator(BaseValidator):
 
         return findings
 
-    def _filter_excluded_files(self, files: list[Path]) -> list[Path]:
-        """Exclude vendor, node_modules, .git directories."""
-        exclude = {"vendor", "node_modules", ".git", "__pycache__", ".venv"}
-        return [f for f in files if not any(p in str(f) for p in exclude)]
+    def _filter_excluded_files(self, ctx: ProjectContext, files: list[Path]) -> list[Path]:
+        """Exclude both user-configured paths and the built-in noise dirs.
+
+        Phase34 (S1 audit): the user's ``exclude.paths`` config gets
+        first crack via ``ctx.is_excluded``. The hard-coded set
+        (vendor / node_modules / .git / __pycache__ / .venv) is kept as
+        a project-agnostic backstop for noisy directories Phase17 didn't
+        plumb through configuration.
+        """
+        builtin_exclude = {"vendor", "node_modules", ".git", "__pycache__", ".venv"}
+        result: list[Path] = []
+        for f in files:
+            fp = str(f)
+            if ctx.is_excluded(fp):
+                continue
+            if any(p in fp for p in builtin_exclude):
+                continue
+            result.append(f)
+        return result
 
     # ── Check 1: Port conflicts ──────────────────────────────────────────
 
@@ -464,7 +489,7 @@ class DockerValidator(BaseValidator):
             # Only flag if the stage looks like a production stage.
             # Honors ctx.config.docker.production_stage_names (empty →
             # built-in defaults that include the unnamed final stage).
-            cfg = getattr(self, "_docker_cfg", None)
+            cfg = self._docker_cfg
             prod_stages = (
                 tuple(cfg.production_stage_names)
                 if cfg and cfg.production_stage_names
@@ -555,7 +580,7 @@ class DockerValidator(BaseValidator):
         without spraying warnings.
         """
         fname = compose_file.name.lower()
-        cfg = getattr(self, "_docker_cfg", None)
+        cfg = self._docker_cfg
 
         prod_patterns = cfg.production_filename_patterns if cfg else []
         if prod_patterns and any(fnmatch.fnmatchcase(fname, p.lower()) for p in prod_patterns):
@@ -812,7 +837,7 @@ class DockerValidator(BaseValidator):
                 target = build.get("target", "")
                 # Honors ctx.config.docker.dev_stage_names — empty list
                 # falls back to the built-in default ("dev",).
-                cfg = getattr(self, "_docker_cfg", None)
+                cfg = self._docker_cfg
                 dev_stages = (
                     tuple(s.lower() for s in cfg.dev_stage_names)
                     if cfg and cfg.dev_stage_names
