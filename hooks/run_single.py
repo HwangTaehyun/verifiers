@@ -92,6 +92,9 @@ NAME_MAP = {
     # V23 — buf governance (lock drift + breaking + protovalidate)
     "buf-governance": "V23-buf-governance",
     "buf": "V23-buf-governance",
+    # V24 — Hasura permission audit (no-perms / wildcard cols / empty filter)
+    "hasura-permission": "V24-hasura-permission",
+    "hasura-perm": "V24-hasura-permission",
 }
 
 
