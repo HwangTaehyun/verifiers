@@ -24,7 +24,7 @@ import yaml
 # Add parent directories to path so we can import lib/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from hooks.validators.base import BaseValidator, Finding, ValidationResult, read_hook_input, write_hook_output
+from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output
 from lib.config_loader import DockerConfig
 from lib.json_logger import log_exception
 from lib.project_context import ProjectContext
@@ -95,12 +95,19 @@ class DockerValidator(BaseValidator):
         "**/*.Dockerfile",
     ]
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: Tier 2 per-edit Docker check.
+
+        For now this delegates to ``validate_project`` to preserve the
+        pre-Phase29 behavior (every Edit triggers a full compose +
+        Dockerfile sweep). Audit S4 flagged that as a silent over-scan;
+        Phase33 will replace this delegation with a true per-file path
+        once V05 cross-file checks are reorganized.
+        """
+        return self.validate_project(ctx)
+
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Phase29+ API: project-wide compose + Dockerfile audit (Tier 3)."""
         # Resolve the project's docker config once and store on self so
         # the helper methods (called many times during a project scan)
         # don't have to re-read ctx. Each parallel-runner worker gets
@@ -109,7 +116,6 @@ class DockerValidator(BaseValidator):
 
         findings: list[Finding] = []
 
-        # Find all compose files and dockerfiles
         compose_files = list(ctx.project_root.glob("**/docker-compose*.yaml"))
         compose_files.extend(ctx.project_root.glob("**/docker-compose*.yml"))
         compose_files = self._filter_excluded_files(compose_files)
@@ -118,7 +124,6 @@ class DockerValidator(BaseValidator):
         dockerfiles.extend(ctx.project_root.glob("**/*.Dockerfile"))
         dockerfiles = self._filter_excluded_files(dockerfiles)
 
-        # Validate compose files (existing V05 checks)
         for compose_file in compose_files:
             try:
                 data = yaml.safe_load(compose_file.read_text()) or {}
@@ -131,7 +136,6 @@ class DockerValidator(BaseValidator):
             findings.extend(self._check_depends_on_healthcheck(data, compose_file))
             findings.extend(self._check_env_var_references(ctx, data, compose_file))
 
-            # V17 production checks
             findings.extend(self._check_prod_port_exposed(data, compose_file))
             findings.extend(self._check_prod_dev_mode(data, compose_file))
             findings.extend(self._check_prod_wildcard_cors(data, compose_file))
@@ -140,7 +144,6 @@ class DockerValidator(BaseValidator):
             findings.extend(self._check_dev_volume_mount(data, compose_file))
             findings.extend(self._check_dev_build_target(data, compose_file))
 
-        # Validate dockerfiles (V17 checks + new DOCKER_BEST_PRACTICES.md rules)
         for dockerfile in dockerfiles:
             findings.extend(self._check_dockerfile_multistage(dockerfile))
             findings.extend(self._check_dockerfile_user(dockerfile))
@@ -149,10 +152,9 @@ class DockerValidator(BaseValidator):
             findings.extend(self._check_base_image_latest(dockerfile))
             findings.extend(self._check_dockerignore_exists(dockerfile))
 
-        # Cross-file validations
         findings.extend(self._check_build_target_exists(compose_files))
 
-        return ValidationResult(validator_id=self.id, findings=findings)
+        return findings
 
     def _filter_excluded_files(self, files: list[Path]) -> list[Path]:
         """Exclude vendor, node_modules, .git directories."""

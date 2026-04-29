@@ -24,7 +24,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from hooks.validators.base import (
     BaseValidator,
     Finding,
-    ValidationResult,
     format_output,
     read_hook_input,
     write_hook_output,
@@ -89,39 +88,35 @@ class MockDataGuardValidator(BaseValidator):
         "**/hooks/use*.tsx",
     ]
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
-        findings: list[Finding] = []
-
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: per-file React hook mock-data check (Tier 2)."""
         if not ctx.web_dir or not ctx.web_dir.exists():
-            return ValidationResult(validator_id=self.id, findings=findings)
+            return []
+        if not self._is_hook_file(file_path):
+            return []
+        return self._scan_one(file_path)
 
-        if file_path and self._is_hook_file(file_path):
-            findings.extend(self._check_mock_variables(file_path))
-            findings.extend(self._check_hardcoded_state(file_path))
-            findings.extend(self._check_fake_delay(file_path))
-            findings.extend(self._check_todo_api(file_path))
-            findings.extend(self._check_no_api_import(file_path))
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Phase29+ API: scan every use*Data.ts hook (Tier 3)."""
+        if not ctx.web_dir or not ctx.web_dir.exists():
+            return []
+        hooks_dir = ctx.web_dir / "src" / "hooks"
+        if not hooks_dir.exists():
+            return []
 
-        # Stop mode: scan all hook files in web/src/hooks/
-        if mode == "stop":
-            hooks_dir = ctx.web_dir / "src" / "hooks"
-            if hooks_dir.exists():
-                for hook_file in hooks_dir.glob("use*Data.ts"):
-                    fp = str(hook_file)
-                    if fp == file_path:
-                        continue  # already checked above
-                    findings.extend(self._check_mock_variables(fp))
-                    findings.extend(self._check_hardcoded_state(fp))
-                    findings.extend(self._check_fake_delay(fp))
-                    findings.extend(self._check_todo_api(fp))
-                    findings.extend(self._check_no_api_import(fp))
+        findings: list[Finding] = []
+        for hook_file in hooks_dir.glob("use*Data.ts"):
+            findings.extend(self._scan_one(str(hook_file)))
+        return findings
 
-        return ValidationResult(validator_id=self.id, findings=findings)
+    def _scan_one(self, file_path: str) -> list[Finding]:
+        findings: list[Finding] = []
+        findings.extend(self._check_mock_variables(file_path))
+        findings.extend(self._check_hardcoded_state(file_path))
+        findings.extend(self._check_fake_delay(file_path))
+        findings.extend(self._check_todo_api(file_path))
+        findings.extend(self._check_no_api_import(file_path))
+        return findings
 
     @staticmethod
     def _is_hook_file(file_path: str) -> bool:

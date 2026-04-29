@@ -29,7 +29,7 @@ from pathlib import Path
 # Add parent directories to path so we can import lib/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from hooks.validators.base import BaseValidator, Finding, ValidationResult, read_hook_input, write_hook_output
+from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output
 from lib.project_context import ProjectContext
 
 # ── Hardcoded color pattern ──────────────────────────────────────────────────
@@ -60,33 +60,30 @@ class TsQualityValidator(BaseValidator):
         "**/tsconfig.json",
     ]
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
-        findings: list[Finding] = []
-
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: per-edit TS/TSX checks (Tier 2)."""
         if not ctx.web_dir or not ctx.web_dir.exists():
-            return ValidationResult(validator_id=self.id, findings=findings)
+            return []
+        if not file_path.endswith((".ts", ".tsx")):
+            return []
+        findings: list[Finding] = []
+        findings.extend(self._check_any_type(file_path))
+        findings.extend(self._check_hardcoded_colors(file_path))
+        findings.extend(self._check_console_log(file_path))
+        findings.extend(self._check_deprecated_mui(file_path))
+        findings.extend(self._check_eslint_single(ctx, file_path))
+        return findings
 
-        # Fast checks (PostToolUse) — per-file
-        if file_path and file_path.endswith((".ts", ".tsx")):
-            findings.extend(self._check_any_type(file_path))
-            findings.extend(self._check_hardcoded_colors(file_path))
-            findings.extend(self._check_console_log(file_path))
-            findings.extend(self._check_deprecated_mui(file_path))
-            findings.extend(self._check_eslint_single(ctx, file_path))
-
-        # Slow checks (Stop mode)
-        if mode == "stop":
-            findings.extend(self._check_tsc(ctx))
-            findings.extend(self._check_eslint_full(ctx))
-            findings.extend(self._check_circular_imports(ctx))
-            findings.extend(self._check_unused_code(ctx))
-
-        return ValidationResult(validator_id=self.id, findings=findings)
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Phase29+ API: project-wide TS quality sweep (Tier 3)."""
+        if not ctx.web_dir or not ctx.web_dir.exists():
+            return []
+        findings: list[Finding] = []
+        findings.extend(self._check_tsc(ctx))
+        findings.extend(self._check_eslint_full(ctx))
+        findings.extend(self._check_circular_imports(ctx))
+        findings.extend(self._check_unused_code(ctx))
+        return findings
 
     # ── Check 1: any type ────────────────────────────────────────────────
 

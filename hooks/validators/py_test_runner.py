@@ -21,7 +21,7 @@ from pathlib import Path
 # Add parent directories to path so we can import lib/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from hooks.validators.base import BaseValidator, Finding, ValidationResult, read_hook_input, write_hook_output
+from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output
 from lib.project_context import ProjectContext
 
 # Failure tracker file path (shared with V09/V10)
@@ -56,38 +56,33 @@ class PyTestRunnerValidator(BaseValidator):
         "**/*.py",
     ]
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
-        findings: list[Finding] = []
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: per-edit Python test resolution + execution (Tier 2).
 
-        # Find the Python project root (pyproject.toml, setup.py, etc.)
+        Stop mode is intentionally a no-op — V21 (py_pytest) handles
+        comprehensive runs with smart-mode gating.
+        """
         py_root = self._find_python_root(ctx)
         if not py_root:
-            return ValidationResult(validator_id=self.id, findings=findings)
+            return []
+        if not file_path.endswith(".py"):
+            return []
+        if self._is_excluded(file_path):
+            return []
 
         threshold = ctx.config.thresholds.test_runner.repeated_failure_count
+        findings: list[Finding] = []
 
-        if mode == "post_tool_use" and file_path and file_path.endswith(".py"):
-            # Skip excluded directories
-            if self._is_excluded(file_path):
-                return ValidationResult(validator_id=self.id, findings=findings)
-
-            if self._is_test_file(file_path):
-                # Test file modified — run it directly
-                findings.extend(self._run_test_file(py_root, file_path, threshold))
+        if self._is_test_file(file_path):
+            findings.extend(self._run_test_file(py_root, file_path, threshold))
+        else:
+            test_file = self._resolve_test_file(py_root, file_path)
+            if test_file:
+                findings.extend(self._run_test_file(py_root, test_file, threshold))
             else:
-                test_file = self._resolve_test_file(py_root, file_path)
-                if test_file:
-                    findings.extend(self._run_test_file(py_root, test_file, threshold))
-                else:
-                    findings.extend(self._check_test_exists(file_path))
+                findings.extend(self._check_test_exists(file_path))
 
-        # Stop mode: not needed — comprehensive test run can be done separately
-        return ValidationResult(validator_id=self.id, findings=findings)
+        return findings
 
     # ── Python project detection ────────────────────────────────────────
 

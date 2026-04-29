@@ -25,7 +25,7 @@ from pathlib import Path
 # Add parent directories to path so we can import lib/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from hooks.validators.base import BaseValidator, Finding, ValidationResult, read_hook_input, write_hook_output
+from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output
 from lib.project_context import ProjectContext
 
 
@@ -40,37 +40,34 @@ class GoQualityValidator(BaseValidator):
         "**/go.sum",
     ]
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: per-edit Go vet + gofmt + go build (Tier 2)."""
+        if not self._has_go_project(ctx):
+            return []
         findings: list[Finding] = []
+        findings.extend(self._check_go_vet(ctx))
+        if file_path.endswith(".go"):
+            findings.extend(self._check_gofmt(ctx, file_path))
+        findings.extend(self._check_go_build(ctx))
+        return findings
 
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Phase29+ API: project-wide Go vet + build + golangci-lint + tests (Tier 3)."""
+        if not self._has_go_project(ctx):
+            return []
+        findings: list[Finding] = []
+        findings.extend(self._check_go_vet(ctx))
+        findings.extend(self._check_go_build(ctx))
+        findings.extend(self._check_golangci_lint(ctx))
+        findings.extend(self._check_go_test(ctx))
+        return findings
+
+    def _has_go_project(self, ctx: ProjectContext) -> bool:
         if not ctx.server_dir or not ctx.server_dir.exists():
-            return ValidationResult(validator_id=self.id, findings=findings)
-
-        # Skip if no Go files exist in server directory (e.g. Python/Node projects)
+            return False
         has_go_files = any(ctx.server_dir.rglob("*.go"))
         has_go_mod = (ctx.server_dir / "go.mod").exists()
-        if not has_go_files and not has_go_mod:
-            return ValidationResult(validator_id=self.id, findings=findings)
-
-        # Fast checks (PostToolUse) — always run
-        findings.extend(self._check_go_vet(ctx))
-
-        if file_path and file_path.endswith(".go"):
-            findings.extend(self._check_gofmt(ctx, file_path))
-
-        findings.extend(self._check_go_build(ctx))
-
-        # Slow checks (Stop mode only)
-        if mode == "stop":
-            findings.extend(self._check_golangci_lint(ctx))
-            findings.extend(self._check_go_test(ctx))
-
-        return ValidationResult(validator_id=self.id, findings=findings)
+        return has_go_files or has_go_mod
 
     # ── Check 1: go vet ──────────────────────────────────────────────────
 

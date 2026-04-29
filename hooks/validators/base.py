@@ -112,11 +112,24 @@ class BaseValidator(ABC):
             ctx: Project context with detected paths
             file_path: Specific file that was modified (PostToolUse) or None (Stop)
             mode: "post_tool_use" or "stop"
+
+        Dispatch matrix:
+          (post_tool_use, file_path)    → validate_file
+          (post_tool_use, None)         → validate_project (legacy "run all")
+          (stop, _)                     → validate_project
+
+        The (post_tool_use, None) fallback preserves the pre-Phase29
+        ``validator.validate(ctx)`` test idiom and the V01-style "always
+        run project checks" behavior. Production hooks always pass either
+        a file_path (router) or mode="stop" (parallel_runner), so the
+        fallback only affects tests and the run_single CLI.
         """
         findings: list[Finding] = []
-        if mode == "post_tool_use" and file_path:
-            findings.extend(self.validate_file(ctx, file_path))
         if mode == "stop":
+            findings.extend(self.validate_project(ctx))
+        elif file_path:
+            findings.extend(self.validate_file(ctx, file_path))
+        else:
             findings.extend(self.validate_project(ctx))
         return ValidationResult(validator_id=self.id, findings=findings)
 

@@ -530,8 +530,10 @@ class TestValidateIntegration:
             result = validator.validate(project_ctx, file_path="main.go", mode="stop")
 
         assert isinstance(result, ValidationResult)
-        # Should call: go vet, gofmt, go build, golangci-lint, go test (5 calls)
-        assert mock_run.call_count == 5
+        # Phase29+: stop mode dispatches to validate_project only — the
+        # file-specific gofmt is skipped because Tier 3 is project-wide.
+        # validate_project calls: go vet, go build, golangci-lint, go test (4 calls).
+        assert mock_run.call_count == 4
 
     def test_non_go_file_skips_gofmt(
         self, validator: GoQualityValidator, tmp_project: Path, project_ctx: ProjectContext

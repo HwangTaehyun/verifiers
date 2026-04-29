@@ -20,7 +20,7 @@ from pathlib import Path
 # Add parent directories to path so we can import lib/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from hooks.validators.base import BaseValidator, Finding, ValidationResult, read_hook_input, write_hook_output
+from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output
 from lib.project_context import ProjectContext
 
 # Failure tracker file path
@@ -44,40 +44,34 @@ class GoTestRunnerValidator(BaseValidator):
         "**/go.mod",
     ]
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
-        findings: list[Finding] = []
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: per-edit Go test resolution + execution (Tier 2).
 
+        Stop mode is intentionally a no-op — V06 already runs ``go test ./...``.
+        """
         if not ctx.server_dir or not ctx.server_dir.exists():
-            return ValidationResult(validator_id=self.id, findings=findings)
+            return []
+        if not file_path.endswith(".go"):
+            return []
 
         threshold = ctx.config.thresholds.test_runner.repeated_failure_count
+        findings: list[Finding] = []
 
-        if mode == "post_tool_use" and file_path and file_path.endswith(".go"):
-            # Skip test file modifications — they don't need test resolution
-            if file_path.endswith("_test.go"):
-                # Run the test file directly
-                pkg_dir = self._get_package_dir(ctx, file_path)
-                if pkg_dir:
-                    findings.extend(self._run_package_tests(ctx, pkg_dir, file_path, threshold))
-                return ValidationResult(validator_id=self.id, findings=findings)
-
-            # Check if the file is in an excluded directory
-            if self._is_excluded(file_path):
-                return ValidationResult(validator_id=self.id, findings=findings)
-
-            pkg_dir = self._resolve_test_package(ctx, file_path)
+        if file_path.endswith("_test.go"):
+            pkg_dir = self._get_package_dir(ctx, file_path)
             if pkg_dir:
                 findings.extend(self._run_package_tests(ctx, pkg_dir, file_path, threshold))
-            else:
-                findings.extend(self._check_test_exists(ctx, file_path))
+            return findings
 
-        # Stop mode: V06 already runs go test ./..., so we skip here
-        return ValidationResult(validator_id=self.id, findings=findings)
+        if self._is_excluded(file_path):
+            return findings
+
+        pkg_dir = self._resolve_test_package(ctx, file_path)
+        if pkg_dir:
+            findings.extend(self._run_package_tests(ctx, pkg_dir, file_path, threshold))
+        else:
+            findings.extend(self._check_test_exists(ctx, file_path))
+        return findings
 
     # ── Package resolution ──────────────────────────────────────────────
 

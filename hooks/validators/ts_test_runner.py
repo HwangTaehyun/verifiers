@@ -21,7 +21,7 @@ from pathlib import Path
 # Add parent directories to path so we can import lib/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from hooks.validators.base import BaseValidator, Finding, ValidationResult, read_hook_input, write_hook_output
+from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output
 from lib.project_context import ProjectContext
 
 # Failure tracker file path (shared with V09/V11)
@@ -45,36 +45,31 @@ class TsTestRunnerValidator(BaseValidator):
         "**/*.tsx",
     ]
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
-        findings: list[Finding] = []
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: per-edit TS test resolution + execution (Tier 2).
 
+        Stop mode is intentionally a no-op — V07 covers comprehensive checks.
+        """
         if not ctx.web_dir or not ctx.web_dir.exists():
-            return ValidationResult(validator_id=self.id, findings=findings)
+            return []
+        if not file_path.endswith((".ts", ".tsx")):
+            return []
+        if self._is_excluded(file_path):
+            return []
 
         threshold = ctx.config.thresholds.test_runner.repeated_failure_count
+        findings: list[Finding] = []
 
-        if mode == "post_tool_use" and file_path and file_path.endswith((".ts", ".tsx")):
-            # Skip excluded directories
-            if self._is_excluded(file_path):
-                return ValidationResult(validator_id=self.id, findings=findings)
-
-            if self._is_test_file(file_path):
-                # Test file modified — run it directly
-                findings.extend(self._run_test_file(ctx, file_path, threshold))
+        if self._is_test_file(file_path):
+            findings.extend(self._run_test_file(ctx, file_path, threshold))
+        else:
+            test_file = self._resolve_test_file(ctx, file_path)
+            if test_file:
+                findings.extend(self._run_test_file(ctx, test_file, threshold))
             else:
-                test_file = self._resolve_test_file(ctx, file_path)
-                if test_file:
-                    findings.extend(self._run_test_file(ctx, test_file, threshold))
-                else:
-                    findings.extend(self._check_test_exists(file_path))
+                findings.extend(self._check_test_exists(file_path))
 
-        # Stop mode: not needed — V07 covers comprehensive checks
-        return ValidationResult(validator_id=self.id, findings=findings)
+        return findings
 
     # ── Test file detection ─────────────────────────────────────────────
 
