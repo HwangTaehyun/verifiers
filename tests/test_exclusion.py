@@ -197,10 +197,35 @@ class TestFilterEnabledValidators:
         out = filter_enabled_validators(validators, ["V01", "V20"])
         assert [v.id for v in out] == ["V01-env-config", "V20-hasura-graphql"]
 
-    def test_unknown_id_silently_filters_to_empty(self, validators: list[_FakeValidator]) -> None:
-        # User typo or removed validator — return empty rather than crash.
-        out = filter_enabled_validators(validators, ["V99-not-real"])
-        assert out == []
+    def test_unknown_id_raises_value_error(self, validators: list[_FakeValidator]) -> None:
+        # Phase22 (S1): a non-empty allowlist that matches ZERO validators
+        # is always a user typo. Silent empty list would let the Stop hook
+        # silent-approve every turn — security-critical false-approve.
+        # filter_enabled_validators now raises ValueError so the caller
+        # surfaces it as a blocking config finding.
+        import pytest as _pytest
+
+        with _pytest.raises(ValueError, match="matched 0 registered validators"):
+            filter_enabled_validators(validators, ["V99-not-real"])
+
+    def test_value_error_includes_known_ids_for_hint(
+        self, validators: list[_FakeValidator]
+    ) -> None:
+        import pytest as _pytest
+
+        with _pytest.raises(ValueError) as excinfo:
+            filter_enabled_validators(validators, ["V08-securty"])  # typo: 'securty'
+        # The error message must contain real ids so the user sees the typo.
+        assert "V08-security" in str(excinfo.value)
+
+    def test_partially_matching_allowlist_still_succeeds(
+        self, validators: list[_FakeValidator]
+    ) -> None:
+        # If at least ONE entry matches, no error — the matched validator
+        # runs, the unknown entry is ignored. This is the "user typed
+        # mostly-correct allowlist with a stale id" forgiving case.
+        out = filter_enabled_validators(validators, ["V08", "V99-stale"])
+        assert [v.id for v in out] == ["V08-security"]
 
     def test_combined_with_disabled_disabled_wins(self, validators: list[_FakeValidator]) -> None:
         # Same precedence rule the router applies: enabled THEN disabled,

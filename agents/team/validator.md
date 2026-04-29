@@ -58,7 +58,7 @@ For each finding:
 SEVERITY: error/warning/info
 FILE: absolute path
 LINE: line number (if applicable)
-RULE: V01-XXX format
+RULE: V##-RULE-NAME (e.g. V08-HARDCODED-SECRET, V14-HIGH-COMPLEXITY)
 ISSUE: clear description
 FIX: specific action for Builder to take
 ```

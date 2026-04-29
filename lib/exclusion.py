@@ -77,6 +77,17 @@ def filter_enabled_validators(validators, enabled: list[str]):
 
     Names follow the same form as ``filter_disabled_validators``:
     full id (``"V01-env-config"``) or just the V-ID prefix (``"V01"``).
+
+    Hard-fail on user typos
+    -----------------------
+    A non-empty ``enabled`` list that matches **zero** registered
+    validators is always a user error (typo or stale id). Silently
+    returning an empty list would let the Stop hook approve every turn
+    without running any validators — a security-critical false-approve
+    (e.g. V08 secret scanning silently disabled). We raise a
+    ``ValueError`` with a suggestion list instead, so the user finds out
+    immediately. Caller (router / stop_validator) catches and surfaces
+    via the standard exception path.
     """
     if not enabled:
         return list(validators)
@@ -86,6 +97,16 @@ def filter_enabled_validators(validators, enabled: list[str]):
         prefix = v.id.split("-", 1)[0]
         if v.id in enabled_set or prefix in enabled_set:
             out.append(v)
+
+    if not out:
+        # Build a hint list so the user can spot their typo.
+        known = sorted({v.id for v in validators} | {v.id.split("-", 1)[0] for v in validators})
+        raise ValueError(
+            f"validators.enabled = {sorted(enabled)} but matched 0 registered validators. "
+            "This silently disables every validator and will silent-approve every Stop hook. "
+            f"Did you mean one of: {', '.join(known)}? "
+            "Fix the typo in .verifiers/config.yaml or remove the 'enabled' key to run all validators."
+        )
     return out
 
 

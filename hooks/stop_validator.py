@@ -93,7 +93,31 @@ def main() -> None:
     # P1-3: enabled allowlist + disabled deny-list (disabled wins on
     # conflict). Empty enabled list means "no allowlist filtering" so
     # the default behaviour (all validators run) is preserved.
-    active = filter_enabled_validators(get_all_validators(), ctx.config.validators.enabled)
+    #
+    # ``filter_enabled_validators`` raises ``ValueError`` when the
+    # allowlist is non-empty but matches zero validators (user typo).
+    # Surface that as a blocking finding rather than silent-approving —
+    # this is the S1 false-approve guard from phase22.
+    try:
+        active = filter_enabled_validators(get_all_validators(), ctx.config.validators.enabled)
+    except ValueError as exc:
+        log_exception(
+            source="stop_validator/filter_enabled_validators",
+            error=exc,
+            context={"cwd": cwd, "enabled": list(ctx.config.validators.enabled)},
+        )
+        config_finding = Finding(
+            severity="error",
+            file=str(ctx.project_root / ".verifiers" / "config.yaml"),
+            rule="VERIFIERS-CONFIG-EMPTY-ALLOWLIST",
+            message=str(exc),
+            fix="Edit .verifiers/config.yaml: fix the typo in validators.enabled "
+            "or remove the key entirely to run every validator.",
+        )
+        output = format_output([config_finding], mode="stop")
+        write_hook_output(output)
+        return
+
     active = filter_disabled_validators(active, ctx.config.validators.disabled)
 
     # Parallel by default (4 workers, 30s per-validator timeout). Set

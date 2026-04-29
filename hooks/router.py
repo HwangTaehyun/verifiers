@@ -73,7 +73,32 @@ def main() -> None:
     # ``enabled`` is applied first as a strict allowlist (empty = no
     # filter), then ``disabled`` subtracts from whatever remains so it
     # always wins on conflict (matches the README's documented order).
-    active = filter_enabled_validators(get_all_validators(), ctx.config.validators.enabled)
+    #
+    # If the user's allowlist matches zero validators (typo / stale id),
+    # ``filter_enabled_validators`` raises ``ValueError``. The Tier 2
+    # router emits a single VERIFIERS-CONFIG-EMPTY-ALLOWLIST finding so
+    # Claude sees the misconfig on the next Edit/Write — instead of
+    # silently letting every PostToolUse pass without checks (S1).
+    try:
+        active = filter_enabled_validators(get_all_validators(), ctx.config.validators.enabled)
+    except ValueError as exc:
+        log_exception(
+            source="router/filter_enabled_validators",
+            error=exc,
+            context={"cwd": cwd, "enabled": list(ctx.config.validators.enabled)},
+        )
+        config_finding = Finding(
+            severity="error",
+            file=str(ctx.project_root / ".verifiers" / "config.yaml"),
+            rule="VERIFIERS-CONFIG-EMPTY-ALLOWLIST",
+            message=str(exc),
+            fix="Edit .verifiers/config.yaml: fix the typo in validators.enabled "
+            "or remove the key entirely to run every validator.",
+        )
+        output = format_output([config_finding], mode="post_tool_use")
+        write_hook_output(output)
+        return
+
     active = filter_disabled_validators(active, ctx.config.validators.disabled)
 
     # ── Phase15: per-validator file exclusion ────────────────────────
