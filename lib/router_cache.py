@@ -37,16 +37,31 @@ def cache_path(project_root: Path) -> Path:
 
 
 def file_content_hash(file_path: str) -> str | None:
-    """Hash the file's bytes via SHA-256.
+    """Hash the file's path + bytes via SHA-256 (Phase37 / S3).
 
-    Returns ``None`` if the file can't be read — e.g. it was just
-    deleted or we lack permissions. Callers should treat ``None`` as
-    "no cache decision possible, run validators normally".
+    The hash binds the absolute path into the digest so a cache entry
+    keyed on ``src/auth.py`` can never match the digest of any other
+    file. Without this binding, a malicious or prompt-injected
+    ``router-cache.json`` could record ``src/auth.py → <hash of a
+    future evil version>`` ahead of time; when Claude later wrote
+    those exact bytes the router would skip V08 secret scanning. Path
+    binding makes that pre-record impossible — a poisoned entry hashed
+    for path A won't match the same bytes at path B.
+
+    Returns ``None`` if the file can't be read (just deleted, missing
+    permissions). Callers treat ``None`` as "no cache decision
+    possible, run validators normally". Existing pre-Phase37 entries
+    will simply mismatch on first re-read and be replaced.
     """
     try:
-        return hashlib.sha256(Path(file_path).read_bytes()).hexdigest()
+        content = Path(file_path).read_bytes()
     except OSError:
         return None
+    h = hashlib.sha256()
+    h.update(file_path.encode("utf-8"))
+    h.update(b"\0")
+    h.update(content)
+    return h.hexdigest()
 
 
 def load_cache(project_root: Path) -> dict[str, str]:
@@ -85,7 +100,16 @@ def save_cache(project_root: Path, cache: dict[str, str]) -> None:
 
     path = cache_path(project_root)
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
+        # Phase37 (A6 audit): 0o700 so a shared CI / dev host doesn't
+        # leak the project's metric / cache state to other users on the
+        # same machine. mkdir's mode= is honored only when the dir is
+        # newly created; we follow up with chmod for the case where it
+        # already existed under a more permissive umask.
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            path.parent.chmod(0o700)
+        except OSError:
+            pass
         path.write_text(json.dumps(cache, ensure_ascii=False, indent=2))
     except OSError as exc:
         log_exception(

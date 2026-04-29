@@ -217,6 +217,21 @@ def load_config(project_root: Path) -> VerifiersConfig:
     if not cfg_file.exists():
         return VerifiersConfig()
 
+    # Phase37 (A6 audit): refuse symlinks. ``yaml.safe_load`` already
+    # blocks arbitrary-object construction, so today the worst a
+    # ``.verifiers/config.yaml -> /etc/passwd`` symlink can do is read
+    # the target into memory and fall back to defaults. But if a future
+    # change ever logs the parsed-or-raw content for debugging, that
+    # symlink becomes an information-disclosure primitive. Cheaper to
+    # block it once than to remember the constraint forever.
+    if cfg_file.is_symlink():
+        log_exception(
+            source="config_loader/load_config",
+            error=ValueError("Refusing symlinked .verifiers/config.yaml"),
+            context={"file": str(cfg_file), "target": str(cfg_file.resolve())},
+        )
+        return VerifiersConfig()
+
     try:
         raw = yaml.safe_load(cfg_file.read_text(errors="replace")) or {}
     except (yaml.YAMLError, OSError) as exc:

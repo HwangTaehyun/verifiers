@@ -164,7 +164,14 @@ class FeedbackTracker:
             "repeated_rules": summary.repeated_rules,
         }
 
-        self.log_dir.mkdir(parents=True, exist_ok=True)
+        # Phase37 (A6 audit): 0o700 keeps the feedback log private on
+        # shared hosts — it carries rule/finding history that may
+        # include file paths.
+        self.log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            self.log_dir.chmod(0o700)
+        except OSError:
+            pass
         log_file = self.log_dir / "feedback.jsonl"
         try:
             with open(log_file, "a") as fh:

@@ -71,7 +71,14 @@ def log_exception(
         context: Optional extra fields (file, mode, cwd, ...).
     """
     try:
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        # Phase37 (A6 audit): 0o700 prevents the error log (which records
+        # cwd / file paths / sometimes config) from being readable by
+        # other users on shared CI hosts.
+        LOG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            LOG_DIR.chmod(0o700)
+        except OSError:
+            pass
         record: dict[str, Any] = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": source,
@@ -172,7 +179,12 @@ class JsonLogger:
             ]
 
         try:
-            self.log_dir.mkdir(parents=True, exist_ok=True)
+            # Phase37 (A6 audit): 0o700 — see log_exception() for rationale.
+            self.log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            try:
+                self.log_dir.chmod(0o700)
+            except OSError:
+                pass
             _maybe_rotate(self.log_file)
             with open(self.log_file, "a") as fh:
                 fh.write(json.dumps(entry, ensure_ascii=False) + "\n")

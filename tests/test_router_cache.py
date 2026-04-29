@@ -36,12 +36,24 @@ class TestCachePath:
 
 
 class TestFileContentHash:
-    def test_same_content_same_hash(self, tmp_path: Path) -> None:
+    def test_same_path_same_content_same_hash(self, tmp_path: Path) -> None:
+        # Phase37 (S3 audit): the digest now binds the path, so the
+        # same path with the same content remains stable run-to-run.
+        a = tmp_path / "a.txt"
+        a.write_bytes(b"hello")
+        assert file_content_hash(str(a)) == file_content_hash(str(a))
+
+    def test_same_content_different_paths_different_hash(self, tmp_path: Path) -> None:
+        # Phase37 (S3 audit): identical bytes at different paths must
+        # produce different hashes — otherwise an attacker can
+        # pre-record ``router-cache.json`` with ``src/auth.py → <hash
+        # of malicious bytes>`` and Claude later writing those bytes
+        # would skip V08. Path binding makes the pre-record useless.
         a = tmp_path / "a.txt"
         b = tmp_path / "b.txt"
         a.write_bytes(b"hello")
         b.write_bytes(b"hello")
-        assert file_content_hash(str(a)) == file_content_hash(str(b))
+        assert file_content_hash(str(a)) != file_content_hash(str(b))
 
     def test_different_content_different_hash(self, tmp_path: Path) -> None:
         a = tmp_path / "a.txt"
