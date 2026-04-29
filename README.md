@@ -158,6 +158,26 @@ just clean-logs         # 로그 + 캐시 초기화
 - **Circuit breaker**: `stop_validator.py` 는 `<cwd>/.verifiers/state/verifier-block-count` 에 연속 차단 횟수를 기록하고, 3 회 연속 차단되면 통과시켜 무한 루프를 방지합니다.
 - **Tier 분리**: 빠른 보안 차단 (Tier 1, <100ms) / 상황별 호출 (Tier 2) / 무거운 종합 검증 (Tier 3, ≤120s) 으로 비용·블로킹 정책을 분리.
 
+### Tier 3 SLA (parallel runner)
+
+`lib/parallel_runner.py` 가 4-worker `ProcessPoolExecutor` 로 19 개 validator 를 병렬 실행합니다. `scripts/benchmark_stop.py` 의 합성 워크로드 (15 light + 4 heavy = real V06 / V07 / V19 / V14 비용 모사) 측정 결과:
+
+| 모드            | 벽시계         | 비고                                                 |
+| --------------- | -------------- | ---------------------------------------------------- |
+| Sequential      | ~5.6 s         | `VERIFIERS_PARALLEL=0` 또는 fallback                 |
+| Parallel (4w)   | ~2.3 s         | 기본값                                                |
+| 이상적 lower bound | ~2.0 s     | `max(per-validator)` — 무한 worker 가정              |
+| **Speedup**     | **~2.5 ×**     | 큰 V06 (golangci-lint) 의 길이가 wall-clock 결정      |
+
+실측 명령:
+
+```bash
+uv run python scripts/benchmark_stop.py            # 사람용
+uv run python scripts/benchmark_stop.py --json     # CI / 모니터링용
+```
+
+`per-validator timeout = 30 s` (기본). 한 validator 가 hang 되어도 나머지는 계속 실행되며, hang 된 항목은 `V##-TIMEOUT` sentinel finding 으로 표시됩니다 (silent false-approve 방지).
+
 ## Per-project configuration
 
 `<project>/.verifiers/config.yaml` 한 파일이 verifier 의 모든 동작을 조정합니다. 파일이 없으면 모든 키가 기본값으로 적용되니 안전하게 시작할 수 있습니다.
