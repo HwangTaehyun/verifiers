@@ -245,10 +245,7 @@ class DockerValidator(BaseValidator):
                         f"Service '{svc_name}' has VIRTUAL_HOST but is not on any reverse-proxy network "
                         f"(expected one of: {', '.join(proxy_nets)})"
                     )
-                    fix = (
-                        f"Add '{primary_proxy}' to the networks list of service '{svc_name}' "
-                        f"in {compose_file}"
-                    )
+                    fix = f"Add '{primary_proxy}' to the networks list of service '{svc_name}' in {compose_file}"
                 else:
                     # User explicitly set ``docker.reverse_proxy_networks: []`` —
                     # this almost always means a misconfig (forgot to fill the

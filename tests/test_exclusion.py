@@ -208,9 +208,7 @@ class TestFilterEnabledValidators:
         with _pytest.raises(ValueError, match="matched 0 registered validators"):
             filter_enabled_validators(validators, ["V99-not-real"])
 
-    def test_value_error_includes_known_ids_for_hint(
-        self, validators: list[_FakeValidator]
-    ) -> None:
+    def test_value_error_includes_known_ids_for_hint(self, validators: list[_FakeValidator]) -> None:
         import pytest as _pytest
 
         with _pytest.raises(ValueError) as excinfo:
@@ -218,9 +216,7 @@ class TestFilterEnabledValidators:
         # The error message must contain real ids so the user sees the typo.
         assert "V08-security" in str(excinfo.value)
 
-    def test_partially_matching_allowlist_still_succeeds(
-        self, validators: list[_FakeValidator]
-    ) -> None:
+    def test_partially_matching_allowlist_still_succeeds(self, validators: list[_FakeValidator]) -> None:
         # If at least ONE entry matches, no error — the matched validator
         # runs, the unknown entry is ignored. This is the "user typed
         # mostly-correct allowlist with a stale id" forgiving case.

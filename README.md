@@ -180,146 +180,32 @@ uv run python scripts/benchmark_stop.py --json     # CI / 모니터링용
 
 ## Per-project configuration
 
-`<project>/.verifiers/config.yaml` 한 파일이 verifier 의 모든 동작을 조정합니다. 파일이 없으면 모든 키가 기본값으로 적용되니 안전하게 시작할 수 있습니다.
-
-### 풀 스키마
-
-```yaml
-# .verifiers/config.yaml — 모든 키 optional, 명시 안 한 값은 기본값 사용
-
-thresholds:
-  complexity:                       # V14 — 함수 복잡도 가드
-    cyclomatic_warn: 10             # warning 임계 (기본 10)
-    cyclomatic_error: 20            # error 임계 (기본 20)
-    cognitive_warn: 15              # Sonar-style 인지 복잡도 (기본 15)
-    cognitive_error: 30             # (기본 30)
-    function_lines_warn: 80         # 함수 라인 수 warning (기본 80)
-    function_lines_error: 150       # 함수 라인 수 error (기본 150)
-    nesting_warn: 4                 # 중첩 깊이 (기본 4)
-    params_warn: 5                  # 파라미터 개수 (기본 5)
-  commit:                           # V12 — 커밋 규율
-    large_diff_files: 15            # N 개 이상 변경 시 LARGE-DIFF warning (기본 15)
-  test_runner:                      # V09 / V10 / V11 — 언어별 test runner 공유
-    repeated_failure_count: 3       # 같은 테스트 N 회 연속 실패 시 REPEATED-FAIL (기본 3)
-
-exclude:
-  # 글로벌 — 매칭되는 파일은 ANY validator 가 검사하지 않음
-  paths:
-    - "vendor/**"
-    - "node_modules/**"
-    - "**/__generated__/**"
-
-  # Per-validator — 매칭되는 파일은 해당 validator 만 skip, 다른 validator 는 정상 실행
-  # 키는 V-ID prefix(V14) 또는 full id(V14-complexity-guard) 둘 다 허용.
-  # 둘 다 적으면 둘 다 적용됩니다.
-  per_validator:
-    V14:                             # V14 (복잡도) 만 legacy/ 검사 제외
-      - "legacy/**"
-      - "scripts/**"
-    V08-security:                    # 시크릿 스캔에서만 fixtures/ 제외
-      - "test-fixtures/**"
-
-validators:
-  enabled: []                        # 비워두면 모든 validator 활성 (기본)
-  disabled:                          # 명시적 opt-out — V-ID prefix 또는 full id
-    - V04                            # Hasura 안 쓰는 프로젝트는 V04 통째로 끄기
-    - V20-hasura-graphql             # full-id 도 동일하게 동작
-
-security:                            # V08 (Security validator) 튜닝
-  phi_check_enabled: true            # false 로 바꾸면 PHI 검사 자체를 끔 (의료 도메인 외 권장)
-  phi_fields: []                     # 비우면 기본값 사용 (patient_name, ssn, ...)
-                                     # 채우면 그 리스트로 완전 교체 (덮어쓰기, 누적 X)
-  required_gitignore: []             # 비우면 기본값 (.env, *.pem, *.key, .env.local, *.p12)
-                                     # 채우면 사용자 리스트로 교체
-
-docker:                              # V05 (Docker validator) 튜닝
-  vhost_check_mode: "production"     # V05-VHOST-NO-NETWORK 발동 시점
-                                     # "production" — prod 분류 compose 만 (기본, Phase21+)
-                                     # "all"        — 모든 compose (Phase20 까지의 동작)
-                                     # "off"        — 비활성화
-  reverse_proxy_networks:            # VHOST 검사에서 인정되는 reverse-proxy 네트워크 이름
-    - nginx-proxy                    # Traefik 사용 시 ["traefik"] 등으로 교체
-  production_filename_patterns: []   # prod 로 분류할 compose 파일명 (fnmatch glob)
-                                     # 비우면 default — 회사 컨벤션 (e.g. "*-prd.*") 으로 교체 가능
-  dev_filename_patterns: []          # dev 로 분류할 compose 파일명
-                                     # 비우면 default = ["*override*", "docker-compose.yaml", "docker-compose.yml"]
-  production_stage_names: []         # USER 검사 대상 Dockerfile stage 이름
-                                     # 비우면 default = ["prod","production","release","final","runtime",""]
-  dev_stage_names: []                # V05-DEV-NO-BUILD-TARGET 가 인정하는 build.target
-                                     # 비우면 default = ["dev"]
-```
-
-> **Phase21 BREAKING CHANGE**: 기본 `vhost_check_mode` 가 `"production"` 으로 바뀌었습니다 (이전엔 사실상 `"all"`). 로컬 dev 에서 false positive 가 사라지는 대신, 이전의 엄격한 동작을 원하면 명시적으로 `"all"` 지정 필요.
-
-### 각 validator 가 config 의 어떤 값을 읽는가
-
-| Validator                       | Config 키                                                | 효과                                                 |
-| ------------------------------- | ------------------------------------------------------- | ---------------------------------------------------- |
-| **V14** Complexity Guard        | `thresholds.complexity.*` (cyclomatic / cognitive / function_lines / nesting_warn / params_warn) | 8개 임계값을 모두 프로젝트별 override. 미지정 시 모듈 기본값. |
-| **V12** Commit Discipline       | `thresholds.commit.large_diff_files`                    | LARGE-DIFF warning 발동 파일 수.                      |
-| **V09 / V10 / V11** Test Runners | `thresholds.test_runner.repeated_failure_count`         | 언어별 (Go / TS / Python) 동일 키로 REPEATED-FAIL 임계 공유. |
-| **모든 validator** (router 단)  | `exclude.paths`                                          | 매칭 파일은 router 가 validator 호출 자체를 skip.       |
-| **각 validator** (router 단)    | `exclude.per_validator[<id-or-prefix>]`                 | 매칭 파일은 해당 validator 만 skip.                     |
-| **모든 validator** (registry 단) | `validators.disabled`                                    | 매칭 V-ID 의 validator 가 registry 에서 제외됨 — Tier 2/3 모두 적용. |
-
-| **V08** Security                 | `security.phi_check_enabled`, `security.phi_fields`, `security.required_gitignore` | PHI scanning on/off, PHI 필드 셋 교체, .gitignore 필수 항목 셋 교체. |
-| **V05** Docker                   | `docker.vhost_check_mode`, `docker.reverse_proxy_networks`, `docker.production_filename_patterns`, `docker.dev_filename_patterns`, `docker.production_stage_names`, `docker.dev_stage_names` | VHOST 검사 발동 모드 (production / all / off), Traefik 등 다른 reverse proxy 인정, 회사 컨벤션 파일명/stage 이름 매핑. |
-
-**아직 config 와 연결 안 된 항목** (의도적 유지):
-- V08 시크릿 regex (AWS/GitHub/OpenAI 패턴) / V18 mock 변수 prefix — 보안·정책 셋이라 코드에 박혀있음.
-- V05 Docker · V04 Hasura · V02/V03 코드젠 — 검사 자체가 외부 도구 출력 파싱이라 임계 개념이 없음.
-
-### 빠른 예시 — "Hasura 안 쓰고 legacy 폴더는 복잡도 검사 면제"
+`<project>/.verifiers/config.yaml` 한 파일이 verifier 의 모든 동작을 조정합니다.
+파일이 없거나 어떤 키도 명시하지 않으면 기본값으로 작동하니 안전하게 시작할 수 있습니다.
 
 ```yaml
-# .verifiers/config.yaml
+# .verifiers/config.yaml — 자주 쓰이는 짧은 예시
 exclude:
-  paths:
-    - "vendor/**"
+  paths: ["vendor/**", "**/__generated__/**"]
   per_validator:
-    V14:
-      - "legacy/**"
+    V14: ["legacy/**"]      # 복잡도 검사만 legacy/ 제외
 
 validators:
-  disabled:
-    - V04          # Hasura migration 검사 끄기
-    - V20          # Hasura GraphQL 강제 끄기
+  disabled: [V04, V20]      # Hasura 안 쓰는 프로젝트
+
+security:
+  phi_check_enabled: false  # 의료 도메인 외엔 끄는 게 일반적
+
+docker:
+  reverse_proxy_networks: ["traefik"]   # nginx-proxy 가 아닐 때
 ```
 
-이 한 파일로:
-- 모든 validator 가 `vendor/**` 를 무시
-- `legacy/**` 는 V14 (복잡도) 검사만 면제, 시크릿(V08) 등 다른 검사는 그대로
-- V04 / V20 은 registry 에서 빠져 Tier 3 종합 검사도 안 돔
+지원되는 모든 키 (`thresholds.*`, `exclude.*`, `validators.*`, `security.*`, `docker.*`),
+각 validator 가 어떤 키를 읽는지 매핑 표, router/stop_validator 의 적용 우선순위,
+디버깅 레시피, hard-fail 케이스 등 — **자세한 내용은 [docs/CONFIGURATION.md](docs/CONFIGURATION.md)**.
 
-### 동작 우선순위
-
-router (Tier 2) 에서는 다음 순서로 필터링:
-
-```
-1. is_excluded(file, exclude.paths)              → 글로벌 exclude (전체 skip)
-2. filter_disabled_validators(disabled)           → V-ID 단위 비활성
-3. is_excluded_for_validator(file, per_validator) → 파일×validator 단위 skip
-4. validator.should_run(file)                     → file_patterns 매칭
-5. content-hash cache (.verifiers/state/router-cache.json) → 동일 내용 skip
-6. 살아남은 validator 만 실제로 실행
-```
-
-stop_validator (Tier 3) 는 (1)·(2) 만 적용 — 프로젝트 전체 스캔이라 per-file 결정이 의미 없습니다.
-
-### 설정이 안 먹는 것 같을 때 디버깅
-
-```bash
-# 1. config 파싱이 정상인지 확인
-uv run python -c "from lib.config_loader import load_config; from pathlib import Path; print(load_config(Path('.')))"
-
-# 2. silent except 가 삼킨 에러 확인
-cat logs/_errors.jsonl | tail -10
-
-# 3. 디버그 모드로 hook 직접 실행
-VERIFIERS_DEBUG=1 just verify
-```
-
-스키마 전체 정의는 `lib/config_loader.py` 의 dataclass, 매칭 로직은 `lib/exclusion.py`, 캐시는 `lib/router_cache.py` 참조.
+> **Phase21 BREAKING CHANGE**: 기본 `docker.vhost_check_mode` 가 `"production"` 으로 바뀌었습니다 (이전엔 사실상 `"all"`).
+> 이전의 엄격한 동작을 원하면 명시적으로 `"all"` 지정 필요. [상세](docs/CONFIGURATION.md#1-풀-스키마).
 
 ## Contributing & Changelog
 
