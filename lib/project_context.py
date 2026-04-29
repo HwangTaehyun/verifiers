@@ -5,12 +5,15 @@ Supports image-query and nowclear projects by scanning for:
 - server/config/*.yaml patterns to identify project name
 - server/, web/, hasura/, proto/ directory locations
 - build tool detection (just vs make)
+- per-project verifiers config (.verifiers/config.yaml)
 """
 
 from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+
+from lib.config_loader import VerifiersConfig, load_config
 
 
 class ProjectContext:
@@ -26,6 +29,9 @@ class ProjectContext:
         self.graph_dir = self._find_dir("server/graph") or self._find_dir("graph")
         self.proto_dir = self._find_dir("server/proto") or self._find_dir("proto")
         self.build_tool = self._detect_build_tool()
+        # Per-project verifiers config (P1-3). Always present — load_config
+        # returns defaults when .verifiers/config.yaml is missing.
+        self.config: VerifiersConfig = load_config(self.project_root)
 
     def _find_git_root(self) -> Path:
         """Walk up from cwd to find the git root."""
