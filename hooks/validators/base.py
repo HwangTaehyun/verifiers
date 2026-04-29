@@ -78,6 +78,10 @@ class BaseValidator:
     file_patterns: list[str] = []
 
     def __init__(self) -> None:
+        # Logger is constructed lazily in run() with ctx.metrics_log_dir
+        # so each project's metrics land under its own .verifiers/state/.
+        # The instance attribute exists for back-compat with code that
+        # may have monkeypatched ``validator.logger`` for testing.
         self.logger = JsonLogger(self.id)
 
     def should_run(self, file_path: str) -> bool:
@@ -103,8 +107,17 @@ class BaseValidator:
         return []
 
     def run(self, ctx: ProjectContext, file_path: str | None = None, mode: str = "post_tool_use") -> ValidationResult:
-        """Dispatch to validate_file / validate_project + emit a JSON log line."""
-        self.logger.start()
+        """Dispatch to validate_file / validate_project + emit a JSON log line.
+
+        Phase33b: the logger is rebuilt per ``run()`` invocation against
+        ``ctx.metrics_log_dir`` so each project's metric history lands
+        in its own ``.verifiers/state/metrics/V##.jsonl``. Tests that
+        patched ``self.logger`` directly continue to work — the
+        rebuilt instance overrides the construction-time default.
+        """
+        logger = JsonLogger(self.id, log_dir=ctx.metrics_log_dir)
+        self.logger = logger
+        logger.start()
         findings: list[Finding] = []
         if mode == "stop":
             findings.extend(self.validate_project(ctx))
@@ -113,7 +126,7 @@ class BaseValidator:
         else:
             findings.extend(self.validate_project(ctx))
         result = ValidationResult(validator_id=self.id, findings=findings)
-        self.logger.log(
+        logger.log(
             project_name=ctx.project_name,
             findings=[asdict(f) for f in result.findings],
             mode=mode,

@@ -1,10 +1,12 @@
-"""Tests for lib/metrics.py — validator usage aggregation (Phase33).
+"""Tests for lib/metrics.py + per-project metrics path (Phase33 / Phase33b).
 
 Covers:
   - aggregate_metrics: empty dir, single validator, multi-entry sums,
     since-filter, _errors.jsonl exclusion, malformed-line resilience
   - ValidatorMetric.state: dormant / quiet / active classification
   - ValidatorMetric.effectiveness, mean_duration_ms derived properties
+  - Phase33b: ProjectContext.metrics_log_dir + JsonLogger rotation +
+    BaseValidator.run() writing into the per-project metrics directory
 """
 
 from __future__ import annotations
@@ -285,3 +287,128 @@ class TestState:
             last_finding_at=recent,
         )
         assert m.state(self._now()) == "active"
+
+
+# ── 6. Phase33b — JsonLogger rotation ──────────────────────────────────
+
+
+class TestJsonLoggerRotation:
+    def test_rotates_when_over_cap(self, tmp_path: Path) -> None:
+        from lib.json_logger import _maybe_rotate
+
+        log_file = tmp_path / "V08-security.jsonl"
+        log_file.write_bytes(b"x" * 1000)
+
+        _maybe_rotate(log_file, max_bytes=500)
+
+        assert not log_file.exists()
+        backup = tmp_path / "V08-security.jsonl.1"
+        assert backup.exists()
+        assert backup.stat().st_size == 1000
+
+    def test_does_not_rotate_under_cap(self, tmp_path: Path) -> None:
+        from lib.json_logger import _maybe_rotate
+
+        log_file = tmp_path / "V14.jsonl"
+        log_file.write_bytes(b"y" * 100)
+
+        _maybe_rotate(log_file, max_bytes=500)
+
+        assert log_file.exists()
+        assert log_file.stat().st_size == 100
+        assert not (tmp_path / "V14.jsonl.1").exists()
+
+    def test_rotate_overwrites_old_backup(self, tmp_path: Path) -> None:
+        from lib.json_logger import _maybe_rotate
+
+        log_file = tmp_path / "V19.jsonl"
+        log_file.write_bytes(b"new" * 200)
+        backup = tmp_path / "V19.jsonl.1"
+        backup.write_bytes(b"old" * 200)
+
+        _maybe_rotate(log_file, max_bytes=300)
+
+        # The "new" file should now be the backup; the old backup is gone.
+        assert backup.exists()
+        assert backup.read_bytes() == b"new" * 200
+        assert not log_file.exists()
+
+    def test_rotation_failure_swallowed(self, tmp_path: Path, monkeypatch) -> None:
+        # If rename raises, _maybe_rotate must not propagate.
+        from lib.json_logger import _maybe_rotate
+
+        log_file = tmp_path / "V08.jsonl"
+        log_file.write_bytes(b"x" * 1000)
+
+        def boom(self, target):  # type: ignore[no-untyped-def]
+            raise OSError("disk full")
+
+        monkeypatch.setattr(Path, "rename", boom)
+        _maybe_rotate(log_file, max_bytes=500)  # must not raise
+
+
+# ── 7. Phase33b — per-project metrics path via BaseValidator.run() ─────
+
+
+class TestPerProjectMetricsPath:
+    def test_run_writes_to_ctx_metrics_log_dir(self, tmp_path: Path) -> None:
+        from hooks.validators.base import BaseValidator
+        from lib.project_context import ProjectContext
+
+        # Set up a fake project root with a .git so ProjectContext picks it up.
+        (tmp_path / ".git").mkdir()
+        ctx = ProjectContext(tmp_path)
+
+        class _DummyValidator(BaseValidator):
+            id = "V99-test-only"
+
+        validator = _DummyValidator()
+        validator.run(ctx, file_path=None, mode="stop")
+
+        expected_dir = tmp_path / ".verifiers" / "state" / "metrics"
+        expected_file = expected_dir / "V99-test-only.jsonl"
+
+        assert expected_dir.is_dir()
+        assert expected_file.is_file()
+        # Body is one JSON line.
+        line = expected_file.read_text().strip()
+        record = json.loads(line)
+        assert record["validator"] == "V99-test-only"
+        assert record["mode"] == "stop"
+        assert record["findings_count"] == 0
+
+    def test_metrics_log_dir_property(self, tmp_path: Path) -> None:
+        from lib.project_context import ProjectContext
+
+        (tmp_path / ".git").mkdir()
+        ctx = ProjectContext(tmp_path)
+        assert ctx.metrics_log_dir == tmp_path / ".verifiers" / "state" / "metrics"
+
+    def test_two_projects_have_separate_dirs(self, tmp_path: Path) -> None:
+        from hooks.validators.base import BaseValidator
+        from lib.project_context import ProjectContext
+
+        # Two sibling projects, both running the same validator.
+        proj_a = tmp_path / "proj_a"
+        proj_b = tmp_path / "proj_b"
+        for p in (proj_a, proj_b):
+            p.mkdir()
+            (p / ".git").mkdir()
+
+        class _DummyValidator(BaseValidator):
+            id = "V99-test-only"
+
+        v = _DummyValidator()
+        v.run(ProjectContext(proj_a), file_path=None, mode="stop")
+        v.run(ProjectContext(proj_b), file_path=None, mode="stop")
+
+        a_log = proj_a / ".verifiers" / "state" / "metrics" / "V99-test-only.jsonl"
+        b_log = proj_b / ".verifiers" / "state" / "metrics" / "V99-test-only.jsonl"
+        assert a_log.is_file()
+        assert b_log.is_file()
+        # Cross-pollination check: proj_a's log dir does NOT contain
+        # proj_b's writes.
+        a_lines = a_log.read_text().strip().splitlines()
+        b_lines = b_log.read_text().strip().splitlines()
+        assert len(a_lines) == 1
+        assert len(b_lines) == 1

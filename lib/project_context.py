@@ -102,6 +102,28 @@ class ProjectContext:
             return "make"
         return "make"  # default
 
+    @property
+    def metrics_log_dir(self) -> Path:
+        """Directory where per-validator metric logs (JSONL) live for this project.
+
+        Phase33b moved logger output from the verifiers source-tree
+        ``logs/`` directory into the project's own
+        ``.verifiers/state/metrics/`` namespace so:
+
+          1. Multiple projects using the same verifiers install no
+             longer share a single ``logs/`` (no cross-project mixing,
+             no race on shared files in CI).
+          2. The verifiers install can be read-only — write target now
+             lives under the project tree the user already owns.
+          3. ``rm -rf .verifiers/state/`` cleans up metrics with the
+             project, no orphan accumulation.
+
+        See ``lib/json_logger.py`` for the file format and rotation
+        behavior, and ``scripts/validator_metrics.py`` for the read-side
+        CLI.
+        """
+        return self.project_root / ".verifiers" / "state" / "metrics"
+
     def __repr__(self) -> str:
         return (
             f"ProjectContext(name={self.project_name!r}, root={self.project_root}, "

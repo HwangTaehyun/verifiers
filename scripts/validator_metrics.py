@@ -119,10 +119,22 @@ def main() -> int:
     if args.log_dir:
         log_dir = Path(args.log_dir).expanduser().resolve()
     else:
-        log_dir = Path(__file__).parent.parent / "logs"
+        # Phase33b: per-project metrics live under ctx.metrics_log_dir.
+        # Default to the cwd's .verifiers/state/metrics so the CLI
+        # always reports the project the user is sitting in. Fall back
+        # to the legacy verifiers-source ``logs/`` for back-compat
+        # when the new path doesn't exist yet.
+        cwd_metrics = Path.cwd() / ".verifiers" / "state" / "metrics"
+        legacy = Path(__file__).parent.parent / "logs"
+        log_dir = cwd_metrics if cwd_metrics.exists() else legacy
 
     if not log_dir.exists():
         print(f"log directory not found: {log_dir}", file=sys.stderr)
+        print(
+            "  hint: per-project metrics live in <project>/.verifiers/state/metrics/. "
+            "Run a verifier first or pass --log-dir explicitly.",
+            file=sys.stderr,
+        )
         return 1
 
     now = datetime.now(timezone.utc)

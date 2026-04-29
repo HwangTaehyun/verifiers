@@ -12,6 +12,18 @@ the original rationale.
 
 ### Added
 
+- **Validator metrics infrastructure** (Phase33 + Phase33b): per-project
+  metric logs at ``<project_root>/.verifiers/state/metrics/V##.jsonl``,
+  10MB rotation per validator (single FIFO backup), and a CLI
+  (``scripts/validator_metrics.py``) reporting use_count, findings,
+  effectiveness, mean duration, and lifecycle state (active / quiet /
+  dormant) over a configurable window. ``ProjectContext.metrics_log_dir``
+  exposes the path; ``BaseValidator.run()`` rebuilds its JsonLogger
+  against ``ctx.metrics_log_dir`` so cross-project mixing is gone. The
+  legacy ``logs/`` location is still used by ``log_exception()`` (no
+  ctx) and as a back-compat fallback for the CLI when no per-project
+  metrics exist yet. Inspired by NousResearch/hermes-agent#7816 — long-
+  lived self-improving agents need usage records before they can prune.
 - **V21 Pytest Runner** (Phase28, S2): pytest path split out of V19 into
   a dedicated `hooks/validators/py_pytest.py` so the Tier 3 parallel
   runner sees ruff and test execution as independent units. The

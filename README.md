@@ -207,6 +207,78 @@ docker:
 > **Phase21 BREAKING CHANGE**: 기본 `docker.vhost_check_mode` 가 `"production"` 으로 바뀌었습니다 (이전엔 사실상 `"all"`).
 > 이전의 엄격한 동작을 원하면 명시적으로 `"all"` 지정 필요. [상세](docs/CONFIGURATION.md#1-풀-스키마).
 
+## Validator metrics — 어떤 검사가 의미 있게 작동했나
+
+verifiers 가 매 hook 호출에서 그 결과를 JSONL 한 줄로 기록합니다 — 어떤 validator 가 얼마나 자주 발동했는지, 그래서 실제로 finding 을 얼마나 냈는지, 평균 실행 시간이 얼마인지 모두 남습니다. 자가 개선형 agent 의 skill bloat 문제처럼 ([Hermes Curator 논의](https://github.com/NousResearch/hermes-agent/issues/7816)), 이런 운영 데이터가 있어야 "이 validator 가 비용만큼 효과를 내고 있나?" 를 정직하게 판단할 수 있습니다.
+
+### 어디에 저장되는가 (Phase33b+)
+
+**프로젝트별 분리**: 각 프로젝트 루트의 `.verifiers/state/metrics/V##-{name}.jsonl` 에 누적됩니다. verifiers 를 여러 프로젝트에서 hook 으로 쓰더라도 cross-project 섞임이 없고, 프로젝트를 지우면 metric 도 함께 정리됩니다.
+
+```
+<project-root>/
+  .verifiers/
+    state/
+      metrics/
+        V01-env-config.jsonl
+        V08-security.jsonl
+        V14-complexity-guard.jsonl
+        ...
+```
+
+각 파일은 자동으로 10MB 넘으면 `.1` 백업으로 회전 (1단 FIFO, 최대 약 20MB / validator).
+
+### 보는 법
+
+```bash
+# 현재 프로젝트 (cwd 기준 자동 detect) 의 최근 30일
+uv run --script scripts/validator_metrics.py
+
+# 90일로 확장
+uv run --script scripts/validator_metrics.py --days 90
+
+# JSON 출력 (파이프라인용)
+uv run --script scripts/validator_metrics.py --json
+
+# 다른 프로젝트의 metric 디렉토리 명시
+uv run --script scripts/validator_metrics.py --log-dir /path/to/other/project/.verifiers/state/metrics
+```
+
+출력 예 (실측):
+
+```
+Validator metrics — last 30 days
+
+ID                         state    uses  finds  errs warns   mean(ms)  effect
+--------------------------------------------------------------------------------
+V08-security               active   2977    310   274    36      603.2    0.10
+V14-complexity-guard       active   2725  59480  1284 58196     1082.2   21.83
+V19-py-quality             active   2646      2     2     0       15.5    0.00
+V20-hasura-graphql         active    127   2674  2628    46      145.7   21.06
+V09-go-test-runner         quiet    2667      0     0     0       22.7    0.00
+V10-ts-test-runner         quiet    2638      0     0     0        0.0    0.00
+
+Quiet   (2): V09-go-test-runner, V10-ts-test-runner
+  → quiet validators fired but emitted no findings — review for false-positive rules or perf/value gaps.
+  → dormant validators never fired — likely benign (file_patterns didn't match in this project).
+```
+
+### Lifecycle states
+
+| state | 의미 | 보통 의사결정 |
+|---|---|---|
+| **active** | 최근 30일 안에 호출 + finding emit | 그대로 유지 |
+| **quiet** | 호출은 됐지만 30일 동안 finding 0 | rule 검토 (false positive? 너무 엄격?) 또는 비용 / 가치 gap |
+| **dormant** | 14일 동안 호출조차 안 됨 | 보통 benign — 그 언어/툴이 프로젝트에 없어서. action 불필요 |
+
+### Effectiveness — 진짜 의미있는 metric
+
+`effect` 컬럼은 `findings_emitted / use_count`. 0 에 가까우면 매번 호출되는데 아무것도 못 잡고 있다는 뜻이고, 1 이 넘으면 호출당 평균 1+ 개 finding 을 발행한다는 뜻입니다 (V14 가 21.83 = 호출마다 평균 22 개).
+
+> **호출되고 안 쓰였거나 별로 의미없게 쓰였을 수도 있다** — 이게 정확히 effectiveness 가 보여주는 지점입니다. uses 가 많은데 finds 가 0이면 (V09/V10/V19 처럼) Tier 2 가 매 Edit 마다 비용을 치르면서 가치 없음 — 후보로 검토.
+
+CLI 가 출력 밑단에 quiet / dormant 자동 분류해 줍니다. 의사결정은 사용자 몫 — 자동 archive 는 일부러 안 합니다 ([Hermes Curator 가 246/346 skill 을 archive 한 사례](https://github.com/NousResearch/hermes-agent/issues/7816#issuecomment-4341335259)는 강력하지만, validator 레벨에서는 사람이 한 번 더 보는 게 안전합니다 — pinned 메타 + archive workflow 는 추후 phase 로 분리).
+
 ## Contributing & Changelog
 
 - 새 validator 를 추가하거나 기존 룰을 바꾸려면: [CONTRIBUTING.md](CONTRIBUTING.md) 의 V-ID 할당 / mode dispatch 보일러플레이트 / 테스트 컨벤션 / PR 체크리스트 참고.
