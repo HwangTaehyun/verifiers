@@ -106,10 +106,30 @@ class ValidatorsConfig:
 
 
 @dataclass
+class SecurityConfig:
+    """V08 (Security validator) overrides.
+
+    The validator's default ``PHI_FIELDS`` / ``REQUIRED_GITIGNORE`` lists
+    are tuned for medical-data projects. Non-medical SaaS projects can
+    either replace the lists with their own or disable PHI scanning
+    entirely.
+
+    Each override list follows "empty = use defaults, non-empty = use
+    only these" semantics (no implicit merging) — explicit replacement
+    is easier to reason about than additive overrides.
+    """
+
+    phi_check_enabled: bool = True
+    phi_fields: list[str] = field(default_factory=list)  # empty → validator defaults
+    required_gitignore: list[str] = field(default_factory=list)  # empty → validator defaults
+
+
+@dataclass
 class VerifiersConfig:
     thresholds: Thresholds = field(default_factory=Thresholds)
     exclude: ExcludeConfig = field(default_factory=ExcludeConfig)
     validators: ValidatorsConfig = field(default_factory=ValidatorsConfig)
+    security: SecurityConfig = field(default_factory=SecurityConfig)
 
 
 # ── Loader ──────────────────────────────────────────────────────────────
@@ -221,5 +241,12 @@ def _build_config(raw: dict[str, Any]) -> VerifiersConfig:
     if isinstance(val_raw, dict):
         cfg.validators.enabled = _coerce_str_list(val_raw.get("enabled"))
         cfg.validators.disabled = _coerce_str_list(val_raw.get("disabled"))
+
+    sec_raw = raw.get("security")
+    if isinstance(sec_raw, dict):
+        if "phi_check_enabled" in sec_raw and isinstance(sec_raw["phi_check_enabled"], bool):
+            cfg.security.phi_check_enabled = sec_raw["phi_check_enabled"]
+        cfg.security.phi_fields = _coerce_str_list(sec_raw.get("phi_fields"))
+        cfg.security.required_gitignore = _coerce_str_list(sec_raw.get("required_gitignore"))
 
     return cfg

@@ -204,6 +204,13 @@ validators:
   disabled:                          # 명시적 opt-out — V-ID prefix 또는 full id
     - V04                            # Hasura 안 쓰는 프로젝트는 V04 통째로 끄기
     - V20-hasura-graphql             # full-id 도 동일하게 동작
+
+security:                            # V08 (Security validator) 튜닝
+  phi_check_enabled: true            # false 로 바꾸면 PHI 검사 자체를 끔 (의료 도메인 외 권장)
+  phi_fields: []                     # 비우면 기본값 사용 (patient_name, ssn, ...)
+                                     # 채우면 그 리스트로 완전 교체 (덮어쓰기, 누적 X)
+  required_gitignore: []             # 비우면 기본값 (.env, *.pem, *.key, .env.local, *.p12)
+                                     # 채우면 사용자 리스트로 교체
 ```
 
 ### 각 validator 가 config 의 어떤 값을 읽는가
@@ -217,8 +224,10 @@ validators:
 | **각 validator** (router 단)    | `exclude.per_validator[<id-or-prefix>]`                 | 매칭 파일은 해당 validator 만 skip.                     |
 | **모든 validator** (registry 단) | `validators.disabled`                                    | 매칭 V-ID 의 validator 가 registry 에서 제외됨 — Tier 2/3 모두 적용. |
 
+| **V08** Security                 | `security.phi_check_enabled`, `security.phi_fields`, `security.required_gitignore` | PHI scanning on/off, PHI 필드 셋 교체, .gitignore 필수 항목 셋 교체. |
+
 **아직 config 와 연결 안 된 항목** (의도적 유지):
-- V08 시크릿 regex / V08 PHI 필드 셋 / V18 mock 변수 prefix — 보안·정책 셋이라 코드에 박혀있음.
+- V08 시크릿 regex (AWS/GitHub/OpenAI 패턴) / V18 mock 변수 prefix — 보안·정책 셋이라 코드에 박혀있음.
 - V05 Docker · V04 Hasura · V02/V03 코드젠 — 검사 자체가 외부 도구 출력 파싱이라 임계 개념이 없음.
 
 ### 빠른 예시 — "Hasura 안 쓰고 legacy 폴더는 복잡도 검사 면제"

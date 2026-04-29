@@ -113,6 +113,42 @@ class TestPartialOverrides:
         cfg = load_config(tmp_path)
         assert cfg.exclude.per_validator == {"V14": ["legacy/**"]}
 
+    def test_security_phi_check_disabled(self, tmp_path: Path) -> None:
+        _write_config(tmp_path, "security:\n  phi_check_enabled: false\n")
+        cfg = load_config(tmp_path)
+        assert cfg.security.phi_check_enabled is False
+
+    def test_security_phi_fields_override(self, tmp_path: Path) -> None:
+        _write_config(
+            tmp_path,
+            "security:\n  phi_fields:\n    - patient_id\n    - doctor_name\n",
+        )
+        cfg = load_config(tmp_path)
+        assert cfg.security.phi_fields == ["patient_id", "doctor_name"]
+
+    def test_security_required_gitignore_override(self, tmp_path: Path) -> None:
+        _write_config(
+            tmp_path,
+            'security:\n  required_gitignore:\n    - ".env"\n    - "secrets.json"\n',
+        )
+        cfg = load_config(tmp_path)
+        assert cfg.security.required_gitignore == [".env", "secrets.json"]
+
+    def test_security_phi_check_non_bool_falls_back(self, tmp_path: Path) -> None:
+        # YAML parses "yes"/"no" as bool, but plain strings or numbers
+        # should be rejected → default (True) preserved.
+        _write_config(tmp_path, 'security:\n  phi_check_enabled: "maybe"\n')
+        cfg = load_config(tmp_path)
+        assert cfg.security.phi_check_enabled is True
+
+    def test_security_defaults_when_section_missing(self, tmp_path: Path) -> None:
+        _write_config(tmp_path, "thresholds:\n  commit:\n    large_diff_files: 5\n")
+        cfg = load_config(tmp_path)
+        # security section absent → all defaults
+        assert cfg.security.phi_check_enabled is True
+        assert cfg.security.phi_fields == []
+        assert cfg.security.required_gitignore == []
+
 
 # ---------------------------------------------------------------------------
 # 3. Robustness — malformed input never crashes

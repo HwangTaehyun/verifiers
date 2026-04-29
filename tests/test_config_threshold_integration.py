@@ -271,3 +271,68 @@ class TestV09ConfigThresholds:
 
         rules = [f.rule for f in findings]
         assert "V09-REPEATED-FAIL" in rules
+
+
+# ---------------------------------------------------------------------------
+# 6. V08 SecurityConfig — phi_check_enabled / phi_fields / required_gitignore
+# ---------------------------------------------------------------------------
+
+
+class TestV08ConfigSecurity:
+    def test_phi_check_disabled_silences_phi_findings(self, tmp_path: Path) -> None:
+        from hooks.validators.security import SecurityValidator
+
+        # Default V08 would flag the email log-binding below as PHI.
+        # When the config disables PHI scanning, no PHI finding should
+        # be produced.
+        ctx = _project_with_config(tmp_path, "security:\n  phi_check_enabled: false\n")
+        go = tmp_path / "h.go"
+        go.write_text('log.Info().Str("email", val).Send()\n')
+
+        result = SecurityValidator().validate(ctx, file_path=str(go), mode="post_tool_use")
+        rules = [f.rule for f in result.findings]
+        assert "V08-PHI-LOGGING" not in rules
+
+    def test_phi_fields_override_replaces_defaults(self, tmp_path: Path) -> None:
+        from hooks.validators.security import SecurityValidator
+
+        # User wants to scan only "internal_id" — the default
+        # "patient_name", "ssn", etc. lists should NOT trigger.
+        ctx = _project_with_config(
+            tmp_path,
+            "security:\n  phi_fields:\n    - internal_id\n",
+        )
+
+        go_default = tmp_path / "default.go"
+        go_default.write_text('log.Info().Str("ssn", val).Send()\n')
+        go_custom = tmp_path / "custom.go"
+        go_custom.write_text('log.Info().Str("internal_id", val).Send()\n')
+
+        validator = SecurityValidator()
+
+        # ssn was a default — but config overrides → should NOT trip.
+        r1 = validator.validate(ctx, file_path=str(go_default), mode="post_tool_use")
+        assert "V08-PHI-LOGGING" not in [f.rule for f in r1.findings]
+
+        # internal_id is the user's custom field → should trip.
+        r2 = validator.validate(ctx, file_path=str(go_custom), mode="post_tool_use")
+        assert any(f.rule == "V08-PHI-LOGGING" for f in r2.findings)
+
+    def test_required_gitignore_override_replaces_defaults(self, tmp_path: Path) -> None:
+        from hooks.validators.security import SecurityValidator
+
+        # User cares about "secrets.json", not the default ".env" set.
+        # .gitignore is missing → V08-NO-GITIGNORE message must mention
+        # the user's list, not the validator's default.
+        ctx = _project_with_config(
+            tmp_path,
+            'security:\n  required_gitignore:\n    - "secrets.json"\n    - "*.pem"\n',
+        )
+
+        result = SecurityValidator().validate(ctx, file_path=None, mode="stop")
+        no_gitignore = [f for f in result.findings if f.rule == "V08-NO-GITIGNORE"]
+        assert len(no_gitignore) == 1
+        # User's pattern surfaces in the FIX message
+        assert "secrets.json" in no_gitignore[0].fix
+        # Default '*.key' should NOT appear (user replaced the list)
+        assert "*.key" not in no_gitignore[0].fix

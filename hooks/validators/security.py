@@ -90,30 +90,66 @@ class SecurityValidator(BaseValidator):
     ) -> ValidationResult:
         findings: list[Finding] = []
 
+        # Resolve config overrides once per validate() so the inner
+        # methods don't need to re-read ctx. Empty config lists fall
+        # back to the module defaults — explicit "no opinion" rather
+        # than implicit merging (matches SecurityConfig docstring).
+        sec_cfg = ctx.config.security
+        phi_fields = sec_cfg.phi_fields or PHI_FIELDS
+        phi_enabled = sec_cfg.phi_check_enabled
+        required_gitignore = sec_cfg.required_gitignore or REQUIRED_GITIGNORE
+
         if file_path:
-            findings.extend(self._check_single_file(file_path))
+            findings.extend(self._check_single_file(file_path, phi_fields=phi_fields, phi_enabled=phi_enabled))
         else:
-            findings.extend(self._check_project_wide(ctx))
+            findings.extend(
+                self._check_project_wide(
+                    ctx,
+                    phi_fields=phi_fields,
+                    phi_enabled=phi_enabled,
+                    required_gitignore=required_gitignore,
+                )
+            )
 
         return ValidationResult(validator_id=self.id, findings=findings)
 
-    def _check_single_file(self, file_path: str) -> list[Finding]:
+    def _check_single_file(
+        self,
+        file_path: str,
+        *,
+        phi_fields: list[str] = PHI_FIELDS,
+        phi_enabled: bool = True,
+    ) -> list[Finding]:
         """Per-file checks (PostToolUse)."""
         findings: list[Finding] = []
         findings.extend(self._check_secrets(file_path))
         findings.extend(self._check_cors(file_path))
-        findings.extend(self._check_phi_logging(file_path))
+        if phi_enabled:
+            findings.extend(self._check_phi_logging(file_path, phi_fields=phi_fields))
         return findings
 
-    def _check_project_wide(self, ctx: ProjectContext) -> list[Finding]:
+    def _check_project_wide(
+        self,
+        ctx: ProjectContext,
+        *,
+        phi_fields: list[str] = PHI_FIELDS,
+        phi_enabled: bool = True,
+        required_gitignore: list[str] = REQUIRED_GITIGNORE,
+    ) -> list[Finding]:
         """Project-wide checks (Stop mode)."""
         findings: list[Finding] = []
-        findings.extend(self._check_gitignore(ctx))
-        findings.extend(self._scan_go_files(ctx))
+        findings.extend(self._check_gitignore(ctx, required_gitignore=required_gitignore))
+        findings.extend(self._scan_go_files(ctx, phi_fields=phi_fields, phi_enabled=phi_enabled))
         findings.extend(self._scan_web_files(ctx))
         return findings
 
-    def _scan_go_files(self, ctx: ProjectContext) -> list[Finding]:
+    def _scan_go_files(
+        self,
+        ctx: ProjectContext,
+        *,
+        phi_fields: list[str] = PHI_FIELDS,
+        phi_enabled: bool = True,
+    ) -> list[Finding]:
         """Scan Go source files for security issues."""
         findings: list[Finding] = []
         if not (ctx.server_dir and ctx.server_dir.exists()):
@@ -122,7 +158,7 @@ class SecurityValidator(BaseValidator):
             fp = str(go_file)
             if any(exc in fp for exc in EXCLUDE_PATHS):
                 continue
-            findings.extend(self._check_single_file(fp))
+            findings.extend(self._check_single_file(fp, phi_fields=phi_fields, phi_enabled=phi_enabled))
         return findings
 
     def _scan_web_files(self, ctx: ProjectContext) -> list[Finding]:
@@ -206,7 +242,7 @@ class SecurityValidator(BaseValidator):
 
     # ── Check: PHI logging (HIPAA) ───────────────────────────────────────
 
-    def _check_phi_logging(self, file_path: str) -> list[Finding]:
+    def _check_phi_logging(self, file_path: str, *, phi_fields: list[str] = PHI_FIELDS) -> list[Finding]:
         if not file_path.endswith((".go", ".ts", ".tsx", ".js")):
             return []
 
@@ -219,7 +255,7 @@ class SecurityValidator(BaseValidator):
         for i, line in enumerate(content.split("\n"), 1):
             # Check Go log patterns
             if re.search(r"log\.(Info|Debug|Warn|Print|Printf|Error)\(", line):
-                for field in PHI_FIELDS:
+                for field in phi_fields:
                     # Only flag actual data binding: Str("email", var), not fixed strings like "email and password"
                     # Match: .Str("email", ...) or Sprintf("%s", email) but not fmt.Errorf("email is required")
                     has_binding = re.search(
@@ -246,7 +282,7 @@ class SecurityValidator(BaseValidator):
                         break  # One finding per line
             # Check JS/TS console patterns
             elif re.search(r"console\.(log|debug|info|warn|error)\(", line):
-                for field in PHI_FIELDS:
+                for field in phi_fields:
                     # Only flag variable references, not fixed strings
                     has_binding = re.search(
                         rf"{field}\s*[,\)\}}]"  # variable: console.log(email) or console.log({email})
@@ -274,7 +310,9 @@ class SecurityValidator(BaseValidator):
 
     # ── Check: .gitignore completeness ───────────────────────────────────
 
-    def _check_gitignore(self, ctx: ProjectContext) -> list[Finding]:
+    def _check_gitignore(
+        self, ctx: ProjectContext, *, required_gitignore: list[str] = REQUIRED_GITIGNORE
+    ) -> list[Finding]:
         findings: list[Finding] = []
         gitignore = ctx.project_root / ".gitignore"
 
@@ -285,13 +323,13 @@ class SecurityValidator(BaseValidator):
                     file=str(ctx.project_root),
                     rule="V08-NO-GITIGNORE",
                     message=".gitignore file is missing",
-                    fix=(f"Create .gitignore in {ctx.project_root} with at minimum: {', '.join(REQUIRED_GITIGNORE)}"),
+                    fix=(f"Create .gitignore in {ctx.project_root} with at minimum: {', '.join(required_gitignore)}"),
                 )
             )
             return findings
 
         content = gitignore.read_text()
-        for pattern in REQUIRED_GITIGNORE:
+        for pattern in required_gitignore:
             if pattern not in content:
                 findings.append(
                     Finding(
