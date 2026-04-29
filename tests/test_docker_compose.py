@@ -81,7 +81,7 @@ services:
 networks: {}
 """,
         )
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         conflicts = [f for f in result.findings if f.rule == "V05-PORT-CONFLICT"]
         assert len(conflicts) == 1
@@ -108,7 +108,7 @@ services:
 networks: {}
 """,
         )
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         conflicts = [f for f in result.findings if f.rule == "V05-PORT-CONFLICT"]
         assert len(conflicts) == 0
@@ -131,7 +131,7 @@ services:
 networks: {}
 """,
         )
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         conflicts = [f for f in result.findings if f.rule == "V05-PORT-CONFLICT"]
         assert len(conflicts) == 0
@@ -165,7 +165,7 @@ networks:
 """,
             filename="docker-compose.production.yaml",
         )
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         vhost_issues = [f for f in result.findings if f.rule == "V05-VHOST-NO-NETWORK"]
         assert len(vhost_issues) == 1
@@ -192,7 +192,7 @@ networks:
     external: true
 """,
         )
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         vhost_issues = [f for f in result.findings if f.rule == "V05-VHOST-NO-NETWORK"]
         assert len(vhost_issues) == 0
@@ -218,7 +218,7 @@ networks:
     driver: bridge
 """,
         )
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         vhost_issues = [f for f in result.findings if f.rule == "V05-VHOST-NO-NETWORK"]
         assert len(vhost_issues) == 0
@@ -244,7 +244,7 @@ networks:
     driver: bridge
 """,
         )
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         undefined_networks = [f for f in result.findings if f.rule == "V05-UNDEFINED-NETWORK"]
         assert len(undefined_networks) == 1
@@ -269,7 +269,7 @@ networks:
     driver: bridge
 """,
         )
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         undefined_networks = [f for f in result.findings if f.rule == "V05-UNDEFINED-NETWORK"]
         assert len(undefined_networks) == 0
@@ -293,7 +293,7 @@ networks:
     external: true
 """,
         )
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         undefined_networks = [f for f in result.findings if f.rule == "V05-UNDEFINED-NETWORK"]
         assert len(undefined_networks) == 0
@@ -321,7 +321,7 @@ services:
 networks: {}
 """,
         )
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         healthcheck_issues = [f for f in result.findings if f.rule == "V05-MISSING-HEALTHCHECK"]
         assert len(healthcheck_issues) == 1
@@ -352,7 +352,7 @@ services:
 networks: {}
 """,
         )
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         healthcheck_issues = [f for f in result.findings if f.rule == "V05-MISSING-HEALTHCHECK"]
         assert len(healthcheck_issues) == 0
@@ -377,7 +377,7 @@ services:
 networks: {}
 """,
         )
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         healthcheck_issues = [f for f in result.findings if f.rule == "V05-MISSING-HEALTHCHECK"]
         assert len(healthcheck_issues) == 0
@@ -401,7 +401,7 @@ services:
 networks: {}
 """,
         )
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         env_var_issues = [f for f in result.findings if f.rule == "V05-MISSING-ENV-VAR"]
         assert len(env_var_issues) == 1
@@ -424,7 +424,7 @@ services:
 networks: {}
 """,
         )
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         env_var_issues = [f for f in result.findings if f.rule == "V05-MISSING-ENV-VAR"]
         assert len(env_var_issues) == 0
@@ -449,7 +449,7 @@ services:
 networks: {}
 """,
         )
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         errors = [f for f in result.findings if f.rule == "V05-MISSING-ENV-VAR"]
         assert len(errors) == 0
@@ -478,7 +478,7 @@ services:
 networks: {}
 """,
         )
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         errors = [f for f in result.findings if f.rule == "V05-MISSING-ENV-VAR"]
         assert len(errors) == 0
@@ -518,7 +518,7 @@ class TestV05DockerfileMultistage:
         dockerfile = docker_project / "server" / "Dockerfile"
         dockerfile.write_text('FROM golang:1.25-alpine\nRUN go build -o app .\nCMD ["./app"]\n')
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-DOCKERFILE-NO-MULTISTAGE" in rules
 
@@ -531,7 +531,7 @@ class TestV05DockerfileMultistage:
             "FROM alpine:3.21 AS prod\nCOPY --from=builder /app /app\nUSER app\nEXPOSE 7778\n"
         )
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-DOCKERFILE-NO-MULTISTAGE" not in rules
 
@@ -551,7 +551,7 @@ class TestV05DockerfileUser:
             'FROM alpine:3.21 AS prod\nCOPY --from=builder /app /app\nCMD ["./app"]\n'
         )
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         errors = [f for f in result.findings if f.rule == "V05-DOCKERFILE-NO-USER"]
         assert len(errors) == 1
         assert errors[0].severity == "error"
@@ -565,7 +565,7 @@ class TestV05DockerfileUser:
             "FROM alpine:3.21 AS prod\nRUN adduser -S app\nUSER app\nCOPY --from=builder /app /app\n"
         )
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-DOCKERFILE-NO-USER" not in rules
 
@@ -584,7 +584,7 @@ class TestV05DockerfileExpose:
             'FROM golang:1.25 AS builder\nRUN go build -o app .\nFROM alpine:3.21 AS prod\nUSER app\nCMD ["./app"]\n'
         )
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-DOCKERFILE-NO-EXPOSE" in rules
 
@@ -597,7 +597,7 @@ class TestV05DockerfileExpose:
             'FROM alpine:3.21 AS prod\nUSER app\nEXPOSE 7778\nCMD ["./app"]\n'
         )
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-DOCKERFILE-NO-EXPOSE" not in rules
 
@@ -617,7 +617,7 @@ class TestV05DockerfileCopyAll:
             "FROM alpine:3.21 AS prod\nUSER app\nEXPOSE 7778\n"
         )
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-DOCKERFILE-COPY-ALL" in rules
 
@@ -631,7 +631,7 @@ class TestV05DockerfileCopyAll:
         )
         (docker_project / "server" / ".dockerignore").write_text(".env\n.git\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-DOCKERFILE-COPY-ALL" not in rules
 
@@ -648,7 +648,7 @@ class TestV05ProdPortExposed:
         compose = docker_project / "server" / "docker-compose.production.yaml"
         compose.write_text("services:\n  myapp:\n    ports:\n      - '8080:8080'\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-PROD-PORT-EXPOSED" in rules
 
@@ -656,7 +656,7 @@ class TestV05ProdPortExposed:
         compose = docker_project / "server" / "docker-compose.production.yaml"
         compose.write_text("services:\n  myapp:\n    ports: []\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-PROD-PORT-EXPOSED" not in rules
 
@@ -673,7 +673,7 @@ class TestV05ProdDevMode:
         compose = docker_project / "server" / "docker-compose.production.yaml"
         compose.write_text("services:\n  myapp:\n    environment:\n      APP_DEV: 'true'\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         errors = [f for f in result.findings if f.rule == "V05-PROD-DEV-MODE"]
         assert len(errors) == 1
         assert errors[0].severity == "error"
@@ -684,7 +684,7 @@ class TestV05ProdDevMode:
         compose = docker_project / "server" / "docker-compose.production.yaml"
         compose.write_text("services:\n  myapp:\n    environment:\n      APP_DEV: 'false'\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-PROD-DEV-MODE" not in rules
 
@@ -694,7 +694,7 @@ class TestV05ProdDevMode:
         compose = docker_project / "server" / "docker-compose.production.yaml"
         compose.write_text("services:\n  hasura:\n    environment:\n      HASURA_GRAPHQL_DEV_MODE: 'true'\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         errors = [f for f in result.findings if f.rule == "V05-PROD-DEV-MODE"]
         assert len(errors) >= 1
 
@@ -704,7 +704,7 @@ class TestV05ProdDevMode:
         compose = docker_project / "server" / "docker-compose.production.yaml"
         compose.write_text("services:\n  web:\n    environment:\n      NODE_ENV: development\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         errors = [f for f in result.findings if f.rule == "V05-PROD-DEV-MODE"]
         assert len(errors) == 1
 
@@ -721,7 +721,7 @@ class TestV05ProdWildcardCors:
         compose = docker_project / "server" / "docker-compose.production.yaml"
         compose.write_text("services:\n  hasura:\n    environment:\n      HASURA_GRAPHQL_CORS_DOMAIN: '*'\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         errors = [f for f in result.findings if f.rule == "V05-PROD-WILDCARD-CORS"]
         assert len(errors) == 1
         assert errors[0].severity == "error"
@@ -734,7 +734,7 @@ class TestV05ProdWildcardCors:
             "services:\n  hasura:\n    environment:\n      HASURA_GRAPHQL_CORS_DOMAIN: 'https://example.com'\n"
         )
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-PROD-WILDCARD-CORS" not in rules
 
@@ -751,7 +751,7 @@ class TestV05DevVolumeMount:
         compose = docker_project / "server" / "docker-compose.override.yaml"
         compose.write_text("services:\n  myapp:\n    build:\n      target: dev\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-DEV-NO-VOLUME-MOUNT" in rules
 
@@ -761,7 +761,7 @@ class TestV05DevVolumeMount:
         compose = docker_project / "server" / "docker-compose.override.yaml"
         compose.write_text("services:\n  myapp:\n    build:\n      target: dev\n    volumes:\n      - .:/app\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-DEV-NO-VOLUME-MOUNT" not in rules
 
@@ -778,7 +778,7 @@ class TestV05DevBuildTarget:
         compose = docker_project / "server" / "docker-compose.override.yaml"
         compose.write_text("services:\n  myapp:\n    build:\n      target: prod\n    volumes:\n      - .:/app\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-DEV-NO-BUILD-TARGET" in rules
 
@@ -786,7 +786,7 @@ class TestV05DevBuildTarget:
         compose = docker_project / "server" / "docker-compose.override.yaml"
         compose.write_text("services:\n  myapp:\n    build:\n      target: dev\n    volumes:\n      - .:/app\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-DEV-NO-BUILD-TARGET" not in rules
 
@@ -803,7 +803,7 @@ class TestV05BaseImageLatest:
         dockerfile = docker_project / "server" / "Dockerfile"
         dockerfile.write_text("FROM golang:latest\nRUN go build -o app .\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-BASE-IMAGE-LATEST" in rules
 
@@ -811,7 +811,7 @@ class TestV05BaseImageLatest:
         dockerfile = docker_project / "server" / "Dockerfile"
         dockerfile.write_text("FROM golang\nRUN go build -o app .\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-BASE-IMAGE-LATEST" in rules
 
@@ -821,7 +821,7 @@ class TestV05BaseImageLatest:
         dockerfile = docker_project / "server" / "Dockerfile"
         dockerfile.write_text("FROM golang:1.25-alpine\nRUN go build -o app .\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-BASE-IMAGE-LATEST" not in rules
 
@@ -838,7 +838,7 @@ class TestV05MissingDockerignore:
         dockerfile = docker_project / "server" / "Dockerfile"
         dockerfile.write_text("FROM golang:1.25\nCOPY . .\nRUN go build -o app .\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-MISSING-DOCKERIGNORE" in rules
 
@@ -849,7 +849,7 @@ class TestV05MissingDockerignore:
         dockerfile.write_text("FROM golang:1.25\nCOPY . .\nRUN go build -o app .\n")
         (docker_project / "server" / ".dockerignore").write_text(".env\n.git\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-MISSING-DOCKERIGNORE" not in rules
 
@@ -859,7 +859,7 @@ class TestV05MissingDockerignore:
         dockerfile = docker_project / "server" / "Dockerfile"
         dockerfile.write_text("FROM golang:1.25\nCOPY src/ /app/\nRUN go build -o app .\n")
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-MISSING-DOCKERIGNORE" not in rules
 
@@ -884,7 +884,7 @@ class TestV05BuildTargetMissing:
             "FROM alpine:3.21 AS prod\nCOPY --from=builder /app /app\n"
         )
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         errors = [f for f in result.findings if f.rule == "V05-BUILD-TARGET-MISSING"]
         assert len(errors) == 1
         assert errors[0].severity == "error"
@@ -904,7 +904,7 @@ class TestV05BuildTargetMissing:
             "FROM alpine:3.21 AS prod\nCOPY --from=builder /app /app\n"
         )
 
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-BUILD-TARGET-MISSING" not in rules
 
@@ -919,5 +919,5 @@ class TestV05CleanProject:
         self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext
     ) -> None:
         """Project with no Docker files should produce zero findings."""
-        result = validator.validate(docker_ctx)
+        result = validator.run(docker_ctx)
         assert len(result.findings) == 0

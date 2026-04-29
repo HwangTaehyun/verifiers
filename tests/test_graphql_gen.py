@@ -447,7 +447,7 @@ class TestValidateIntegration:
         assert ctx.graph_dir is None
 
         validator = GraphqlGenValidator()
-        result = validator.validate(ctx)
+        result = validator.run(ctx)
 
         assert len(result.findings) == 0
         assert result.validator_id == "V02-graphql-gen"
@@ -470,7 +470,7 @@ class TestValidateIntegration:
         repo_file.write_text(REPOSITORY_GO_WITH_MISSING_FUNC)
 
         validator = GraphqlGenValidator()
-        result = validator.validate(project_ctx, mode="stop")
+        result = validator.run(project_ctx, mode="stop")
 
         # Should contain the V02-MISSING-FUNCTION finding
         rules = {f.rule for f in result.findings}
@@ -497,7 +497,7 @@ class TestValidateIntegration:
 
         validator = GraphqlGenValidator()
         # file_path does not contain "genqlient", mode is not "stop"
-        result = validator.validate(project_ctx, file_path="server/internal/repository.go", mode="post_tool_use")
+        result = validator.run(project_ctx, file_path="server/internal/repository.go", mode="post_tool_use")
 
         # Should NOT contain V02-MISSING-FUNCTION (function refs check is skipped)
         rules = {f.rule for f in result.findings}
@@ -523,7 +523,7 @@ class TestValidateIntegration:
         repo_file.write_text(REPOSITORY_GO_WITH_MISSING_FUNC)
 
         validator = GraphqlGenValidator()
-        result = validator.validate(
+        result = validator.run(
             project_ctx,
             file_path="server/graph/gqlclient/genqlient.go",
             mode="post_tool_use",

@@ -28,7 +28,7 @@ class TestMockVariable:
             "export function useLeaderboardData() {}\n"
         )
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, str(hook))
+        result = validator.run(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-MOCK-VARIABLE"]
         assert len(errors) == 1
         assert "MOCK_ENTRIES" in errors[0].message
@@ -38,7 +38,7 @@ class TestMockVariable:
         hook.parent.mkdir(parents=True, exist_ok=True)
         hook.write_text("const mockStats = { value: 6.12 };\nexport function useTrendsData() {}\n")
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, str(hook))
+        result = validator.run(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-MOCK-VARIABLE"]
         assert len(errors) == 1
 
@@ -47,7 +47,7 @@ class TestMockVariable:
         hook.parent.mkdir(parents=True, exist_ok=True)
         hook.write_text("const FAKE_USERS = [];\nlet dummyResponse = {};\nexport function useData() {}\n")
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, str(hook))
+        result = validator.run(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-MOCK-VARIABLE"]
         assert len(errors) == 2
 
@@ -61,7 +61,7 @@ class TestMockVariable:
             "export function useData() {}\n"
         )
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, str(hook))
+        result = validator.run(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-MOCK-VARIABLE"]
         assert len(errors) == 0
 
@@ -76,7 +76,7 @@ class TestMockVariable:
             "}\n"
         )
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, str(hook))
+        result = validator.run(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-MOCK-VARIABLE"]
         assert len(errors) == 0
 
@@ -95,7 +95,7 @@ class TestHardcodedState:
             "}\n"
         )
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, str(hook))
+        result = validator.run(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-MOCK-DATA"]
         assert len(errors) >= 1
 
@@ -110,7 +110,7 @@ class TestHardcodedState:
             "}\n"
         )
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, str(hook))
+        result = validator.run(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-MOCK-DATA"]
         assert len(errors) == 0
 
@@ -125,7 +125,7 @@ class TestHardcodedState:
             "}\n"
         )
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, str(hook))
+        result = validator.run(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-MOCK-DATA"]
         assert len(errors) == 0
 
@@ -144,7 +144,7 @@ class TestFakeDelay:
             "}\n"
         )
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, str(hook))
+        result = validator.run(ctx, str(hook))
         warnings = [f for f in result.findings if f.rule == "V18-FAKE-DELAY"]
         assert len(warnings) == 1
 
@@ -155,7 +155,7 @@ class TestFakeDelay:
             "import { client } from '../api/client';\n// Simulate network delay\nexport function useData() {}\n"
         )
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, str(hook))
+        result = validator.run(ctx, str(hook))
         warnings = [f for f in result.findings if f.rule == "V18-FAKE-DELAY"]
         assert len(warnings) == 1
 
@@ -173,7 +173,7 @@ class TestTodoApi:
             "export function useData() {}\n"
         )
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, str(hook))
+        result = validator.run(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-TODO-API"]
         assert len(errors) == 1
 
@@ -184,7 +184,7 @@ class TestTodoApi:
             "import { client } from '../api/client';\n// TODO: Add error handling\nexport function useData() {}\n"
         )
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, str(hook))
+        result = validator.run(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-TODO-API"]
         assert len(errors) == 0
 
@@ -203,7 +203,7 @@ class TestNoApiImport:
             "}\n"
         )
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, str(hook))
+        result = validator.run(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-NO-API-IMPORT"]
         assert len(errors) == 1
 
@@ -217,7 +217,7 @@ class TestNoApiImport:
             "}\n"
         )
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, str(hook))
+        result = validator.run(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-NO-API-IMPORT"]
         assert len(errors) == 0
 
@@ -228,7 +228,7 @@ class TestNoApiImport:
             "import { createPromiseClient } from '@connectrpc/connect';\nexport function useProfileData() {}\n"
         )
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, str(hook))
+        result = validator.run(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-NO-API-IMPORT"]
         assert len(errors) == 0
 
@@ -238,7 +238,7 @@ class TestNoApiImport:
         hook.parent.mkdir(parents=True, exist_ok=True)
         hook.write_text("import { useState } from 'react';\nexport function useAuth() { return { user: null }; }\n")
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, str(hook))
+        result = validator.run(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-NO-API-IMPORT"]
         assert len(errors) == 0
 
@@ -268,7 +268,7 @@ class TestStopMode:
         )
 
         ctx = ProjectContext(tmp_project)
-        result = validator.validate(ctx, file_path=None, mode="stop")
+        result = validator.run(ctx, file_path=None, mode="stop")
         mock_errors = [f for f in result.findings if f.rule == "V18-MOCK-VARIABLE"]
         assert len(mock_errors) == 2  # Two files with mock variables
 

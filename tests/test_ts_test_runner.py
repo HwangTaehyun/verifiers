@@ -64,7 +64,7 @@ class TestValidateNoWebDir:
         (tmp_path / ".git").mkdir()
         ctx = _make_ctx(tmp_path)
         ctx.web_dir = None  # type: ignore[assignment]
-        result = validator.validate(ctx, file_path="src/App.tsx", mode="post_tool_use")
+        result = validator.run(ctx, file_path="src/App.tsx", mode="post_tool_use")
         assert isinstance(result, ValidationResult)
         assert result.findings == []
 
@@ -277,7 +277,7 @@ class TestValidateIntegration:
     """Test the full validate method."""
 
     def test_excluded_dir_skipped(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
-        result = validator.validate(
+        result = validator.run(
             project_ctx,
             file_path=str(tmp_project / "web" / "node_modules" / "lib.ts"),
             mode="post_tool_use",
@@ -285,11 +285,11 @@ class TestValidateIntegration:
         assert result.findings == []
 
     def test_stop_mode_skipped(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
-        result = validator.validate(project_ctx, file_path="App.tsx", mode="stop")
+        result = validator.run(project_ctx, file_path="App.tsx", mode="stop")
         assert result.findings == []
 
     def test_non_ts_file_skipped(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
-        result = validator.validate(project_ctx, file_path="README.md", mode="post_tool_use")
+        result = validator.run(project_ctx, file_path="README.md", mode="post_tool_use")
         assert result.findings == []
 
 

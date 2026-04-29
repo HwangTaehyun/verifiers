@@ -105,7 +105,7 @@ class TestValidateStopModeOnly:
     def test_skip_in_post_tool_use_mode(self, validator: CommitDisciplineValidator, tmp_path: Path) -> None:
         _make_git_project(tmp_path)
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, mode="post_tool_use")
+        result = validator.run(ctx, mode="post_tool_use")
         assert not result.findings
 
     def test_runs_in_stop_mode(self, validator: CommitDisciplineValidator, tmp_path: Path) -> None:
@@ -113,7 +113,7 @@ class TestValidateStopModeOnly:
         ctx = ProjectContext(tmp_path)
         # With a real git repo, no changes → no findings
         # (git status returns empty for a fresh .git dir)
-        result = validator.validate(ctx, mode="stop")
+        result = validator.run(ctx, mode="stop")
         # No real git repo, so _run_git returns empty → no findings
         assert len(result.findings) == 0
 
@@ -130,7 +130,7 @@ class TestUnstagedChanges:
 
         with mock.patch("hooks.validators.commit_discipline._run_git") as mock_git:
             mock_git.return_value = " M handler.go\n?? new_file.py"
-            result = validator.validate(ctx, mode="stop")
+            result = validator.run(ctx, mode="stop")
             assert any(f.rule == "V12-UNSTAGED-CHANGES" for f in result.findings)
 
     def test_no_changes_no_finding(self, validator: CommitDisciplineValidator, tmp_path: Path) -> None:
@@ -139,7 +139,7 @@ class TestUnstagedChanges:
 
         with mock.patch("hooks.validators.commit_discipline._run_git") as mock_git:
             mock_git.return_value = ""
-            result = validator.validate(ctx, mode="stop")
+            result = validator.run(ctx, mode="stop")
             assert not result.findings
 
 
@@ -157,7 +157,7 @@ class TestLargeDiff:
         status_lines = "\n".join(f" M file{i}.go" for i in range(16))
         with mock.patch("hooks.validators.commit_discipline._run_git") as mock_git:
             mock_git.return_value = status_lines
-            result = validator.validate(ctx, mode="stop")
+            result = validator.run(ctx, mode="stop")
             assert any(f.rule == "V12-LARGE-DIFF" for f in result.findings)
 
     def test_few_files_no_warning(self, validator: CommitDisciplineValidator, tmp_path: Path) -> None:
@@ -167,7 +167,7 @@ class TestLargeDiff:
         status_lines = "\n".join(f" M file{i}.go" for i in range(5))
         with mock.patch("hooks.validators.commit_discipline._run_git") as mock_git:
             mock_git.return_value = status_lines
-            result = validator.validate(ctx, mode="stop")
+            result = validator.run(ctx, mode="stop")
             assert not any(f.rule == "V12-LARGE-DIFF" for f in result.findings)
 
 
@@ -183,7 +183,7 @@ class TestNoTestInFeature:
 
         with mock.patch("hooks.validators.commit_discipline._run_git") as mock_git:
             mock_git.return_value = " M handler.go\n M service.go"
-            result = validator.validate(ctx, mode="stop")
+            result = validator.run(ctx, mode="stop")
             assert any(f.rule == "V12-NO-TEST-IN-FEATURE" for f in result.findings)
 
     def test_source_with_test_no_warning(self, validator: CommitDisciplineValidator, tmp_path: Path) -> None:
@@ -192,7 +192,7 @@ class TestNoTestInFeature:
 
         with mock.patch("hooks.validators.commit_discipline._run_git") as mock_git:
             mock_git.return_value = " M handler.go\n M handler_test.go"
-            result = validator.validate(ctx, mode="stop")
+            result = validator.run(ctx, mode="stop")
             assert not any(f.rule == "V12-NO-TEST-IN-FEATURE" for f in result.findings)
 
     def test_config_only_no_warning(self, validator: CommitDisciplineValidator, tmp_path: Path) -> None:
@@ -201,7 +201,7 @@ class TestNoTestInFeature:
 
         with mock.patch("hooks.validators.commit_discipline._run_git") as mock_git:
             mock_git.return_value = " M config.yaml\n M package.json"
-            result = validator.validate(ctx, mode="stop")
+            result = validator.run(ctx, mode="stop")
             assert not any(f.rule == "V12-NO-TEST-IN-FEATURE" for f in result.findings)
 
 
@@ -226,7 +226,7 @@ class TestMixedChange:
             "hooks.validators.commit_discipline._run_git",
             side_effect=mock_git_side_effect,
         ):
-            result = validator.validate(ctx, mode="stop")
+            result = validator.run(ctx, mode="stop")
             assert any(f.rule == "V12-MIXED-CHANGE" for f in result.findings)
 
 
@@ -251,7 +251,7 @@ class TestCommitMsgFormat:
             "hooks.validators.commit_discipline._run_git",
             side_effect=mock_git_side_effect,
         ):
-            result = validator.validate(ctx, mode="stop")
+            result = validator.run(ctx, mode="stop")
             assert not any(f.rule == "V12-COMMIT-MSG-FORMAT" for f in result.findings)
 
     def test_non_conventional_commit_info(self, validator: CommitDisciplineValidator, tmp_path: Path) -> None:
@@ -269,7 +269,7 @@ class TestCommitMsgFormat:
             "hooks.validators.commit_discipline._run_git",
             side_effect=mock_git_side_effect,
         ):
-            result = validator.validate(ctx, mode="stop")
+            result = validator.run(ctx, mode="stop")
             assert any(f.rule == "V12-COMMIT-MSG-FORMAT" for f in result.findings)
             finding = next(f for f in result.findings if f.rule == "V12-COMMIT-MSG-FORMAT")
             assert finding.severity == "info"
@@ -289,7 +289,7 @@ class TestCommitMsgFormat:
             "hooks.validators.commit_discipline._run_git",
             side_effect=mock_git_side_effect,
         ):
-            result = validator.validate(ctx, mode="stop")
+            result = validator.run(ctx, mode="stop")
             assert not any(f.rule == "V12-COMMIT-MSG-FORMAT" for f in result.findings)
 
     def test_conventional_pattern_variants(self) -> None:

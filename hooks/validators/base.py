@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import sys
-from abc import ABC
 from dataclasses import asdict, dataclass, field
 from fnmatch import fnmatch
 from typing import Any
@@ -45,21 +44,33 @@ class ValidationResult:
         return any(f.severity == "warning" for f in self.findings)
 
 
-class BaseValidator(ABC):
+class BaseValidator:
     """Base class for all validators.
 
-    Subclasses override either ``validate_file`` (PostToolUse, single
-    file) or ``validate_project`` (Stop, full project) — or both. The
-    legacy ``validate(ctx, file_path, mode)`` API is still honored for
-    back-compat, and a Phase29 default ``validate`` impl dispatches
-    automatically to the new API. Subclasses can therefore migrate one
-    at a time without breaking each other.
+    Subclasses override ``validate_file`` (Tier 2, single file just
+    edited) or ``validate_project`` (Tier 3, full-project sweep), or
+    both. The ``run()`` entry point dispatches based on the (file_path,
+    mode) pair and adds JSON logging around the call.
 
-    Migration phases (Phase29 → 32):
-      29 — base API + dispatch (this file). No validator changes.
-      30 — migrate V08, V14, V15, V19, V20, V21 to new API.
-      31 — migrate remaining 13 validators.
-      32 — remove the legacy ``validate`` method entirely.
+    Dispatch matrix used by ``run()``:
+      (post_tool_use, file_path)    → validate_file
+      (post_tool_use, None)         → validate_project (legacy "run all")
+      (stop, _)                     → validate_project
+
+    The (post_tool_use, None) fallback handles the legacy
+    ``validator.run(ctx)`` shape used by tests and the run_single CLI;
+    production hooks always pass either a file_path (router) or
+    mode="stop" (parallel_runner).
+
+    Migration history (S4 audit, Phase29-32):
+      29 — added validate_file / validate_project + back-compat dispatch.
+      30 — migrated V08/V14/V15/V19/V20/V21 to the new API.
+      31a — migrated V01/V02/V03/V04/V12/V13/V16.
+      31b — migrated V05/V06/V07/V09/V10/V11/V18, plus base dispatch
+            handles (post_tool_use, None).
+      32 — removed the legacy ``validate(ctx, file_path, mode)`` method
+            entirely; ``run()`` now dispatches directly. ABC inheritance
+            dropped because there is no abstract method left.
     """
 
     id: str = ""
@@ -75,11 +86,7 @@ class BaseValidator(ABC):
             return True
         return any(fnmatch(file_path, pattern) for pattern in self.file_patterns)
 
-    # ── New API (Phase29+) — preferred ─────────────────────────────────
-    #
-    # Subclasses override one or both. Defaults are no-op so a validator
-    # that only cares about per-file checks can leave validate_project
-    # alone, and vice versa.
+    # ── Per-tier entry points — subclasses override one or both ──────────
 
     def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
         """Tier 2 (PostToolUse) entry point. Single file just edited.
@@ -95,35 +102,9 @@ class BaseValidator(ABC):
         """
         return []
 
-    # ── Legacy API (≤ Phase28) — back-compat dispatch ─────────────────
-    #
-    # The original abstract method. Default impl now dispatches to the
-    # new pair so a subclass can migrate independently. Subclasses
-    # migrated in Phase30+ won't override this — the default carries
-    # them. Pre-migration subclasses still own ``validate`` and the
-    # default is shadowed.
-
-    def validate(
-        self, ctx: ProjectContext, file_path: str | None = None, mode: str = "post_tool_use"
-    ) -> ValidationResult:
-        """Default dispatch — calls validate_file / validate_project.
-
-        Args:
-            ctx: Project context with detected paths
-            file_path: Specific file that was modified (PostToolUse) or None (Stop)
-            mode: "post_tool_use" or "stop"
-
-        Dispatch matrix:
-          (post_tool_use, file_path)    → validate_file
-          (post_tool_use, None)         → validate_project (legacy "run all")
-          (stop, _)                     → validate_project
-
-        The (post_tool_use, None) fallback preserves the pre-Phase29
-        ``validator.validate(ctx)`` test idiom and the V01-style "always
-        run project checks" behavior. Production hooks always pass either
-        a file_path (router) or mode="stop" (parallel_runner), so the
-        fallback only affects tests and the run_single CLI.
-        """
+    def run(self, ctx: ProjectContext, file_path: str | None = None, mode: str = "post_tool_use") -> ValidationResult:
+        """Dispatch to validate_file / validate_project + emit a JSON log line."""
+        self.logger.start()
         findings: list[Finding] = []
         if mode == "stop":
             findings.extend(self.validate_project(ctx))
@@ -131,12 +112,7 @@ class BaseValidator(ABC):
             findings.extend(self.validate_file(ctx, file_path))
         else:
             findings.extend(self.validate_project(ctx))
-        return ValidationResult(validator_id=self.id, findings=findings)
-
-    def run(self, ctx: ProjectContext, file_path: str | None = None, mode: str = "post_tool_use") -> ValidationResult:
-        """Run validation with logging."""
-        self.logger.start()
-        result = self.validate(ctx, file_path, mode)
+        result = ValidationResult(validator_id=self.id, findings=findings)
         self.logger.log(
             project_name=ctx.project_name,
             findings=[asdict(f) for f in result.findings],

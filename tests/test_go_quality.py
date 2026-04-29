@@ -77,7 +77,7 @@ class TestValidateNoServerDir:
         ctx = ProjectContext(tmp_path)
         assert ctx.server_dir is None
 
-        result = validator.validate(ctx, file_path="main.go", mode="post_tool_use")
+        result = validator.run(ctx, file_path="main.go", mode="post_tool_use")
         assert isinstance(result, ValidationResult)
         assert result.findings == []
 
@@ -87,7 +87,7 @@ class TestValidateNoServerDir:
         ctx = ProjectContext(tmp_path)
         ctx.server_dir = tmp_path / "server_nonexistent"
 
-        result = validator.validate(ctx, file_path="main.go", mode="post_tool_use")
+        result = validator.run(ctx, file_path="main.go", mode="post_tool_use")
         assert result.findings == []
 
 
@@ -511,7 +511,7 @@ class TestValidateIntegration:
         """post_tool_use mode should NOT call golangci-lint or go test."""
         mock_result = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
         with patch("subprocess.run", return_value=mock_result) as mock_run:
-            result = validator.validate(project_ctx, file_path="main.go", mode="post_tool_use")
+            result = validator.run(project_ctx, file_path="main.go", mode="post_tool_use")
 
         assert isinstance(result, ValidationResult)
         # Should call: go vet, gofmt, go build (3 calls total)
@@ -527,7 +527,7 @@ class TestValidateIntegration:
         """stop mode should also call golangci-lint and go test."""
         mock_result = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
         with patch("subprocess.run", return_value=mock_result) as mock_run:
-            result = validator.validate(project_ctx, file_path="main.go", mode="stop")
+            result = validator.run(project_ctx, file_path="main.go", mode="stop")
 
         assert isinstance(result, ValidationResult)
         # Phase29+: stop mode dispatches to validate_project only — the
@@ -541,7 +541,7 @@ class TestValidateIntegration:
         """gofmt should not be run if file_path is not a .go file."""
         mock_result = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
         with patch("subprocess.run", return_value=mock_result) as mock_run:
-            validator.validate(project_ctx, file_path="go.mod", mode="post_tool_use")
+            validator.run(project_ctx, file_path="go.mod", mode="post_tool_use")
 
         # Should call: go vet, go build (no gofmt for go.mod)
         assert mock_run.call_count == 2

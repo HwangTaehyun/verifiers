@@ -744,7 +744,7 @@ class TestValidateIntegration:
         """A clean project with no secrets/missing vars should have zero findings."""
         # The fixture creates a minimal clean project
         validator = EnvConfigValidator()
-        result = validator.validate(project_ctx)
+        result = validator.run(project_ctx)
 
         assert result.validator_id == "V01-env-config"
         assert len(result.findings) == 0
@@ -771,7 +771,7 @@ class TestValidateIntegration:
 
         validator = EnvConfigValidator()
         # Phase29+ API: project-level checks live in validate_project. The
-        # legacy `validator.validate(ctx)` call no longer triggers the
+        # legacy `validator.run(ctx)` call no longer triggers the
         # full battery because the base dispatch needs an explicit mode
         # ("stop") or file_path (PostToolUse) to know which lane to fire.
         findings = validator.validate_project(project_ctx)

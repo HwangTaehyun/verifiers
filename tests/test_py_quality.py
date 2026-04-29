@@ -207,7 +207,7 @@ class TestValidateDispatch:
             patch.object(validator, "_check_ruff_format", return_value=[]) as fmt,
             patch.object(validator, "_check_ruff_all", return_value=[]) as ruff_all,
         ):
-            validator.validate(
+            validator.run(
                 py_ctx,
                 file_path=str(py_project / "src" / "x.py"),
                 mode="post_tool_use",
@@ -219,12 +219,12 @@ class TestValidateDispatch:
 
     def test_stop_runs_ruff_all(self, validator: PyQualityValidator, py_ctx: ProjectContext) -> None:
         with patch.object(validator, "_check_ruff_all", return_value=[]) as ruff_all:
-            validator.validate(py_ctx, file_path=None, mode="stop")
+            validator.run(py_ctx, file_path=None, mode="stop")
 
         assert ruff_all.called
 
     def test_no_python_project_returns_empty(self, validator: PyQualityValidator, tmp_path: Path) -> None:
         (tmp_path / ".git").mkdir()
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, file_path="x.py", mode="post_tool_use")
+        result = validator.run(ctx, file_path="x.py", mode="post_tool_use")
         assert result.findings == []

@@ -171,7 +171,7 @@ class TestGoLayerViolations:
         fp = _write_file(project / "internal" / "domain", "user.go", content)
         ctx = ProjectContext(project)
         validator = DependencyGuardValidator()
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V15-WRONG-DEPENDENCY" for f in result.findings)
 
     def test_handler_importing_domain_ok(self, tmp_path: Path) -> None:
@@ -180,7 +180,7 @@ class TestGoLayerViolations:
         fp = _write_file(project / "internal" / "handler", "user.go", content)
         ctx = ProjectContext(project)
         validator = DependencyGuardValidator()
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert not any(f.rule == "V15-WRONG-DEPENDENCY" for f in result.findings)
 
     def test_domain_importing_stdlib_ok(self, tmp_path: Path) -> None:
@@ -189,7 +189,7 @@ class TestGoLayerViolations:
         fp = _write_file(project / "internal" / "domain", "user.go", content)
         ctx = ProjectContext(project)
         validator = DependencyGuardValidator()
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert not any(f.rule == "V15-WRONG-DEPENDENCY" for f in result.findings)
 
 
@@ -206,7 +206,7 @@ class TestPythonLayerViolations:
         fp = _write_file(tmp_path / "models", "user.py", content)
         ctx = ProjectContext(tmp_path)
         validator = DependencyGuardValidator()
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V15-WRONG-DEPENDENCY" for f in result.findings)
 
     def test_views_importing_models_ok(self, tmp_path: Path) -> None:
@@ -216,7 +216,7 @@ class TestPythonLayerViolations:
         fp = _write_file(tmp_path / "views", "handler.py", content)
         ctx = ProjectContext(tmp_path)
         validator = DependencyGuardValidator()
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert not any(f.rule == "V15-WRONG-DEPENDENCY" for f in result.findings)
 
 
@@ -234,7 +234,7 @@ class TestTsLayerViolations:
         fp = _write_file(tmp_path / "src" / "utils", "helper.ts", content)
         ctx = ProjectContext(tmp_path)
         validator = DependencyGuardValidator()
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V15-WRONG-DEPENDENCY" for f in result.findings)
 
     def test_pages_importing_utils_ok(self, tmp_path: Path) -> None:
@@ -245,7 +245,7 @@ class TestTsLayerViolations:
         fp = _write_file(tmp_path / "src" / "pages", "Home.ts", content)
         ctx = ProjectContext(tmp_path)
         validator = DependencyGuardValidator()
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert not any(f.rule == "V15-WRONG-DEPENDENCY" for f in result.findings)
 
     def test_npm_package_ignored(self, tmp_path: Path) -> None:
@@ -255,7 +255,7 @@ class TestTsLayerViolations:
         fp = _write_file(tmp_path / "src" / "utils", "helper.ts", content)
         ctx = ProjectContext(tmp_path)
         validator = DependencyGuardValidator()
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert not any(f.rule == "V15-WRONG-DEPENDENCY" for f in result.findings)
 
 

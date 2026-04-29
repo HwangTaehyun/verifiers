@@ -388,7 +388,7 @@ class TestExcessiveMocks:
 
         (tmp_path / ".git").mkdir(exist_ok=True)
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V13-MOCK-EVERYTHING" for f in result.findings)
 
     def test_python_under_threshold_no_warning(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
@@ -400,7 +400,7 @@ class TestExcessiveMocks:
 
         (tmp_path / ".git").mkdir(exist_ok=True)
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert not any(f.rule == "V13-MOCK-EVERYTHING" for f in result.findings)
 
     def test_go_excessive_mocks_warning(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
@@ -417,7 +417,7 @@ class TestExcessiveMocks:
 
         (tmp_path / ".git").mkdir(exist_ok=True)
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V13-MOCK-EVERYTHING" for f in result.findings)
 
     def test_ts_excessive_mocks_warning(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
@@ -428,7 +428,7 @@ class TestExcessiveMocks:
 
         (tmp_path / ".git").mkdir(exist_ok=True)
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V13-MOCK-EVERYTHING" for f in result.findings)
 
 
@@ -497,7 +497,7 @@ class TestTrivialTestValidation:
 
         (tmp_path / ".git").mkdir(exist_ok=True)
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V13-TRIVIAL-TEST" for f in result.findings)
 
     def test_go_trivial_test_warning(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
@@ -507,7 +507,7 @@ class TestTrivialTestValidation:
 
         (tmp_path / ".git").mkdir(exist_ok=True)
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V13-TRIVIAL-TEST" for f in result.findings)
 
     def test_ts_trivial_test_warning(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
@@ -517,7 +517,7 @@ class TestTrivialTestValidation:
 
         (tmp_path / ".git").mkdir(exist_ok=True)
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V13-TRIVIAL-TEST" for f in result.findings)
 
     def test_real_test_no_trivial_warning(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
@@ -527,7 +527,7 @@ class TestTrivialTestValidation:
 
         (tmp_path / ".git").mkdir(exist_ok=True)
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert not any(f.rule == "V13-TRIVIAL-TEST" for f in result.findings)
 
 
@@ -546,7 +546,7 @@ class TestValidate:
         from lib.project_context import ProjectContext
 
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V13-TEST-DISABLED" for f in result.findings)
 
     def test_validate_detects_skip_in_python_file(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
@@ -559,7 +559,7 @@ class TestValidate:
         from lib.project_context import ProjectContext
 
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V13-TEST-DISABLED" for f in result.findings)
 
     def test_validate_clean_file_no_findings(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
@@ -572,7 +572,7 @@ class TestValidate:
         from lib.project_context import ProjectContext
 
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert not result.has_errors
         assert not result.has_warnings
 
@@ -582,7 +582,7 @@ class TestValidate:
         from lib.project_context import ProjectContext
 
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert not result.findings
 
 

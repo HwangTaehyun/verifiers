@@ -71,7 +71,7 @@ class TestV14ConfigThresholds:
         )
 
         validator = ComplexityGuardValidator()
-        result = validator.validate(ctx, file_path=str(py), mode="post_tool_use")
+        result = validator.run(ctx, file_path=str(py), mode="post_tool_use")
         rules = [f.rule for f in result.findings]
         assert "V14-HIGH-COMPLEXITY" in rules
 
@@ -93,7 +93,7 @@ class TestV14ConfigThresholds:
         )
 
         validator = ComplexityGuardValidator()
-        result = validator.validate(ctx, file_path=str(py), mode="post_tool_use")
+        result = validator.run(ctx, file_path=str(py), mode="post_tool_use")
         rules = [f.rule for f in result.findings]
         assert "V14-HIGH-COMPLEXITY" not in rules
 
@@ -119,7 +119,7 @@ class TestV12ConfigThresholds:
             return ""
 
         with patch("hooks.validators.commit_discipline._run_git", side_effect=fake_run_git):
-            result = CommitDisciplineValidator().validate(ctx, file_path=None, mode="stop")
+            result = CommitDisciplineValidator().run(ctx, file_path=None, mode="stop")
 
         rules = [f.rule for f in result.findings]
         assert "V12-LARGE-DIFF" in rules
@@ -138,7 +138,7 @@ class TestV12ConfigThresholds:
             return ""
 
         with patch("hooks.validators.commit_discipline._run_git", side_effect=fake_run_git):
-            result = CommitDisciplineValidator().validate(ctx, file_path=None, mode="stop")
+            result = CommitDisciplineValidator().run(ctx, file_path=None, mode="stop")
 
         rules = [f.rule for f in result.findings]
         assert "V12-LARGE-DIFF" not in rules
@@ -182,7 +182,7 @@ class TestV11ConfigThresholds:
                 stdout="FAILED tests/test_handler.py::test_handle - AssertionError\n",
             ),
         ):
-            result = validator.validate(ctx, file_path=str(src), mode="post_tool_use")
+            result = validator.run(ctx, file_path=str(src), mode="post_tool_use")
 
         rules = [f.rule for f in result.findings]
         assert "V11-REPEATED-FAIL" in rules
@@ -223,7 +223,7 @@ class TestV10ConfigThresholds:
                 stderr="",
             ),
         ):
-            result = validator.validate(ctx, file_path=str(src), mode="post_tool_use")
+            result = validator.run(ctx, file_path=str(src), mode="post_tool_use")
 
         # Either the test failure path produced a REPEATED-FAIL or it
         # didn't recognize the failure format. We assert at least the
@@ -289,7 +289,7 @@ class TestV08ConfigSecurity:
         go = tmp_path / "h.go"
         go.write_text('log.Info().Str("email", val).Send()\n')
 
-        result = SecurityValidator().validate(ctx, file_path=str(go), mode="post_tool_use")
+        result = SecurityValidator().run(ctx, file_path=str(go), mode="post_tool_use")
         rules = [f.rule for f in result.findings]
         assert "V08-PHI-LOGGING" not in rules
 
@@ -311,11 +311,11 @@ class TestV08ConfigSecurity:
         validator = SecurityValidator()
 
         # ssn was a default — but config overrides → should NOT trip.
-        r1 = validator.validate(ctx, file_path=str(go_default), mode="post_tool_use")
+        r1 = validator.run(ctx, file_path=str(go_default), mode="post_tool_use")
         assert "V08-PHI-LOGGING" not in [f.rule for f in r1.findings]
 
         # internal_id is the user's custom field → should trip.
-        r2 = validator.validate(ctx, file_path=str(go_custom), mode="post_tool_use")
+        r2 = validator.run(ctx, file_path=str(go_custom), mode="post_tool_use")
         assert any(f.rule == "V08-PHI-LOGGING" for f in r2.findings)
 
     def test_required_gitignore_override_replaces_defaults(self, tmp_path: Path) -> None:
@@ -329,7 +329,7 @@ class TestV08ConfigSecurity:
             'security:\n  required_gitignore:\n    - "secrets.json"\n    - "*.pem"\n',
         )
 
-        result = SecurityValidator().validate(ctx, file_path=None, mode="stop")
+        result = SecurityValidator().run(ctx, file_path=None, mode="stop")
         no_gitignore = [f for f in result.findings if f.rule == "V08-NO-GITIGNORE"]
         assert len(no_gitignore) == 1
         # User's pattern surfaces in the FIX message
@@ -370,7 +370,7 @@ class TestV05DockerConfig:
         ctx = _project_with_config(tmp_path, "")
         self._write_compose(tmp_path, self._VHOST_BODY, "docker-compose.yaml")
 
-        result = DockerValidator().validate(ctx, file_path=None, mode="stop")
+        result = DockerValidator().run(ctx, file_path=None, mode="stop")
         rules = [f.rule for f in result.findings]
         assert "V05-VHOST-NO-NETWORK" not in rules
 
@@ -381,7 +381,7 @@ class TestV05DockerConfig:
         ctx = _project_with_config(tmp_path, "")
         self._write_compose(tmp_path, self._VHOST_BODY, "docker-compose.production.yaml")
 
-        result = DockerValidator().validate(ctx, file_path=None, mode="stop")
+        result = DockerValidator().run(ctx, file_path=None, mode="stop")
         rules = [f.rule for f in result.findings]
         assert "V05-VHOST-NO-NETWORK" in rules
 
@@ -393,7 +393,7 @@ class TestV05DockerConfig:
         ctx = _project_with_config(tmp_path, 'docker:\n  vhost_check_mode: "all"\n')
         self._write_compose(tmp_path, self._VHOST_BODY, "docker-compose.yaml")
 
-        result = DockerValidator().validate(ctx, file_path=None, mode="stop")
+        result = DockerValidator().run(ctx, file_path=None, mode="stop")
         rules = [f.rule for f in result.findings]
         assert "V05-VHOST-NO-NETWORK" in rules
 
@@ -403,7 +403,7 @@ class TestV05DockerConfig:
         ctx = _project_with_config(tmp_path, 'docker:\n  vhost_check_mode: "off"\n')
         self._write_compose(tmp_path, self._VHOST_BODY, "docker-compose.production.yaml")
 
-        result = DockerValidator().validate(ctx, file_path=None, mode="stop")
+        result = DockerValidator().run(ctx, file_path=None, mode="stop")
         rules = [f.rule for f in result.findings]
         assert "V05-VHOST-NO-NETWORK" not in rules
 
@@ -430,7 +430,7 @@ class TestV05DockerConfig:
         )
         self._write_compose(tmp_path, traefik_body, "docker-compose.production.yaml")
 
-        result = DockerValidator().validate(ctx, file_path=None, mode="stop")
+        result = DockerValidator().run(ctx, file_path=None, mode="stop")
         rules = [f.rule for f in result.findings]
         assert "V05-VHOST-NO-NETWORK" not in rules
 
@@ -446,7 +446,7 @@ class TestV05DockerConfig:
         )
         self._write_compose(tmp_path, self._VHOST_BODY, "docker-compose.local.yaml")
 
-        result = DockerValidator().validate(ctx, file_path=None, mode="stop")
+        result = DockerValidator().run(ctx, file_path=None, mode="stop")
         rules = [f.rule for f in result.findings]
         assert "V05-VHOST-NO-NETWORK" not in rules
 
@@ -462,7 +462,7 @@ class TestV05DockerConfig:
         )
         self._write_compose(tmp_path, self._VHOST_BODY, "docker-compose-prd.yaml")
 
-        result = DockerValidator().validate(ctx, file_path=None, mode="stop")
+        result = DockerValidator().run(ctx, file_path=None, mode="stop")
         rules = [f.rule for f in result.findings]
         assert "V05-VHOST-NO-NETWORK" in rules
 
@@ -475,7 +475,7 @@ class TestV05DockerConfig:
         ctx = _project_with_config(tmp_path, "docker:\n  reverse_proxy_networks: []\n")
         self._write_compose(tmp_path, self._VHOST_BODY, "docker-compose.production.yaml")
 
-        result = DockerValidator().validate(ctx, file_path=None, mode="stop")
+        result = DockerValidator().run(ctx, file_path=None, mode="stop")
         vhost = [f for f in result.findings if f.rule == "V05-VHOST-NO-NETWORK"]
         assert len(vhost) == 1
         # Message names the misconfig directly (no <none configured> filler)

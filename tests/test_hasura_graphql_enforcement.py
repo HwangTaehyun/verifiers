@@ -260,7 +260,7 @@ class TestValidate:
         bad_file = non_hasura_project / "server" / "repo.go"
         bad_file.parent.mkdir(parents=True, exist_ok=True)
         bad_file.write_text(self._BAD_GO)
-        result = validator.validate(non_hasura_ctx, file_path=str(bad_file), mode="post_tool_use")
+        result = validator.run(non_hasura_ctx, file_path=str(bad_file), mode="post_tool_use")
         assert result.findings == []
 
     def test_post_tool_use_skips_exempt_files(
@@ -272,7 +272,7 @@ class TestValidate:
         test_file = hasura_project / "server" / "internal" / "service_test.go"
         test_file.parent.mkdir(parents=True, exist_ok=True)
         test_file.write_text(self._BAD_GO)
-        result = validator.validate(hasura_ctx, file_path=str(test_file), mode="post_tool_use")
+        result = validator.run(hasura_ctx, file_path=str(test_file), mode="post_tool_use")
         assert result.findings == []
 
     def test_post_tool_use_flags_violation_in_real_file(
@@ -284,7 +284,7 @@ class TestValidate:
         repo = hasura_project / "server" / "internal" / "repo.go"
         repo.parent.mkdir(parents=True, exist_ok=True)
         repo.write_text(self._BAD_GO)
-        result = validator.validate(hasura_ctx, file_path=str(repo), mode="post_tool_use")
+        result = validator.run(hasura_ctx, file_path=str(repo), mode="post_tool_use")
         assert any(f.rule == "V20-SQL-IMPORT" for f in result.findings)
 
     def test_stop_mode_scans_project(
@@ -303,7 +303,7 @@ class TestValidate:
         mock.parent.mkdir(parents=True, exist_ok=True)
         mock.write_text(self._BAD_GO)
 
-        result = validator.validate(hasura_ctx, file_path=None, mode="stop")
+        result = validator.run(hasura_ctx, file_path=None, mode="stop")
         # The path stored in findings comes from rglob'd ctx.server_dir,
         # which has been resolved through git's toplevel — compare via
         # Path.resolve() on both sides to handle macOS /var ↔ /private/var.
@@ -320,5 +320,5 @@ class TestValidate:
         ts_file = hasura_project / "web" / "src" / "App.tsx"
         ts_file.parent.mkdir(parents=True, exist_ok=True)
         ts_file.write_text("import 'database/sql';\n")  # nonsensical TS line
-        result = validator.validate(hasura_ctx, file_path=str(ts_file), mode="post_tool_use")
+        result = validator.run(hasura_ctx, file_path=str(ts_file), mode="post_tool_use")
         assert result.findings == []

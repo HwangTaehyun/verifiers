@@ -637,7 +637,7 @@ class TestValidateIntegration:
 
             fp = _write_file(project / "server", "handler.go", 'key := "AKIAIOSFODNN7EXAMPLE"\n')
             ctx = _make_ctx(project)
-            result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+            result = validator.run(ctx, file_path=fp, mode="post_tool_use")
             assert result.validator_id == "V08-security"
             assert result.has_errors
             assert any(f.rule == "V08-HARDCODED-SECRET" for f in result.findings)
@@ -653,12 +653,12 @@ class TestValidateIntegration:
         (tmp_path / ".git").mkdir()
         # No .gitignore
         ctx = _make_ctx(tmp_path)
-        result = validator.validate(ctx, file_path=None, mode="stop")
+        result = validator.run(ctx, file_path=None, mode="stop")
         assert any(f.rule == "V08-NO-GITIGNORE" for f in result.findings)
 
     def test_validate_clean_project(self, validator: SecurityValidator, tmp_project: Path) -> None:
         ctx = _make_ctx(tmp_project)
-        result = validator.validate(ctx, file_path=None, mode="stop")
+        result = validator.run(ctx, file_path=None, mode="stop")
         # The tmp_project has a complete .gitignore and no source files with secrets
         assert not result.has_errors
 
@@ -678,7 +678,7 @@ class TestValidateIntegration:
             )
             fp = _write_file(project / "server", "bad.go", content)
             ctx = _make_ctx(project)
-            result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+            result = validator.run(ctx, file_path=fp, mode="post_tool_use")
             rules = {f.rule for f in result.findings}
             assert "V08-HARDCODED-SECRET" in rules
             assert "V08-CORS-WILDCARD" in rules

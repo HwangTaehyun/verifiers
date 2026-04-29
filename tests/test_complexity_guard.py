@@ -318,7 +318,7 @@ class TestValidateIntegration:
         from lib.project_context import ProjectContext
 
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V14-HIGH-COMPLEXITY" for f in result.findings)
 
     def test_validate_clean_file(self, validator: ComplexityGuardValidator, tmp_path: Path) -> None:
@@ -328,7 +328,7 @@ class TestValidateIntegration:
         from lib.project_context import ProjectContext
 
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert not result.has_errors
         assert not result.has_warnings
 
@@ -341,7 +341,7 @@ class TestValidateIntegration:
         from lib.project_context import ProjectContext
 
         ctx = ProjectContext(tmp_path)
-        result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V14-HIGH-COMPLEXITY" for f in result.findings)
 
 

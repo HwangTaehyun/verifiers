@@ -333,7 +333,7 @@ class TestValidateIntegration:
         up_sql.write_text("DROP TABLE users;")
         (d / "down.sql").write_text("CREATE TABLE users (id serial PRIMARY KEY);")
 
-        result = validator.validate(project_ctx, file_path=str(up_sql), mode="post_tool_use")
+        result = validator.run(project_ctx, file_path=str(up_sql), mode="post_tool_use")
 
         rules = [f.rule for f in result.findings]
         assert "V04-DANGEROUS-DDL" in rules
@@ -356,7 +356,7 @@ class TestValidateIntegration:
         # Create orphan metadata
         (tables_dir / "public_orders.yaml").write_text("table:\n  name: orders\n  schema: public\n")
 
-        result = validator.validate(project_ctx, file_path=None, mode="stop")
+        result = validator.run(project_ctx, file_path=None, mode="stop")
 
         rules = [f.rule for f in result.findings]
         assert "V04-DANGEROUS-DDL" in rules
@@ -369,6 +369,6 @@ class TestValidateIntegration:
         (tmp_path / ".git").mkdir()
         ctx = ProjectContext(tmp_path)
 
-        result = validator.validate(ctx, file_path=None, mode="stop")
+        result = validator.run(ctx, file_path=None, mode="stop")
 
         assert result.findings == []

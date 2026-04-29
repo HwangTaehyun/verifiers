@@ -66,7 +66,7 @@ class TestValidateNoServerDir:
         (tmp_path / ".git").mkdir()
         ctx = _make_ctx(tmp_path)
         ctx.server_dir = None  # type: ignore[assignment]
-        result = validator.validate(ctx, file_path="main.go", mode="post_tool_use")
+        result = validator.run(ctx, file_path="main.go", mode="post_tool_use")
         assert isinstance(result, ValidationResult)
         assert result.findings == []
 
@@ -74,7 +74,7 @@ class TestValidateNoServerDir:
         (tmp_path / ".git").mkdir()
         ctx = _make_ctx(tmp_path)
         ctx.server_dir = tmp_path / "server_nonexistent"
-        result = validator.validate(ctx, file_path="main.go", mode="post_tool_use")
+        result = validator.run(ctx, file_path="main.go", mode="post_tool_use")
         assert result.findings == []
 
 
@@ -290,7 +290,7 @@ class TestValidateIntegration:
         json_output = '{"Test":"TestFoo","Action":"pass","Package":"internal"}\n'
         mock_result = subprocess.CompletedProcess(args=["go", "test"], returncode=0, stdout=json_output, stderr="")
         with patch("subprocess.run", return_value=mock_result):
-            result = validator.validate(
+            result = validator.run(
                 project_ctx,
                 file_path=str(pkg_dir / "handler_test.go"),
                 mode="post_tool_use",
@@ -300,7 +300,7 @@ class TestValidateIntegration:
 
     def test_post_tool_use_excluded_dir(self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         """Files in excluded dirs should produce no findings."""
-        result = validator.validate(
+        result = validator.run(
             project_ctx,
             file_path=str(tmp_project / "server" / "vendor" / "lib.go"),
             mode="post_tool_use",
@@ -309,12 +309,12 @@ class TestValidateIntegration:
 
     def test_stop_mode_skipped(self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         """Stop mode should not run any tests (V06 handles that)."""
-        result = validator.validate(project_ctx, file_path="handler.go", mode="stop")
+        result = validator.run(project_ctx, file_path="handler.go", mode="stop")
         assert result.findings == []
 
     def test_non_go_file_skipped(self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         """Non-.go files should produce no findings."""
-        result = validator.validate(project_ctx, file_path="README.md", mode="post_tool_use")
+        result = validator.run(project_ctx, file_path="README.md", mode="post_tool_use")
         assert result.findings == []
 
 

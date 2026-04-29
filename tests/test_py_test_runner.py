@@ -309,11 +309,11 @@ class TestValidateIntegration:
         """Non-Python project should return empty findings."""
         (tmp_path / ".git").mkdir()
         ctx = _make_ctx(tmp_path)
-        result = validator.validate(ctx, file_path="src/foo.py", mode="post_tool_use")
+        result = validator.run(ctx, file_path="src/foo.py", mode="post_tool_use")
         assert result.findings == []
 
     def test_excluded_dir_skipped(self, validator: PyTestRunnerValidator, py_project: Path, py_ctx) -> None:
-        result = validator.validate(
+        result = validator.run(
             py_ctx,
             file_path=str(py_project / "__pycache__" / "handler.py"),
             mode="post_tool_use",
@@ -321,11 +321,11 @@ class TestValidateIntegration:
         assert result.findings == []
 
     def test_stop_mode_skipped(self, validator: PyTestRunnerValidator, py_project: Path, py_ctx) -> None:
-        result = validator.validate(py_ctx, file_path="handler.py", mode="stop")
+        result = validator.run(py_ctx, file_path="handler.py", mode="stop")
         assert result.findings == []
 
     def test_non_py_file_skipped(self, validator: PyTestRunnerValidator, py_project: Path, py_ctx) -> None:
-        result = validator.validate(py_ctx, file_path="README.md", mode="post_tool_use")
+        result = validator.run(py_ctx, file_path="README.md", mode="post_tool_use")
         assert result.findings == []
 
 

@@ -187,7 +187,7 @@ class TestNoProtoDir:
 
         assert ctx.proto_dir is None
 
-        result = validator.validate(ctx, mode="stop")
+        result = validator.run(ctx, mode="stop")
 
         assert result.validator_id == "V03-proto-connect"
         assert len(result.findings) == 0
@@ -198,7 +198,7 @@ class TestNoProtoDir:
         """An existing but empty proto directory should not crash and should
         produce no stale-gen or handler findings."""
         # proto dir exists (from fixture) but has no .proto files
-        result = validator.validate(project_ctx, mode="stop")
+        result = validator.run(project_ctx, mode="stop")
 
         # buf lint / breaking may or may not produce findings depending on
         # buf being installed, but handler + stale checks should be clean

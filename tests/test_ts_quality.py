@@ -350,7 +350,7 @@ class TestValidateNoWebDir:
         ctx = ProjectContext(tmp_path)
         assert ctx.web_dir is None
 
-        result = validator.validate(ctx, file_path="app.ts", mode="post_tool_use")
+        result = validator.run(ctx, file_path="app.ts", mode="post_tool_use")
         assert isinstance(result, ValidationResult)
         assert result.findings == []
 
@@ -359,7 +359,7 @@ class TestValidateNoWebDir:
         ctx = ProjectContext(tmp_path)
         ctx.web_dir = tmp_path / "web_nonexistent"
 
-        result = validator.validate(ctx, file_path="app.ts", mode="post_tool_use")
+        result = validator.run(ctx, file_path="app.ts", mode="post_tool_use")
         assert result.findings == []
 
 
@@ -385,7 +385,7 @@ class TestValidateIntegration:
 
         # Patch subprocess to prevent ESLint from running
         with patch("subprocess.run", side_effect=FileNotFoundError):
-            result = validator.validate(project_ctx, file_path=fp, mode="post_tool_use")
+            result = validator.run(project_ctx, file_path=fp, mode="post_tool_use")
         assert result.findings == []
 
     def test_file_with_any_and_console(
@@ -397,7 +397,7 @@ class TestValidateIntegration:
         from unittest.mock import patch
 
         with patch("subprocess.run", side_effect=FileNotFoundError):
-            result = validator.validate(project_ctx, file_path=fp, mode="post_tool_use")
+            result = validator.run(project_ctx, file_path=fp, mode="post_tool_use")
 
         rules = {f.rule for f in result.findings}
         assert "V07-NO-ANY" in rules
@@ -408,5 +408,5 @@ class TestValidateIntegration:
     ) -> None:
         """package.json should not trigger any file-based checks."""
         fp = _write_ts_file(tmp_project, "web/package.json", '{"name": "app"}\n')
-        result = validator.validate(project_ctx, file_path=fp, mode="post_tool_use")
+        result = validator.run(project_ctx, file_path=fp, mode="post_tool_use")
         assert result.findings == []

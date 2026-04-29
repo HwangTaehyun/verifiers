@@ -114,21 +114,21 @@ class TestValidateGating:
         # V21 is Stop-only — Tier 2 calls must return immediately.
         ctx = _ctx_with_run_pytest(py_project, "always")
         with patch.object(validator, "_check_pytest", return_value=[]) as check:
-            result = validator.validate(ctx, file_path="src/x.py", mode="post_tool_use")
+            result = validator.run(ctx, file_path="src/x.py", mode="post_tool_use")
         assert result.findings == []
         assert not check.called
 
     def test_never_skips_pytest(self, validator: PyPytestValidator, py_project: Path) -> None:
         ctx = _ctx_with_run_pytest(py_project, "never")
         with patch.object(validator, "_check_pytest", return_value=[]) as check:
-            result = validator.validate(ctx, file_path=None, mode="stop")
+            result = validator.run(ctx, file_path=None, mode="stop")
         assert result.findings == []
         assert not check.called
 
     def test_always_runs_pytest(self, validator: PyPytestValidator, py_project: Path) -> None:
         ctx = _ctx_with_run_pytest(py_project, "always")
         with patch.object(validator, "_check_pytest", return_value=[]) as check:
-            validator.validate(ctx, file_path=None, mode="stop")
+            validator.run(ctx, file_path=None, mode="stop")
         assert check.called
 
     def test_smart_runs_when_py_touched(self, validator: PyPytestValidator, py_project: Path) -> None:
@@ -140,7 +140,7 @@ class TestValidateGating:
             ),
             patch.object(validator, "_check_pytest", return_value=[]) as check,
         ):
-            validator.validate(ctx, file_path=None, mode="stop")
+            validator.run(ctx, file_path=None, mode="stop")
         assert check.called
 
     def test_smart_skips_when_no_py_touched(self, validator: PyPytestValidator, py_project: Path) -> None:
@@ -152,14 +152,14 @@ class TestValidateGating:
             ),
             patch.object(validator, "_check_pytest", return_value=[]) as check,
         ):
-            validator.validate(ctx, file_path=None, mode="stop")
+            validator.run(ctx, file_path=None, mode="stop")
         assert not check.called
 
     def test_no_python_project_returns_empty(self, validator: PyPytestValidator, tmp_path: Path) -> None:
         # No pyproject/setup.py — V21 has nothing to run against.
         (tmp_path / ".git").mkdir()
         ctx = _ctx_with_run_pytest(tmp_path, "always")
-        result = validator.validate(ctx, file_path=None, mode="stop")
+        result = validator.run(ctx, file_path=None, mode="stop")
         assert result.findings == []
 
 
