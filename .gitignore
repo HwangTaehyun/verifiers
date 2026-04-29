@@ -28,5 +28,8 @@ logs/.gen-hash-cache.json
 # Verifier temp files
 .verifier-block-count
 
+# OMC (oh-my-claudecode) local state
+.omc/
+
 # OS
 .DS_Store

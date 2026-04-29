@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from hooks.validators import get_all_validators
 from hooks.validators.base import Finding, format_output, read_hook_input, write_hook_output
 from lib.feedback_tracker import FeedbackTracker
+from lib.json_logger import log_exception
 from lib.project_context import ProjectContext
 
 
@@ -54,8 +55,14 @@ def main() -> None:
         try:
             result = validator.run(ctx, file_path=None, mode="stop")
             all_findings.extend(result.findings)
-        except Exception:
-            pass  # Individual validator failure shouldn't block the stop
+        except Exception as exc:
+            # Individual validator failure shouldn't block the stop, but
+            # we record it so debugging is possible (P0-4).
+            log_exception(
+                source=f"stop_validator/{validator.id}",
+                error=exc,
+                context={"cwd": cwd, "mode": "stop"},
+            )
 
     # Track findings for repeated violation detection
     tracker = FeedbackTracker()
@@ -91,7 +98,7 @@ def main() -> None:
                 f"\n\n⚠️ CIRCUIT BREAKER: {block_count} consecutive stop-hook blocks. "
                 f"Approving to prevent infinite loop. "
                 f"{len([f for f in all_findings if f.severity == 'error'])} unresolved error(s) remain. "
-                f"Run `echo '{{\"cwd\": \"{cwd}\"}}' | uv run --script stop_validator.py` "
+                f'Run `echo \'{{"cwd": "{cwd}"}}\' | uv run --script stop_validator.py` '
                 f"to see full details."
             )
             output.setdefault("additionalContext", "")
@@ -120,8 +127,14 @@ def main() -> None:
     # Persist session feedback for cross-session analysis
     try:
         tracker.save_session()
-    except Exception:
-        pass  # Persistence failure should never block
+    except Exception as exc:
+        # Persistence failure should never block, but record so cross-session
+        # feedback drops are diagnosable (P0-4).
+        log_exception(
+            source="stop_validator/FeedbackTracker.save_session",
+            error=exc,
+            context={"cwd": cwd},
+        )
 
     write_hook_output(output)
 

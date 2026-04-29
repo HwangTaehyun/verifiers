@@ -383,9 +383,7 @@ class DependencyGuardValidator(BaseValidator):
         imports = _extract_go_imports(content)
 
         for imp in imports:
-            target_layer_name, target_layer = _go_import_to_layer(
-                imp, go_module, "go", custom_layers
-            )
+            target_layer_name, target_layer = _go_import_to_layer(imp, go_module, "go", custom_layers)
             if target_layer is None:
                 continue
 
@@ -474,9 +472,7 @@ class DependencyGuardValidator(BaseValidator):
         imports = _extract_ts_imports(content)
 
         for imp in imports:
-            target_layer_name, target_layer = _ts_import_to_layer(
-                imp, file_path, "typescript", custom_layers
-            )
+            target_layer_name, target_layer = _ts_import_to_layer(imp, file_path, "typescript", custom_layers)
             if target_layer is None:
                 continue
 

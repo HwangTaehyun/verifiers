@@ -241,10 +241,7 @@ class TsTestRunnerValidator(BaseValidator):
                     file=test_file,
                     rule="V10-TEST-FAIL",
                     message=f"Tests failed in {test_file_name}: {', '.join(failed_tests) if failed_tests else 'see output'}",
-                    fix=(
-                        f"Fix failing tests. Run 'cd {ctx.web_dir} && "
-                        f"{' '.join(cmd)}' for details"
-                    ),
+                    fix=(f"Fix failing tests. Run 'cd {ctx.web_dir} && {' '.join(cmd)}' for details"),
                 )
             )
         else:

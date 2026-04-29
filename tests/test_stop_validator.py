@@ -117,10 +117,12 @@ class TestCircuitBreaker:
             return ValidationResult(validator_id="fake", findings=[fake_finding])
 
         with mock.patch("hooks.validators.base.BaseValidator.run", fake_run):
-            output = _run_stop_validator({
-                "cwd": str(tmp_path),
-                "stop_hook_active": True,
-            })
+            output = _run_stop_validator(
+                {
+                    "cwd": str(tmp_path),
+                    "stop_hook_active": True,
+                }
+            )
 
         # Should still block (first retry)
         assert output.get("decision") == "block"
@@ -155,10 +157,12 @@ class TestCircuitBreaker:
             return ValidationResult(validator_id="fake", findings=[fake_finding])
 
         with mock.patch("hooks.validators.base.BaseValidator.run", fake_run):
-            output = _run_stop_validator({
-                "cwd": str(tmp_path),
-                "stop_hook_active": True,
-            })
+            output = _run_stop_validator(
+                {
+                    "cwd": str(tmp_path),
+                    "stop_hook_active": True,
+                }
+            )
 
         # Circuit breaker: should approve despite errors
         assert output.get("decision") == "approve"
@@ -205,10 +209,12 @@ class TestCircuitBreaker:
             return ValidationResult(validator_id="fake", findings=[fake_finding])
 
         with mock.patch("hooks.validators.base.BaseValidator.run", fake_run):
-            output = _run_stop_validator({
-                "cwd": str(tmp_path),
-                "stop_hook_active": False,
-            })
+            output = _run_stop_validator(
+                {
+                    "cwd": str(tmp_path),
+                    "stop_hook_active": False,
+                }
+            )
 
         # Still blocks (errors exist), but counter should be reset
         assert output.get("decision") == "block"
@@ -239,10 +245,12 @@ class TestCircuitBreaker:
             return ValidationResult(validator_id="fake", findings=[fake_finding])
 
         with mock.patch("hooks.validators.base.BaseValidator.run", fake_run):
-            output = _run_stop_validator({
-                "cwd": str(tmp_path),
-                "stop_hook_active": True,
-            })
+            output = _run_stop_validator(
+                {
+                    "cwd": str(tmp_path),
+                    "stop_hook_active": True,
+                }
+            )
 
         assert output.get("decision") == "approve"
         assert "reason" not in output  # reason removed when approving

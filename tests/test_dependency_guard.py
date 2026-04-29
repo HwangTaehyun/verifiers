@@ -134,37 +134,27 @@ class TestExtractTsImports:
 
 class TestExtractLayerFromPath:
     def test_go_domain_layer(self) -> None:
-        name, level = _extract_layer_from_path(
-            "/project/internal/domain/user.go", "/project", "go", None
-        )
+        name, level = _extract_layer_from_path("/project/internal/domain/user.go", "/project", "go", None)
         assert name == "domain"
         assert level == 0
 
     def test_go_handler_layer(self) -> None:
-        name, level = _extract_layer_from_path(
-            "/project/internal/handler/user.go", "/project", "go", None
-        )
+        name, level = _extract_layer_from_path("/project/internal/handler/user.go", "/project", "go", None)
         assert name == "handler"
         assert level == 3
 
     def test_ts_components_layer(self) -> None:
-        name, level = _extract_layer_from_path(
-            "/project/src/components/Button.tsx", "/project", "typescript", None
-        )
+        name, level = _extract_layer_from_path("/project/src/components/Button.tsx", "/project", "typescript", None)
         assert name == "components"
         assert level == 3
 
     def test_python_models_layer(self) -> None:
-        name, level = _extract_layer_from_path(
-            "/project/app/models/user.py", "/project", "python", None
-        )
+        name, level = _extract_layer_from_path("/project/app/models/user.py", "/project", "python", None)
         assert name == "models"
         assert level == 0
 
     def test_unknown_layer(self) -> None:
-        name, level = _extract_layer_from_path(
-            "/project/random/file.go", "/project", "go", None
-        )
+        name, level = _extract_layer_from_path("/project/random/file.go", "/project", "go", None)
         assert name is None
         assert level is None
 
@@ -177,11 +167,7 @@ class TestExtractLayerFromPath:
 class TestGoLayerViolations:
     def test_domain_importing_handler_violation(self, tmp_path: Path) -> None:
         project = _make_go_project(tmp_path)
-        content = (
-            "package domain\n\n"
-            'import "github.com/test/project/internal/handler"\n\n'
-            "func NewUser() {}\n"
-        )
+        content = 'package domain\n\nimport "github.com/test/project/internal/handler"\n\nfunc NewUser() {}\n'
         fp = _write_file(project / "internal" / "domain", "user.go", content)
         ctx = ProjectContext(project)
         validator = DependencyGuardValidator()
@@ -190,11 +176,7 @@ class TestGoLayerViolations:
 
     def test_handler_importing_domain_ok(self, tmp_path: Path) -> None:
         project = _make_go_project(tmp_path)
-        content = (
-            "package handler\n\n"
-            'import "github.com/test/project/internal/domain"\n\n'
-            "func GetUser() {}\n"
-        )
+        content = 'package handler\n\nimport "github.com/test/project/internal/domain"\n\nfunc GetUser() {}\n'
         fp = _write_file(project / "internal" / "handler", "user.go", content)
         ctx = ProjectContext(project)
         validator = DependencyGuardValidator()
@@ -286,9 +268,7 @@ class TestCustomLayers:
     def test_load_custom_layers(self, tmp_path: Path) -> None:
         layers_dir = tmp_path / ".verifiers"
         layers_dir.mkdir()
-        (layers_dir / "layers.yaml").write_text(
-            "go:\n  layers:\n    domain: 0\n    infra: 1\n    api: 2\n"
-        )
+        (layers_dir / "layers.yaml").write_text("go:\n  layers:\n    domain: 0\n    infra: 1\n    api: 2\n")
         result = _load_custom_layers(tmp_path)
         assert result is not None
         assert result["go"]["domain"] == 0
@@ -345,11 +325,7 @@ class TestShouldRun:
 class TestMain:
     def test_main_with_violation(self, tmp_path: Path) -> None:
         project = _make_go_project(tmp_path)
-        content = (
-            "package domain\n\n"
-            'import "github.com/test/project/internal/handler"\n\n'
-            "func NewUser() {}\n"
-        )
+        content = 'package domain\n\nimport "github.com/test/project/internal/handler"\n\nfunc NewUser() {}\n'
         fp = _write_file(project / "internal" / "domain", "user.go", content)
 
         input_data = {

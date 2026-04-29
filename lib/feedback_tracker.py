@@ -103,12 +103,14 @@ class FeedbackTracker:
         repeated = []
         for rule, count in self._rule_counter.most_common():
             if count >= self.threshold:
-                repeated.append({
-                    "rule": rule,
-                    "count": count,
-                    "severity": self._rule_severities.get(rule, "warning"),
-                    "files": sorted(self._rule_files.get(rule, set())),
-                })
+                repeated.append(
+                    {
+                        "rule": rule,
+                        "count": count,
+                        "severity": self._rule_severities.get(rule, "warning"),
+                        "files": sorted(self._rule_files.get(rule, set())),
+                    }
+                )
         return repeated
 
     def get_session_summary(self) -> SessionFeedback:
@@ -141,9 +143,7 @@ class FeedbackTracker:
             file_list = ", ".join(Path(f).name for f in files[:3])
             if len(files) > 3:
                 file_list += f" (+{len(files) - 3} more)"
-            lines.append(
-                f"  • {rule}: violated {count} times across {len(files)} file(s) [{file_list}]"
-            )
+            lines.append(f"  • {rule}: violated {count} times across {len(files)} file(s) [{file_list}]")
 
         lines.append("")
         lines.append(

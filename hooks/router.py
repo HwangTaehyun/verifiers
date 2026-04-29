@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from hooks.validators import get_all_validators
 from hooks.validators.base import Finding, format_output, read_hook_input, write_hook_output
+from lib.json_logger import log_exception
 from lib.project_context import ProjectContext
 
 
@@ -55,8 +56,14 @@ def main() -> None:
             try:
                 result = validator.run(ctx, file_path, mode="post_tool_use")
                 all_findings.extend(result.findings)
-            except Exception:
-                pass  # Individual validator failure shouldn't block others
+            except Exception as exc:
+                # Individual validator failure shouldn't block others — but
+                # we record it so debugging is possible (P0-4).
+                log_exception(
+                    source=f"router/{validator.id}",
+                    error=exc,
+                    context={"file_path": file_path, "cwd": cwd, "mode": "post_tool_use"},
+                )
 
     output = format_output(all_findings, mode="post_tool_use")
     write_hook_output(output)

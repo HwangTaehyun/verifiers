@@ -24,6 +24,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from hooks.validators.base import BaseValidator, Finding, ValidationResult, read_hook_input, write_hook_output
+from lib.json_logger import log_exception
 from lib.project_context import ProjectContext
 
 
@@ -392,7 +393,7 @@ class DockerValidator(BaseValidator):
                         severity="error",
                         file=str(dockerfile),
                         rule="V05-DOCKERFILE-NO-USER",
-                        message=f"Production stage runs as root (missing USER directive)",
+                        message="Production stage runs as root (missing USER directive)",
                         fix=(
                             f"Add a non-root user to the production stage in {dockerfile.name}: "
                             f"RUN addgroup -S app && adduser -S app -G app, then USER app"
@@ -533,9 +534,7 @@ class DockerValidator(BaseValidator):
                             severity="error",
                             file=str(compose_file),
                             rule="V05-PROD-DEV-MODE",
-                            message=(
-                                f"Service '{svc_name}' has dev mode enabled: {key}={val_str}"
-                            ),
+                            message=(f"Service '{svc_name}' has dev mode enabled: {key}={val_str}"),
                             fix=(
                                 f"Set '{key}' to 'false' (or 'production' for NODE_ENV) "
                                 f"in service '{svc_name}' in {compose_file.name}"
@@ -552,8 +551,7 @@ class DockerValidator(BaseValidator):
                             rule="V05-PROD-DEV-MODE",
                             message=f"Service '{svc_name}' has Hasura dev mode enabled in production",
                             fix=(
-                                f"Set HASURA_GRAPHQL_DEV_MODE to 'false' "
-                                f"in service '{svc_name}' in {compose_file.name}"
+                                f"Set HASURA_GRAPHQL_DEV_MODE to 'false' in service '{svc_name}' in {compose_file.name}"
                             ),
                         )
                     )
@@ -617,8 +615,8 @@ class DockerValidator(BaseValidator):
 
             # Check if Traefik is enabled
             if isinstance(labels, list):
-                has_traefik = any("traefik.enable=true" in str(l) for l in labels)
-                has_router = any("traefik.http.routers" in str(l) for l in labels)
+                has_traefik = any("traefik.enable=true" in str(lbl) for lbl in labels)
+                has_router = any("traefik.http.routers" in str(lbl) for lbl in labels)
                 if has_traefik and not has_router:
                     findings.append(
                         Finding(
@@ -694,8 +692,7 @@ class DockerValidator(BaseValidator):
                         file=str(compose_file),
                         rule="V05-DEV-NO-VOLUME-MOUNT",
                         message=(
-                            f"Service '{svc_name}' in dev override has no volume mounts "
-                            f"for source code hot reload"
+                            f"Service '{svc_name}' in dev override has no volume mounts for source code hot reload"
                         ),
                         fix=(
                             f"Add volume mounts to '{svc_name}' in {compose_file.name} "
@@ -727,8 +724,7 @@ class DockerValidator(BaseValidator):
                             file=str(compose_file),
                             rule="V05-DEV-NO-BUILD-TARGET",
                             message=(
-                                f"Service '{svc_name}' in dev override has build target '{target}' "
-                                f"instead of 'dev'"
+                                f"Service '{svc_name}' in dev override has build target '{target}' instead of 'dev'"
                             ),
                             fix=(
                                 f"Set build.target to 'dev' for '{svc_name}' in "
@@ -824,7 +820,12 @@ class DockerValidator(BaseValidator):
                 data = self._load_compose_file(compose_file)
                 if not data:
                     continue
-            except Exception:
+            except Exception as exc:
+                log_exception(
+                    source="V05-docker-compose/_load_compose_file",
+                    error=exc,
+                    context={"compose_file": str(compose_file)},
+                )
                 continue
 
             for svc_name, svc_def in (data.get("services") or {}).items():

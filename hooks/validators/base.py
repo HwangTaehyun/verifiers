@@ -102,16 +102,12 @@ def _build_reason(findings: list[Finding], *, mode: str) -> str:
     parts: list[str] = []
 
     if mode == "post_tool_use":
-        parts.append(
-            f"Verification error: {len(errors)} error(s) in the file you just edited."
-        )
+        parts.append(f"Verification error: {len(errors)} error(s) in the file you just edited.")
         parts.append("Fix these errors NOW before continuing:\n")
         max_errors = 5  # PostToolUse is per-file, keep shorter
         max_warnings = 3
     else:
-        parts.append(
-            f"Verification failed: {len(errors)} error(s), {len(warnings)} warning(s)."
-        )
+        parts.append(f"Verification failed: {len(errors)} error(s), {len(warnings)} warning(s).")
         parts.append("Fix ALL errors before stopping:\n")
         max_errors = 10
         max_warnings = 5

@@ -125,9 +125,7 @@ class GoTestRunnerValidator(BaseValidator):
 
     # ── Test execution ──────────────────────────────────────────────────
 
-    def _run_package_tests(
-        self, ctx: ProjectContext, pkg_dir: str, file_path: str
-    ) -> list[Finding]:
+    def _run_package_tests(self, ctx: ProjectContext, pkg_dir: str, file_path: str) -> list[Finding]:
         """Run go test for a specific package and parse results."""
         findings: list[Finding] = []
 
@@ -212,9 +210,7 @@ class GoTestRunnerValidator(BaseValidator):
 
     # ── Test existence check ────────────────────────────────────────────
 
-    def _check_test_exists(
-        self, ctx: ProjectContext, file_path: str
-    ) -> list[Finding]:
+    def _check_test_exists(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
         """Warn if no _test.go file exists for the package."""
         findings: list[Finding] = []
 
@@ -239,13 +235,9 @@ class GoTestRunnerValidator(BaseValidator):
                     file=file_path,
                     rule="V09-NO-TEST",
                     message=(
-                        "No _test.go file found in package directory. "
-                        "Consider adding tests for better code coverage."
+                        "No _test.go file found in package directory. Consider adding tests for better code coverage."
                     ),
-                    fix=(
-                        f"Create a test file (e.g., "
-                        f"{Path(file_path).stem}_test.go) in the same package."
-                    ),
+                    fix=(f"Create a test file (e.g., {Path(file_path).stem}_test.go) in the same package."),
                 )
             )
         except (ValueError, TypeError, OSError):

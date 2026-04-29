@@ -15,6 +15,7 @@ def get_all_validators() -> list[BaseValidator]:
     from .complexity_guard import ComplexityGuardValidator
     from .dependency_guard import DependencyGuardValidator
     from .docker_compose import DockerValidator as DockerComposeValidator
+
     # from .docker_prod_deploy import DockerProdDeployValidator  # TODO: not yet implemented
     from .env_config import EnvConfigValidator
     from .go_quality import GoQualityValidator

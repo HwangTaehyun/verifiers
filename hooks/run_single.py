@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from hooks.validators import get_all_validators
 from hooks.validators.base import Finding, format_output, read_hook_input, write_hook_output
+from lib.json_logger import log_exception
 from lib.project_context import ProjectContext
 
 # Map of short names to validator IDs
@@ -93,8 +94,14 @@ def main() -> None:
     try:
         result = validator.run(ctx, file_path=None, mode="stop")
         all_findings.extend(result.findings)
-    except Exception as e:
-        print(f"Error running {validator.id}: {e}", file=sys.stderr)
+    except Exception as exc:
+        # Print user-facing message to stderr AND record for post-mortem.
+        print(f"Error running {validator.id}: {exc}", file=sys.stderr)
+        log_exception(
+            source=f"run_single/{validator.id}",
+            error=exc,
+            context={"cwd": cwd, "mode": "stop"},
+        )
 
     output = format_output(all_findings, mode="stop")
     write_hook_output(output)

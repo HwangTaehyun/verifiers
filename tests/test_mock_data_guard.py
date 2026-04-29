@@ -36,10 +36,7 @@ class TestMockVariable:
     def test_detects_lowercase_mock(self, tmp_project: Path, validator: MockDataGuardValidator) -> None:
         hook = tmp_project / "web" / "src" / "hooks" / "useTrendsData.ts"
         hook.parent.mkdir(parents=True, exist_ok=True)
-        hook.write_text(
-            "const mockStats = { value: 6.12 };\n"
-            "export function useTrendsData() {}\n"
-        )
+        hook.write_text("const mockStats = { value: 6.12 };\nexport function useTrendsData() {}\n")
         ctx = ProjectContext(tmp_project)
         result = validator.validate(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-MOCK-VARIABLE"]
@@ -48,11 +45,7 @@ class TestMockVariable:
     def test_detects_fake_and_dummy(self, tmp_project: Path, validator: MockDataGuardValidator) -> None:
         hook = tmp_project / "web" / "src" / "hooks" / "useData.ts"
         hook.parent.mkdir(parents=True, exist_ok=True)
-        hook.write_text(
-            "const FAKE_USERS = [];\n"
-            "let dummyResponse = {};\n"
-            "export function useData() {}\n"
-        )
+        hook.write_text("const FAKE_USERS = [];\nlet dummyResponse = {};\nexport function useData() {}\n")
         ctx = ProjectContext(tmp_project)
         result = validator.validate(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-MOCK-VARIABLE"]
@@ -159,9 +152,7 @@ class TestFakeDelay:
         hook = tmp_project / "web" / "src" / "hooks" / "useData.ts"
         hook.parent.mkdir(parents=True, exist_ok=True)
         hook.write_text(
-            "import { client } from '../api/client';\n"
-            "// Simulate network delay\n"
-            "export function useData() {}\n"
+            "import { client } from '../api/client';\n// Simulate network delay\nexport function useData() {}\n"
         )
         ctx = ProjectContext(tmp_project)
         result = validator.validate(ctx, str(hook))
@@ -190,9 +181,7 @@ class TestTodoApi:
         hook = tmp_project / "web" / "src" / "hooks" / "useData.ts"
         hook.parent.mkdir(parents=True, exist_ok=True)
         hook.write_text(
-            "import { client } from '../api/client';\n"
-            "// TODO: Add error handling\n"
-            "export function useData() {}\n"
+            "import { client } from '../api/client';\n// TODO: Add error handling\nexport function useData() {}\n"
         )
         ctx = ProjectContext(tmp_project)
         result = validator.validate(ctx, str(hook))
@@ -236,8 +225,7 @@ class TestNoApiImport:
         hook = tmp_project / "web" / "src" / "hooks" / "useProfileData.ts"
         hook.parent.mkdir(parents=True, exist_ok=True)
         hook.write_text(
-            "import { createPromiseClient } from '@connectrpc/connect';\n"
-            "export function useProfileData() {}\n"
+            "import { createPromiseClient } from '@connectrpc/connect';\nexport function useProfileData() {}\n"
         )
         ctx = ProjectContext(tmp_project)
         result = validator.validate(ctx, str(hook))
@@ -248,10 +236,7 @@ class TestNoApiImport:
         """useAuth.ts (not use*Data.ts) should not require API import."""
         hook = tmp_project / "web" / "src" / "hooks" / "useAuth.ts"
         hook.parent.mkdir(parents=True, exist_ok=True)
-        hook.write_text(
-            "import { useState } from 'react';\n"
-            "export function useAuth() { return { user: null }; }\n"
-        )
+        hook.write_text("import { useState } from 'react';\nexport function useAuth() { return { user: null }; }\n")
         ctx = ProjectContext(tmp_project)
         result = validator.validate(ctx, str(hook))
         errors = [f for f in result.findings if f.rule == "V18-NO-API-IMPORT"]
@@ -268,8 +253,7 @@ class TestStopMode:
 
         # File 1: has mock data
         (hooks_dir / "useLeaderboardData.ts").write_text(
-            "const MOCK_ENTRIES = [{ rank: 1 }];\n"
-            "export function useLeaderboardData() {}\n"
+            "const MOCK_ENTRIES = [{ rank: 1 }];\nexport function useLeaderboardData() {}\n"
         )
         # File 2: clean
         (hooks_dir / "useCountryData.ts").write_text(
@@ -280,8 +264,7 @@ class TestStopMode:
         )
         # File 3: has mock data
         (hooks_dir / "useTrendsData.ts").write_text(
-            "const mockChart = [{ date: 'Jan', value: 5 }];\n"
-            "export function useTrendsData() {}\n"
+            "const mockChart = [{ date: 'Jan', value: 5 }];\nexport function useTrendsData() {}\n"
         )
 
         ctx = ProjectContext(tmp_project)

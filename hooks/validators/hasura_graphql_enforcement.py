@@ -15,7 +15,6 @@ PostToolUse checks:
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 from pathlib import Path
@@ -53,22 +52,22 @@ class HasuraGraphQLEnforcementValidator(BaseValidator):
         if not hasura_present:
             # No Hasura detected, skip validation
             return ValidationResult(
-                validator_id=self.id,
-                findings=[],
-                summary="No Hasura detected in project - GraphQL enforcement skipped"
+                validator_id=self.id, findings=[], summary="No Hasura detected in project - GraphQL enforcement skipped"
             )
 
-        findings.append(Finding(
-            code="V15-HASURA-FOUND",
-            severity="info",
-            message="Hasura detected in project - enforcing GraphQL over raw SQL",
-            file_path="",
-            line_number=1,
-            details="Project has Hasura configuration, raw SQL usage is forbidden"
-        ))
+        findings.append(
+            Finding(
+                code="V15-HASURA-FOUND",
+                severity="info",
+                message="Hasura detected in project - enforcing GraphQL over raw SQL",
+                file_path="",
+                line_number=1,
+                details="Project has Hasura configuration, raw SQL usage is forbidden",
+            )
+        )
 
         # Check for raw SQL usage in Go files
-        go_files = [f for f in ctx.changed_files if f.endswith('.go')]
+        go_files = [f for f in ctx.changed_files if f.endswith(".go")]
         for go_file in go_files:
             if self._is_exempted_file(go_file):
                 continue
@@ -79,7 +78,7 @@ class HasuraGraphQLEnforcementValidator(BaseValidator):
         return ValidationResult(
             validator_id=self.id,
             findings=findings,
-            summary=f"Checked {len(go_files)} Go files for Hasura GraphQL compliance"
+            summary=f"Checked {len(go_files)} Go files for Hasura GraphQL compliance",
         )
 
     def _detect_hasura(self, ctx: ProjectContext) -> bool:
@@ -100,7 +99,7 @@ class HasuraGraphQLEnforcementValidator(BaseValidator):
             "docker-compose.yaml",
             "docker-compose.yml",
             "server/docker-compose.yaml",
-            "server/docker-compose.yml"
+            "server/docker-compose.yml",
         ]
 
         for compose_file in docker_compose_files:
@@ -117,13 +116,7 @@ class HasuraGraphQLEnforcementValidator(BaseValidator):
 
     def _is_exempted_file(self, file_path: str) -> bool:
         """Check if the file is exempted from GraphQL enforcement."""
-        exempted_patterns = [
-            "**/migrations/**/*.sql",
-            "**/*_test.go",
-            "**/mocks/**",
-            "**/setup/**",
-            "**/testdata/**"
-        ]
+        exempted_patterns = ["**/migrations/**/*.sql", "**/*_test.go", "**/mocks/**", "**/setup/**", "**/testdata/**"]
 
         for pattern in exempted_patterns:
             # Simple pattern matching - could be enhanced with fnmatch
@@ -143,54 +136,60 @@ class HasuraGraphQLEnforcementValidator(BaseValidator):
         try:
             full_path = ctx.project_root / file_path
             content = full_path.read_text()
-            lines = content.split('\n')
+            lines = content.split("\n")
         except Exception:
             return findings
 
         # Check for database/sql import
         if re.search(r'^\s*"database/sql"', content, re.MULTILINE):
-            findings.append(Finding(
-                code="V15-SQL-IMPORT",
-                severity="error",
-                message="database/sql import forbidden in Hasura projects - use GraphQL instead",
-                file_path=file_path,
-                line_number=self._find_import_line(lines, "database/sql"),
-                details="Replace database/sql with GraphQL client using genqlient and Hasura"
-            ))
+            findings.append(
+                Finding(
+                    code="V15-SQL-IMPORT",
+                    severity="error",
+                    message="database/sql import forbidden in Hasura projects - use GraphQL instead",
+                    file_path=file_path,
+                    line_number=self._find_import_line(lines, "database/sql"),
+                    details="Replace database/sql with GraphQL client using genqlient and Hasura",
+                )
+            )
 
         # Check for SQL query methods
         sql_patterns = [
-            (r'\.Query(?:Row)?Context\s*\(', "raw SQL query"),
-            (r'\.ExecContext\s*\(', "raw SQL execution"),
-            (r'\.PrepareContext\s*\(', "raw SQL prepared statement"),
-            (r'\bSELECT\b.*\bFROM\b', "raw SQL SELECT"),
-            (r'\bINSERT\s+INTO\b', "raw SQL INSERT"),
-            (r'\bUPDATE\b.*\bSET\b', "raw SQL UPDATE"),
-            (r'\bDELETE\s+FROM\b', "raw SQL DELETE"),
+            (r"\.Query(?:Row)?Context\s*\(", "raw SQL query"),
+            (r"\.ExecContext\s*\(", "raw SQL execution"),
+            (r"\.PrepareContext\s*\(", "raw SQL prepared statement"),
+            (r"\bSELECT\b.*\bFROM\b", "raw SQL SELECT"),
+            (r"\bINSERT\s+INTO\b", "raw SQL INSERT"),
+            (r"\bUPDATE\b.*\bSET\b", "raw SQL UPDATE"),
+            (r"\bDELETE\s+FROM\b", "raw SQL DELETE"),
         ]
 
         for i, line in enumerate(lines, 1):
             for pattern, description in sql_patterns:
                 if re.search(pattern, line, re.IGNORECASE):
-                    findings.append(Finding(
-                        code="V15-RAW-SQL-FORBIDDEN",
-                        severity="error",
-                        message=f"Raw SQL usage forbidden: {description}",
-                        file_path=file_path,
-                        line_number=i,
-                        details=f"Line contains: {line.strip()[:100]}... Replace with GraphQL mutation/query"
-                    ))
+                    findings.append(
+                        Finding(
+                            code="V15-RAW-SQL-FORBIDDEN",
+                            severity="error",
+                            message=f"Raw SQL usage forbidden: {description}",
+                            file_path=file_path,
+                            line_number=i,
+                            details=f"Line contains: {line.strip()[:100]}... Replace with GraphQL mutation/query",
+                        )
+                    )
 
         # Check for missing GraphQL client in service structs
         if "type Service struct" in content and "gqlClient" not in content:
-            findings.append(Finding(
-                code="V15-MISSING-GRAPHQL",
-                severity="warning",
-                message="Service struct missing GraphQL client field",
-                file_path=file_path,
-                line_number=self._find_service_struct_line(lines),
-                details="Add 'gqlClient graphql.Client' field to Service struct"
-            ))
+            findings.append(
+                Finding(
+                    code="V15-MISSING-GRAPHQL",
+                    severity="warning",
+                    message="Service struct missing GraphQL client field",
+                    file_path=file_path,
+                    line_number=self._find_service_struct_line(lines),
+                    details="Add 'gqlClient graphql.Client' field to Service struct",
+                )
+            )
 
         return findings
 

@@ -221,10 +221,7 @@ class MockDataGuardValidator(BaseValidator):
                         file=file_path,
                         rule="V18-FAKE-DELAY",
                         message="Simulated network delay found — real API calls have actual latency",
-                        fix=(
-                            f"Remove fake delay at {file_path}:{i}. "
-                            f"Real API calls already have network latency."
-                        ),
+                        fix=(f"Remove fake delay at {file_path}:{i}. Real API calls already have network latency."),
                         line=i,
                     )
                 )
@@ -286,8 +283,7 @@ class MockDataGuardValidator(BaseValidator):
                 rule="V18-NO-API-IMPORT",
                 message="Data hook has no API client import — likely using mock data",
                 fix=(
-                    f"Add API client import to {file_path}. "
-                    f"Example: import {{ dashboardClient }} from '../api/client';"
+                    f"Add API client import to {file_path}. Example: import {{ dashboardClient }} from '../api/client';"
                 ),
             )
         ]

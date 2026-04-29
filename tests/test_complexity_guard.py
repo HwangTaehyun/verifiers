@@ -82,7 +82,8 @@ class TestPythonLength:
         assert not any(f.rule == "V14-LONG-FUNCTION" for f in findings)
 
     def test_long_function_warning(self, tmp_path: Path) -> None:
-        lines = "\n".join(f"    x = {i}" for i in range(55))
+        # LENGTH_WARN=80 / LENGTH_ERROR=150 — generate 90 body lines to trip warn but not error.
+        lines = "\n".join(f"    x = {i}" for i in range(90))
         content = f"def long_func():\n{lines}\n    return x\n"
         fp = _write_file(tmp_path, "long.py", content)
         findings = _analyze_python_file(fp)
@@ -91,7 +92,8 @@ class TestPythonLength:
         assert long_findings[0].severity == "warning"
 
     def test_very_long_function_error(self, tmp_path: Path) -> None:
-        lines = "\n".join(f"    x = {i}" for i in range(105))
+        # LENGTH_ERROR=150 — generate 160 body lines to trip error tier.
+        lines = "\n".join(f"    x = {i}" for i in range(160))
         content = f"def very_long():\n{lines}\n    return x\n"
         fp = _write_file(tmp_path, "very_long.py", content)
         findings = _analyze_python_file(fp)
@@ -169,6 +171,7 @@ class TestPythonCognitiveComplexity:
             "                            pass\n"
         )
         import ast
+
         tree = ast.parse(content)
         func = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef))
         score = _python_cognitive_complexity(func)
@@ -188,6 +191,7 @@ class TestPythonCognitiveComplexity:
             "    return 0\n"
         )
         import ast
+
         tree = ast.parse(content)
         func = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef))
         score = _python_cognitive_complexity(func)
@@ -217,14 +221,9 @@ class TestPythonCognitiveComplexity:
         assert any(f.rule == "V14-COGNITIVE-COMPLEXITY" for f in findings)
 
     def test_boolean_ops_add_complexity(self) -> None:
-        content = (
-            "def bool_heavy(a, b, c, d):\n"
-            "    if a and b:\n"
-            "        pass\n"
-            "    if c or d:\n"
-            "        pass\n"
-        )
+        content = "def bool_heavy(a, b, c, d):\n    if a and b:\n        pass\n    if c or d:\n        pass\n"
         import ast
+
         tree = ast.parse(content)
         func = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef))
         score = _python_cognitive_complexity(func)
@@ -239,7 +238,7 @@ class TestPythonCognitiveComplexity:
 
 class TestGoComplexity:
     def test_simple_function_no_finding(self, tmp_path: Path) -> None:
-        content = 'package main\n\nfunc add(a, b int) int {\n\treturn a + b\n}\n'
+        content = "package main\n\nfunc add(a, b int) int {\n\treturn a + b\n}\n"
         fp = _write_file(tmp_path, "math.go", content)
         findings = _analyze_go_file(fp)
         assert not any(f.rule == "V14-HIGH-COMPLEXITY" for f in findings)
@@ -254,7 +253,8 @@ class TestGoComplexity:
 
 class TestGoLength:
     def test_long_function_warning(self, tmp_path: Path) -> None:
-        lines = "\n".join(f"\tx := {i}" for i in range(55))
+        # LENGTH_WARN=80 — produce 90 body lines.
+        lines = "\n".join(f"\tx := {i}" for i in range(90))
         content = f"package main\n\nfunc longFunc() {{\n{lines}\n}}\n"
         fp = _write_file(tmp_path, "long.go", content)
         findings = _analyze_go_file(fp)
@@ -309,9 +309,7 @@ class TestTsParams:
 
 
 class TestValidateIntegration:
-    def test_validate_python_file(
-        self, validator: ComplexityGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_validate_python_file(self, validator: ComplexityGuardValidator, tmp_path: Path) -> None:
         (tmp_path / ".git").mkdir()
         branches = "\n".join(f"    if x == {i}:\n        return {i}" for i in range(12))
         content = f"def complex_func(x):\n{branches}\n    return 0\n"
@@ -323,9 +321,7 @@ class TestValidateIntegration:
         result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V14-HIGH-COMPLEXITY" for f in result.findings)
 
-    def test_validate_clean_file(
-        self, validator: ComplexityGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_validate_clean_file(self, validator: ComplexityGuardValidator, tmp_path: Path) -> None:
         (tmp_path / ".git").mkdir()
         fp = _write_file(tmp_path, "simple.py", "def add(a, b):\n    return a + b\n")
 
@@ -336,9 +332,7 @@ class TestValidateIntegration:
         assert not result.has_errors
         assert not result.has_warnings
 
-    def test_validate_go_file(
-        self, validator: ComplexityGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_validate_go_file(self, validator: ComplexityGuardValidator, tmp_path: Path) -> None:
         (tmp_path / ".git").mkdir()
         branches = "\n".join(f"\tif x == {i} {{\n\t\treturn {i}\n\t}}" for i in range(12))
         content = f"package main\n\nfunc complex(x int) int {{\n{branches}\n\treturn 0\n}}\n"

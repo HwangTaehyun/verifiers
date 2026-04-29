@@ -86,29 +86,21 @@ class TestValidateNoServerDir:
 class TestResolveTestPackage:
     """Test Go package resolution and test file detection."""
 
-    def test_with_test_file_present(
-        self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_with_test_file_present(self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         pkg_dir = tmp_project / "server" / "internal"
         (pkg_dir / "handler.go").write_text("package internal\n")
         (pkg_dir / "handler_test.go").write_text("package internal\n")
 
-        result = validator._resolve_test_package(
-            project_ctx, str(pkg_dir / "handler.go")
-        )
+        result = validator._resolve_test_package(project_ctx, str(pkg_dir / "handler.go"))
         assert result is not None
         assert "internal" in result
 
-    def test_without_test_file(
-        self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_without_test_file(self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         pkg_dir = tmp_project / "server" / "internal"
         (pkg_dir / "handler.go").write_text("package internal\n")
         # No _test.go file
 
-        result = validator._resolve_test_package(
-            project_ctx, str(pkg_dir / "handler.go")
-        )
+        result = validator._resolve_test_package(project_ctx, str(pkg_dir / "handler.go"))
         assert result is None
 
 
@@ -120,9 +112,7 @@ class TestResolveTestPackage:
 class TestRunPackageTests:
     """Test go test execution with JSON output parsing."""
 
-    def test_all_tests_pass(
-        self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_all_tests_pass(self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         json_output = (
             '{"Test":"TestFoo","Action":"pass","Package":"mypackage"}\n'
             '{"Test":"TestBar","Action":"pass","Package":"mypackage"}\n'
@@ -137,12 +127,8 @@ class TestRunPackageTests:
             findings = validator._run_package_tests(project_ctx, "./internal", "handler.go")
         assert findings == []
 
-    def test_test_failure(
-        self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
-        json_output = (
-            '{"Test":"TestCreateUser","Action":"fail","Package":"mypackage"}\n'
-        )
+    def test_test_failure(self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
+        json_output = '{"Test":"TestCreateUser","Action":"fail","Package":"mypackage"}\n'
         mock_result = subprocess.CompletedProcess(
             args=["go", "test"],
             returncode=1,
@@ -158,9 +144,7 @@ class TestRunPackageTests:
         assert f.severity == "error"
         assert "TestCreateUser" in f.message
 
-    def test_multiple_failures(
-        self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_multiple_failures(self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         json_output = (
             '{"Test":"TestA","Action":"fail","Package":"mypackage"}\n'
             '{"Test":"TestB","Action":"fail","Package":"mypackage"}\n'
@@ -180,16 +164,12 @@ class TestRunPackageTests:
         assert "TestA" in test_fail_findings[0].message
         assert "TestB" in test_fail_findings[0].message
 
-    def test_go_not_installed(
-        self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_go_not_installed(self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         with patch("subprocess.run", side_effect=FileNotFoundError):
             findings = validator._run_package_tests(project_ctx, "./internal", "handler.go")
         assert findings == []
 
-    def test_timeout(
-        self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_timeout(self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="go", timeout=60)):
             findings = validator._run_package_tests(project_ctx, "./internal", "handler.go")
         assert findings == []
@@ -203,9 +183,7 @@ class TestRunPackageTests:
 class TestCheckTestExists:
     """Test warning generation for missing test files."""
 
-    def test_no_go_files_no_warning(
-        self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_no_go_files_no_warning(self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         # Empty package directory — no warning needed
         empty_dir = tmp_project / "server" / "empty_pkg"
         empty_dir.mkdir(parents=True)
@@ -310,9 +288,7 @@ class TestValidateIntegration:
         (pkg_dir / "handler_test.go").write_text("package internal\n")
 
         json_output = '{"Test":"TestFoo","Action":"pass","Package":"internal"}\n'
-        mock_result = subprocess.CompletedProcess(
-            args=["go", "test"], returncode=0, stdout=json_output, stderr=""
-        )
+        mock_result = subprocess.CompletedProcess(args=["go", "test"], returncode=0, stdout=json_output, stderr="")
         with patch("subprocess.run", return_value=mock_result):
             result = validator.validate(
                 project_ctx,
@@ -322,9 +298,7 @@ class TestValidateIntegration:
 
         assert isinstance(result, ValidationResult)
 
-    def test_post_tool_use_excluded_dir(
-        self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_post_tool_use_excluded_dir(self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         """Files in excluded dirs should produce no findings."""
         result = validator.validate(
             project_ctx,
@@ -333,20 +307,14 @@ class TestValidateIntegration:
         )
         assert result.findings == []
 
-    def test_stop_mode_skipped(
-        self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_stop_mode_skipped(self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         """Stop mode should not run any tests (V06 handles that)."""
         result = validator.validate(project_ctx, file_path="handler.go", mode="stop")
         assert result.findings == []
 
-    def test_non_go_file_skipped(
-        self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_non_go_file_skipped(self, validator: GoTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         """Non-.go files should produce no findings."""
-        result = validator.validate(
-            project_ctx, file_path="README.md", mode="post_tool_use"
-        )
+        result = validator.validate(project_ctx, file_path="README.md", mode="post_tool_use")
         assert result.findings == []
 
 

@@ -101,56 +101,40 @@ class TestIsTestFile:
 class TestResolveTestFile:
     """Test source → test file resolution."""
 
-    def test_same_dir_test_file(
-        self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_same_dir_test_file(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         src_dir = tmp_project / "web" / "src"
         (src_dir / "Button.tsx").write_text("export default function Button() {}")
         (src_dir / "Button.test.tsx").write_text("test('works', () => {})")
 
-        result = validator._resolve_test_file(
-            project_ctx, str(src_dir / "Button.tsx")
-        )
+        result = validator._resolve_test_file(project_ctx, str(src_dir / "Button.tsx"))
         assert result is not None
         assert "Button.test.tsx" in result
 
-    def test_same_dir_spec_file(
-        self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_same_dir_spec_file(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         src_dir = tmp_project / "web" / "src"
         (src_dir / "utils.ts").write_text("export function foo() {}")
         (src_dir / "utils.spec.ts").write_text("test('works', () => {})")
 
-        result = validator._resolve_test_file(
-            project_ctx, str(src_dir / "utils.ts")
-        )
+        result = validator._resolve_test_file(project_ctx, str(src_dir / "utils.ts"))
         assert result is not None
         assert "utils.spec.ts" in result
 
-    def test_tests_subdir(
-        self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_tests_subdir(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         src_dir = tmp_project / "web" / "src"
         tests_dir = src_dir / "__tests__"
         tests_dir.mkdir(parents=True)
         (src_dir / "Modal.tsx").write_text("export default function Modal() {}")
         (tests_dir / "Modal.test.tsx").write_text("test('works', () => {})")
 
-        result = validator._resolve_test_file(
-            project_ctx, str(src_dir / "Modal.tsx")
-        )
+        result = validator._resolve_test_file(project_ctx, str(src_dir / "Modal.tsx"))
         assert result is not None
         assert "Modal.test.tsx" in result
 
-    def test_no_test_found(
-        self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_no_test_found(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         src_dir = tmp_project / "web" / "src"
         (src_dir / "Orphan.tsx").write_text("export default function Orphan() {}")
 
-        result = validator._resolve_test_file(
-            project_ctx, str(src_dir / "Orphan.tsx")
-        )
+        result = validator._resolve_test_file(project_ctx, str(src_dir / "Orphan.tsx"))
         assert result is None
 
 
@@ -162,43 +146,29 @@ class TestResolveTestFile:
 class TestDetectTestRunner:
     """Test test runner detection."""
 
-    def test_vitest_config(
-        self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_vitest_config(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         (tmp_project / "web" / "vitest.config.ts").write_text("export default {}")
         cmd, name = validator._detect_test_runner(project_ctx)
         assert name == "vitest"
         assert "vitest" in cmd
 
-    def test_jest_config(
-        self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_jest_config(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         (tmp_project / "web" / "jest.config.js").write_text("module.exports = {}")
         cmd, name = validator._detect_test_runner(project_ctx)
         assert name == "jest"
         assert "jest" in cmd
 
-    def test_jest_in_package_json(
-        self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
-        (tmp_project / "web" / "package.json").write_text(
-            json.dumps({"devDependencies": {"jest": "^29.0.0"}})
-        )
+    def test_jest_in_package_json(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
+        (tmp_project / "web" / "package.json").write_text(json.dumps({"devDependencies": {"jest": "^29.0.0"}}))
         cmd, name = validator._detect_test_runner(project_ctx)
         assert name == "jest"
 
-    def test_vitest_in_package_json(
-        self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
-        (tmp_project / "web" / "package.json").write_text(
-            json.dumps({"devDependencies": {"vitest": "^1.0.0"}})
-        )
+    def test_vitest_in_package_json(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
+        (tmp_project / "web" / "package.json").write_text(json.dumps({"devDependencies": {"vitest": "^1.0.0"}}))
         cmd, name = validator._detect_test_runner(project_ctx)
         assert name == "vitest"
 
-    def test_default_bun_test(
-        self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_default_bun_test(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         # No config files → bun test
         cmd, name = validator._detect_test_runner(project_ctx)
         assert name == "bun"
@@ -213,9 +183,7 @@ class TestDetectTestRunner:
 class TestRunTestFile:
     """Test test execution with mocked subprocess."""
 
-    def test_tests_pass_no_findings(
-        self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_tests_pass_no_findings(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         mock_result = subprocess.CompletedProcess(
             args=["bun", "test"], returncode=0, stdout="✓ works (2ms)\n", stderr=""
         )
@@ -223,9 +191,7 @@ class TestRunTestFile:
             findings = validator._run_test_file(project_ctx, "Button.test.tsx")
         assert findings == []
 
-    def test_test_failure(
-        self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_test_failure(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         mock_result = subprocess.CompletedProcess(
             args=["bun", "test"],
             returncode=1,
@@ -239,16 +205,12 @@ class TestRunTestFile:
         assert len(test_fail_findings) == 1
         assert test_fail_findings[0].severity == "error"
 
-    def test_not_installed(
-        self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_not_installed(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         with patch("subprocess.run", side_effect=FileNotFoundError):
             findings = validator._run_test_file(project_ctx, "Button.test.tsx")
         assert findings == []
 
-    def test_timeout(
-        self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_timeout(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="bun", timeout=60)):
             findings = validator._run_test_file(project_ctx, "Button.test.tsx")
         assert findings == []
@@ -314,9 +276,7 @@ class TestTrackFailure:
 class TestValidateIntegration:
     """Test the full validate method."""
 
-    def test_excluded_dir_skipped(
-        self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_excluded_dir_skipped(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         result = validator.validate(
             project_ctx,
             file_path=str(tmp_project / "web" / "node_modules" / "lib.ts"),
@@ -324,18 +284,12 @@ class TestValidateIntegration:
         )
         assert result.findings == []
 
-    def test_stop_mode_skipped(
-        self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
+    def test_stop_mode_skipped(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
         result = validator.validate(project_ctx, file_path="App.tsx", mode="stop")
         assert result.findings == []
 
-    def test_non_ts_file_skipped(
-        self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx
-    ) -> None:
-        result = validator.validate(
-            project_ctx, file_path="README.md", mode="post_tool_use"
-        )
+    def test_non_ts_file_skipped(self, validator: TsTestRunnerValidator, tmp_project: Path, project_ctx) -> None:
+        result = validator.validate(project_ctx, file_path="README.md", mode="post_tool_use")
         assert result.findings == []
 
 

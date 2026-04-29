@@ -33,6 +33,7 @@ from hooks.validators.base import (
     read_hook_input,
     write_hook_output,
 )
+from lib.json_logger import log_exception
 from lib.project_context import ProjectContext
 
 # ── Language detection helpers ────────────────────────────────────────────────
@@ -81,10 +82,12 @@ def _find_golangci_config(root: Path) -> Path | None:
     # Also check server/ subdirectory
     server_dir = root / "server"
     if server_dir.is_dir():
-        candidates.extend([
-            server_dir / ".golangci.yml",
-            server_dir / ".golangci.yaml",
-        ])
+        candidates.extend(
+            [
+                server_dir / ".golangci.yml",
+                server_dir / ".golangci.yaml",
+            ]
+        )
     for c in candidates:
         if c.exists():
             return c
@@ -153,7 +156,12 @@ def _check_golangci_rules(config_path: Path) -> list[Finding]:
     try:
         content = config_path.read_text(errors="replace")
         config = yaml.safe_load(content) or {}
-    except Exception:
+    except Exception as exc:
+        log_exception(
+            source="V16-linter-config-guard/_check_golangci_rules",
+            error=exc,
+            context={"config_path": str(config_path)},
+        )
         return findings
 
     linters = config.get("linters", {})
@@ -220,19 +228,24 @@ def _check_ruff_rules(config_path: Path, _config_type: str) -> list[Finding]:
     findings: list[Finding] = []
     try:
         content = config_path.read_text(errors="replace")
-    except Exception:
+    except Exception as exc:
+        log_exception(
+            source="V16-linter-config-guard/_check_ruff_rules",
+            error=exc,
+            context={"config_path": str(config_path)},
+        )
         return findings
 
     # Parse ignore/select sections
     # Look for patterns like: ignore = ["E722", "F401"]
     # or per-file-ignores, or extend-ignore
 
-    ignore_patterns = re.findall(r'ignore\s*=\s*\[([^\]]*)\]', content)
+    ignore_patterns = re.findall(r"ignore\s*=\s*\[([^\]]*)\]", content)
     all_ignored: list[str] = []
     for match in ignore_patterns:
         all_ignored.extend(re.findall(r'"([^"]+)"', match))
 
-    select_patterns = re.findall(r'select\s*=\s*\[([^\]]*)\]', content)
+    select_patterns = re.findall(r"select\s*=\s*\[([^\]]*)\]", content)
     all_selected: list[str] = []
     for match in select_patterns:
         all_selected.extend(re.findall(r'"([^"]+)"', match))
@@ -270,9 +283,7 @@ def _check_ruff_rules(config_path: Path, _config_type: str) -> list[Finding]:
     # S (Bandit security rules): check if security rules are selected
     # Only check if select is explicitly set (not default)
     if all_selected:
-        has_security = any(
-            rule.startswith("S") for rule in all_selected
-        )
+        has_security = any(rule.startswith("S") for rule in all_selected)
         has_all = "ALL" in all_selected
         if not has_security and not has_all:
             findings.append(
@@ -296,14 +307,17 @@ def _check_eslint_rules(config_path: Path) -> list[Finding]:
     findings: list[Finding] = []
     try:
         content = config_path.read_text(errors="replace")
-    except Exception:
+    except Exception as exc:
+        log_exception(
+            source="V16-linter-config-guard/_check_eslint_rules",
+            error=exc,
+            context={"config_path": str(config_path)},
+        )
         return findings
 
     # Check for disabled rules
     # Pattern: "no-empty": "off" or "no-empty": 0
-    no_empty_disabled = bool(
-        re.search(r'["\']?no-empty["\']?\s*:\s*(["\']off["\']|0)', content)
-    )
+    no_empty_disabled = bool(re.search(r'["\']?no-empty["\']?\s*:\s*(["\']off["\']|0)', content))
     if no_empty_disabled:
         findings.append(
             Finding(
@@ -311,10 +325,7 @@ def _check_eslint_rules(config_path: Path) -> list[Finding]:
                 file=str(config_path),
                 rule="V16-MISSING-ERROR-RULES",
                 message="'no-empty' rule is disabled in ESLint config",
-                fix=(
-                    f"Enable 'no-empty' rule in {config_path}. "
-                    "Empty blocks (especially catch) hide errors."
-                ),
+                fix=(f"Enable 'no-empty' rule in {config_path}. Empty blocks (especially catch) hide errors."),
             )
         )
 
@@ -340,9 +351,7 @@ def _check_eslint_rules(config_path: Path) -> list[Finding]:
         )
 
     # Check for no-eval disabled (security)
-    no_eval_disabled = bool(
-        re.search(r'["\']?no-eval["\']?\s*:\s*(["\']off["\']|0)', content)
-    )
+    no_eval_disabled = bool(re.search(r'["\']?no-eval["\']?\s*:\s*(["\']off["\']|0)', content))
     if no_eval_disabled:
         findings.append(
             Finding(
@@ -394,10 +403,7 @@ class LinterConfigGuardValidator(BaseValidator):
                         file=str(root),
                         rule="V16-NO-LINTER-CONFIG",
                         message="Go project has no golangci-lint config (.golangci.yml)",
-                        fix=(
-                            "Create a .golangci.yml file with at least errcheck, unused, "
-                            "and gosec linters enabled."
-                        ),
+                        fix=("Create a .golangci.yml file with at least errcheck, unused, and gosec linters enabled."),
                     )
                 )
             else:

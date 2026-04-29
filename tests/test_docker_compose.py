@@ -510,7 +510,7 @@ class TestV05DockerfileMultistage:
         self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext
     ) -> None:
         dockerfile = docker_project / "server" / "Dockerfile"
-        dockerfile.write_text("FROM golang:1.25-alpine\nRUN go build -o app .\nCMD [\"./app\"]\n")
+        dockerfile.write_text('FROM golang:1.25-alpine\nRUN go build -o app .\nCMD ["./app"]\n')
 
         result = validator.validate(docker_ctx)
         rules = [f.rule for f in result.findings]
@@ -542,7 +542,7 @@ class TestV05DockerfileUser:
         dockerfile = docker_project / "server" / "Dockerfile"
         dockerfile.write_text(
             "FROM golang:1.25 AS builder\nRUN go build -o app .\n"
-            "FROM alpine:3.21 AS prod\nCOPY --from=builder /app /app\nCMD [\"./app\"]\n"
+            'FROM alpine:3.21 AS prod\nCOPY --from=builder /app /app\nCMD ["./app"]\n'
         )
 
         result = validator.validate(docker_ctx)
@@ -575,8 +575,7 @@ class TestV05DockerfileExpose:
     ) -> None:
         dockerfile = docker_project / "server" / "Dockerfile"
         dockerfile.write_text(
-            "FROM golang:1.25 AS builder\nRUN go build -o app .\n"
-            "FROM alpine:3.21 AS prod\nUSER app\nCMD [\"./app\"]\n"
+            'FROM golang:1.25 AS builder\nRUN go build -o app .\nFROM alpine:3.21 AS prod\nUSER app\nCMD ["./app"]\n'
         )
 
         result = validator.validate(docker_ctx)
@@ -589,7 +588,7 @@ class TestV05DockerfileExpose:
         dockerfile = docker_project / "server" / "Dockerfile"
         dockerfile.write_text(
             "FROM golang:1.25 AS builder\nRUN go build -o app .\n"
-            "FROM alpine:3.21 AS prod\nUSER app\nEXPOSE 7778\nCMD [\"./app\"]\n"
+            'FROM alpine:3.21 AS prod\nUSER app\nEXPOSE 7778\nCMD ["./app"]\n'
         )
 
         result = validator.validate(docker_ctx)
@@ -641,26 +640,15 @@ class TestV05ProdPortExposed:
         self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext
     ) -> None:
         compose = docker_project / "server" / "docker-compose.production.yaml"
-        compose.write_text(
-            "services:\n"
-            "  myapp:\n"
-            "    ports:\n"
-            "      - '8080:8080'\n"
-        )
+        compose.write_text("services:\n  myapp:\n    ports:\n      - '8080:8080'\n")
 
         result = validator.validate(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-PROD-PORT-EXPOSED" in rules
 
-    def test_empty_ports_ok(
-        self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext
-    ) -> None:
+    def test_empty_ports_ok(self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext) -> None:
         compose = docker_project / "server" / "docker-compose.production.yaml"
-        compose.write_text(
-            "services:\n"
-            "  myapp:\n"
-            "    ports: []\n"
-        )
+        compose.write_text("services:\n  myapp:\n    ports: []\n")
 
         result = validator.validate(docker_ctx)
         rules = [f.rule for f in result.findings]
@@ -677,12 +665,7 @@ class TestV05ProdDevMode:
         self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext
     ) -> None:
         compose = docker_project / "server" / "docker-compose.production.yaml"
-        compose.write_text(
-            "services:\n"
-            "  myapp:\n"
-            "    environment:\n"
-            "      APP_DEV: 'true'\n"
-        )
+        compose.write_text("services:\n  myapp:\n    environment:\n      APP_DEV: 'true'\n")
 
         result = validator.validate(docker_ctx)
         errors = [f for f in result.findings if f.rule == "V05-PROD-DEV-MODE"]
@@ -693,12 +676,7 @@ class TestV05ProdDevMode:
         self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext
     ) -> None:
         compose = docker_project / "server" / "docker-compose.production.yaml"
-        compose.write_text(
-            "services:\n"
-            "  myapp:\n"
-            "    environment:\n"
-            "      APP_DEV: 'false'\n"
-        )
+        compose.write_text("services:\n  myapp:\n    environment:\n      APP_DEV: 'false'\n")
 
         result = validator.validate(docker_ctx)
         rules = [f.rule for f in result.findings]
@@ -708,12 +686,7 @@ class TestV05ProdDevMode:
         self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext
     ) -> None:
         compose = docker_project / "server" / "docker-compose.production.yaml"
-        compose.write_text(
-            "services:\n"
-            "  hasura:\n"
-            "    environment:\n"
-            "      HASURA_GRAPHQL_DEV_MODE: 'true'\n"
-        )
+        compose.write_text("services:\n  hasura:\n    environment:\n      HASURA_GRAPHQL_DEV_MODE: 'true'\n")
 
         result = validator.validate(docker_ctx)
         errors = [f for f in result.findings if f.rule == "V05-PROD-DEV-MODE"]
@@ -723,12 +696,7 @@ class TestV05ProdDevMode:
         self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext
     ) -> None:
         compose = docker_project / "server" / "docker-compose.production.yaml"
-        compose.write_text(
-            "services:\n"
-            "  web:\n"
-            "    environment:\n"
-            "      NODE_ENV: development\n"
-        )
+        compose.write_text("services:\n  web:\n    environment:\n      NODE_ENV: development\n")
 
         result = validator.validate(docker_ctx)
         errors = [f for f in result.findings if f.rule == "V05-PROD-DEV-MODE"]
@@ -745,12 +713,7 @@ class TestV05ProdWildcardCors:
         self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext
     ) -> None:
         compose = docker_project / "server" / "docker-compose.production.yaml"
-        compose.write_text(
-            "services:\n"
-            "  hasura:\n"
-            "    environment:\n"
-            "      HASURA_GRAPHQL_CORS_DOMAIN: '*'\n"
-        )
+        compose.write_text("services:\n  hasura:\n    environment:\n      HASURA_GRAPHQL_CORS_DOMAIN: '*'\n")
 
         result = validator.validate(docker_ctx)
         errors = [f for f in result.findings if f.rule == "V05-PROD-WILDCARD-CORS"]
@@ -762,10 +725,7 @@ class TestV05ProdWildcardCors:
     ) -> None:
         compose = docker_project / "server" / "docker-compose.production.yaml"
         compose.write_text(
-            "services:\n"
-            "  hasura:\n"
-            "    environment:\n"
-            "      HASURA_GRAPHQL_CORS_DOMAIN: 'https://example.com'\n"
+            "services:\n  hasura:\n    environment:\n      HASURA_GRAPHQL_CORS_DOMAIN: 'https://example.com'\n"
         )
 
         result = validator.validate(docker_ctx)
@@ -783,12 +743,7 @@ class TestV05DevVolumeMount:
         self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext
     ) -> None:
         compose = docker_project / "server" / "docker-compose.override.yaml"
-        compose.write_text(
-            "services:\n"
-            "  myapp:\n"
-            "    build:\n"
-            "      target: dev\n"
-        )
+        compose.write_text("services:\n  myapp:\n    build:\n      target: dev\n")
 
         result = validator.validate(docker_ctx)
         rules = [f.rule for f in result.findings]
@@ -798,14 +753,7 @@ class TestV05DevVolumeMount:
         self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext
     ) -> None:
         compose = docker_project / "server" / "docker-compose.override.yaml"
-        compose.write_text(
-            "services:\n"
-            "  myapp:\n"
-            "    build:\n"
-            "      target: dev\n"
-            "    volumes:\n"
-            "      - .:/app\n"
-        )
+        compose.write_text("services:\n  myapp:\n    build:\n      target: dev\n    volumes:\n      - .:/app\n")
 
         result = validator.validate(docker_ctx)
         rules = [f.rule for f in result.findings]
@@ -822,31 +770,15 @@ class TestV05DevBuildTarget:
         self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext
     ) -> None:
         compose = docker_project / "server" / "docker-compose.override.yaml"
-        compose.write_text(
-            "services:\n"
-            "  myapp:\n"
-            "    build:\n"
-            "      target: prod\n"
-            "    volumes:\n"
-            "      - .:/app\n"
-        )
+        compose.write_text("services:\n  myapp:\n    build:\n      target: prod\n    volumes:\n      - .:/app\n")
 
         result = validator.validate(docker_ctx)
         rules = [f.rule for f in result.findings]
         assert "V05-DEV-NO-BUILD-TARGET" in rules
 
-    def test_dev_target_ok(
-        self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext
-    ) -> None:
+    def test_dev_target_ok(self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext) -> None:
         compose = docker_project / "server" / "docker-compose.override.yaml"
-        compose.write_text(
-            "services:\n"
-            "  myapp:\n"
-            "    build:\n"
-            "      target: dev\n"
-            "    volumes:\n"
-            "      - .:/app\n"
-        )
+        compose.write_text("services:\n  myapp:\n    build:\n      target: dev\n    volumes:\n      - .:/app\n")
 
         result = validator.validate(docker_ctx)
         rules = [f.rule for f in result.findings]
@@ -869,9 +801,7 @@ class TestV05BaseImageLatest:
         rules = [f.rule for f in result.findings]
         assert "V05-BASE-IMAGE-LATEST" in rules
 
-    def test_no_tag_warns(
-        self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext
-    ) -> None:
+    def test_no_tag_warns(self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext) -> None:
         dockerfile = docker_project / "server" / "Dockerfile"
         dockerfile.write_text("FROM golang\nRUN go build -o app .\n")
 
@@ -939,13 +869,7 @@ class TestV05BuildTargetMissing:
     ) -> None:
         # Create compose file with build.target referencing non-existent stage
         compose = docker_project / "docker-compose.yaml"
-        compose.write_text(
-            "services:\n"
-            "  app:\n"
-            "    build:\n"
-            "      context: .\n"
-            "      target: missing\n"
-        )
+        compose.write_text("services:\n  app:\n    build:\n      context: .\n      target: missing\n")
 
         # Create Dockerfile without the referenced stage
         dockerfile = docker_project / "Dockerfile"
@@ -964,13 +888,7 @@ class TestV05BuildTargetMissing:
     ) -> None:
         # Create compose file with build.target referencing existing stage
         compose = docker_project / "docker-compose.yaml"
-        compose.write_text(
-            "services:\n"
-            "  app:\n"
-            "    build:\n"
-            "      context: .\n"
-            "      target: dev\n"
-        )
+        compose.write_text("services:\n  app:\n    build:\n      context: .\n      target: dev\n")
 
         # Create Dockerfile with the referenced stage
         dockerfile = docker_project / "Dockerfile"

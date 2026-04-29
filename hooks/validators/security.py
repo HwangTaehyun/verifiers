@@ -225,8 +225,9 @@ class SecurityValidator(BaseValidator):
                     has_binding = re.search(
                         rf'Str\(\s*"{field}"'  # zerolog: .Str("email", val)
                         rf'|"[^"]*%[svd][^"]*"[^)]*{field}'  # Sprintf with variable
-                        rf'|{field}\s*[,\)]'  # bare variable reference: email, or email)
-                        , line, re.IGNORECASE
+                        rf"|{field}\s*[,\)]",  # bare variable reference: email, or email)
+                        line,
+                        re.IGNORECASE,
                     )
                     if has_binding:
                         findings.append(
@@ -248,9 +249,10 @@ class SecurityValidator(BaseValidator):
                 for field in PHI_FIELDS:
                     # Only flag variable references, not fixed strings
                     has_binding = re.search(
-                        rf'{field}\s*[,\)\}}]'  # variable: console.log(email) or console.log({email})
-                        rf'|`[^`]*\$\{{[^}}]*{field}'  # template literal: `${email}`
-                        , line, re.IGNORECASE
+                        rf"{field}\s*[,\)\}}]"  # variable: console.log(email) or console.log({email})
+                        rf"|`[^`]*\$\{{[^}}]*{field}",  # template literal: `${email}`
+                        line,
+                        re.IGNORECASE,
                     )
                     if has_binding:
                         findings.append(

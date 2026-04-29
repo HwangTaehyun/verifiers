@@ -77,6 +77,7 @@ def _analyze_python_file(file_path: str) -> list[Finding]:
 
 class _FuncLoc(NamedTuple):
     """Location info for a function being checked."""
+
     func_name: str
     file_path: str
     start_line: int
@@ -87,31 +88,61 @@ def _check_python_function(node: ast.FunctionDef | ast.AsyncFunctionDef, file_pa
     loc = _FuncLoc(node.name, file_path, node.lineno)
     findings: list[Finding] = []
 
-    findings.extend(_check_threshold(
-        _python_cyclomatic_complexity(node), COMPLEXITY_WARN, COMPLEXITY_ERROR,
-        "V14-HIGH-COMPLEXITY", "cyclomatic complexity", loc,
-    ))
-    findings.extend(_check_threshold(
-        _python_cognitive_complexity(node), COGNITIVE_WARN, COGNITIVE_ERROR,
-        "V14-COGNITIVE-COMPLEXITY", "cognitive complexity", loc,
-    ))
+    findings.extend(
+        _check_threshold(
+            _python_cyclomatic_complexity(node),
+            COMPLEXITY_WARN,
+            COMPLEXITY_ERROR,
+            "V14-HIGH-COMPLEXITY",
+            "cyclomatic complexity",
+            loc,
+        )
+    )
+    findings.extend(
+        _check_threshold(
+            _python_cognitive_complexity(node),
+            COGNITIVE_WARN,
+            COGNITIVE_ERROR,
+            "V14-COGNITIVE-COMPLEXITY",
+            "cognitive complexity",
+            loc,
+        )
+    )
 
     end_line = getattr(node, "end_lineno", None)
     if end_line:
         length = end_line - loc.start_line + 1
-        findings.extend(_check_threshold(
-            length, LENGTH_WARN, LENGTH_ERROR,
-            "V14-LONG-FUNCTION", "lines long", loc,
-        ))
+        findings.extend(
+            _check_threshold(
+                length,
+                LENGTH_WARN,
+                LENGTH_ERROR,
+                "V14-LONG-FUNCTION",
+                "lines long",
+                loc,
+            )
+        )
 
-    findings.extend(_check_threshold(
-        _python_max_nesting(node), NESTING_WARN, NESTING_WARN + 1,
-        "V14-DEEP-NESTING", "nesting depth", loc,
-    ))
-    findings.extend(_check_threshold(
-        _python_param_count(node), PARAMS_WARN, PARAMS_WARN + 1,
-        "V14-TOO-MANY-PARAMS", "parameters", loc,
-    ))
+    findings.extend(
+        _check_threshold(
+            _python_max_nesting(node),
+            NESTING_WARN,
+            NESTING_WARN + 1,
+            "V14-DEEP-NESTING",
+            "nesting depth",
+            loc,
+        )
+    )
+    findings.extend(
+        _check_threshold(
+            _python_param_count(node),
+            PARAMS_WARN,
+            PARAMS_WARN + 1,
+            "V14-TOO-MANY-PARAMS",
+            "parameters",
+            loc,
+        )
+    )
     return findings
 
 
@@ -125,29 +156,40 @@ def _check_threshold(
 ) -> list[Finding]:
     """Check a metric value against warn/error thresholds and return findings."""
     if value > error_threshold:
-        return [Finding(
-            severity="error",
-            file=loc.file_path,
-            rule=rule,
-            message=f"Function '{loc.func_name}' has {metric_name} {value} (max {error_threshold})",
-            fix=f"Refactor '{loc.func_name}' at {loc.file_path}:{loc.start_line} into smaller functions.",
-            line=loc.start_line,
-        )]
+        return [
+            Finding(
+                severity="error",
+                file=loc.file_path,
+                rule=rule,
+                message=f"Function '{loc.func_name}' has {metric_name} {value} (max {error_threshold})",
+                fix=f"Refactor '{loc.func_name}' at {loc.file_path}:{loc.start_line} into smaller functions.",
+                line=loc.start_line,
+            )
+        ]
     if value > warn_threshold:
-        return [Finding(
-            severity="warning",
-            file=loc.file_path,
-            rule=rule,
-            message=f"Function '{loc.func_name}' has {metric_name} {value} (recommended max {warn_threshold})",
-            fix=f"Consider simplifying '{loc.func_name}' at {loc.file_path}:{loc.start_line}.",
-            line=loc.start_line,
-        )]
+        return [
+            Finding(
+                severity="warning",
+                file=loc.file_path,
+                rule=rule,
+                message=f"Function '{loc.func_name}' has {metric_name} {value} (recommended max {warn_threshold})",
+                fix=f"Consider simplifying '{loc.func_name}' at {loc.file_path}:{loc.start_line}.",
+                line=loc.start_line,
+            )
+        ]
     return []
 
 
 _CYCLOMATIC_SINGLE_INCREMENT = (
-    ast.If, ast.IfExp, ast.For, ast.AsyncFor, ast.While,
-    ast.ExceptHandler, ast.With, ast.AsyncWith, ast.Assert,
+    ast.If,
+    ast.IfExp,
+    ast.For,
+    ast.AsyncFor,
+    ast.While,
+    ast.ExceptHandler,
+    ast.With,
+    ast.AsyncWith,
+    ast.Assert,
 )
 
 
@@ -489,7 +531,9 @@ TS_FUNC_PATTERNS = [
     # function declaration
     re.compile(r"(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)", re.MULTILINE),
     # arrow function assigned to const/let/var
-    re.compile(r"(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*(?::\s*[^=]+)?\s*=>", re.MULTILINE),
+    re.compile(
+        r"(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(([^)]*)\)\s*(?::\s*[^=]+)?\s*=>", re.MULTILINE
+    ),
     # class method
     re.compile(r"(?:public|private|protected|static|async|\s)*(\w+)\s*\(([^)]*)\)\s*(?::\s*[^{]+)?\s*\{", re.MULTILINE),
 ]
@@ -606,9 +650,7 @@ def _analyze_ts_file(file_path: str) -> list[Finding]:
     return findings
 
 
-_TS_NON_FUNC_KEYWORDS = frozenset(
-    ("if", "for", "while", "switch", "catch", "import", "from", "return", "new")
-)
+_TS_NON_FUNC_KEYWORDS = frozenset(("if", "for", "while", "switch", "catch", "import", "from", "return", "new"))
 
 
 def _ts_find_functions(lines: list[str], content: str) -> list[tuple[str, int, int, str]]:

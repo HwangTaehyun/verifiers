@@ -383,20 +383,14 @@ class TestBuildReason:
 
     def test_many_errors_truncated_stop(self) -> None:
         """Stop mode: more than 10 errors should be truncated."""
-        errors = [
-            Finding("error", f"/f{i}.py", f"R{i:02d}", f"msg{i}", f"fix{i}")
-            for i in range(15)
-        ]
+        errors = [Finding("error", f"/f{i}.py", f"R{i:02d}", f"msg{i}", f"fix{i}") for i in range(15)]
         reason = _build_reason(errors, mode="stop")
         assert "5 more error(s)" in reason
 
     def test_many_warnings_truncated_stop(self) -> None:
         """Stop mode: more than 5 warnings should be truncated."""
         err = Finding("error", "/x.py", "R01", "msg", "fix")
-        warnings = [
-            Finding("warning", f"/w{i}.py", f"W{i:02d}", f"warn{i}", f"fix{i}")
-            for i in range(8)
-        ]
+        warnings = [Finding("warning", f"/w{i}.py", f"W{i:02d}", f"warn{i}", f"fix{i}") for i in range(8)]
         reason = _build_reason([err] + warnings, mode="stop")
         assert "3 more warning(s)" in reason
 
@@ -408,10 +402,7 @@ class TestBuildReason:
 
     def test_post_tool_use_mode_shorter(self) -> None:
         """PostToolUse mode has tighter truncation (max 5 errors)."""
-        errors = [
-            Finding("error", f"/f{i}.py", f"R{i:02d}", f"msg{i}", f"fix{i}")
-            for i in range(8)
-        ]
+        errors = [Finding("error", f"/f{i}.py", f"R{i:02d}", f"msg{i}", f"fix{i}") for i in range(8)]
         reason = _build_reason(errors, mode="post_tool_use")
         assert "3 more error(s)" in reason  # 8 - 5 = 3 remaining
         assert "file you just edited" in reason
@@ -419,10 +410,7 @@ class TestBuildReason:
     def test_post_tool_use_warnings_truncated(self) -> None:
         """PostToolUse mode: max 3 warnings before truncation."""
         err = Finding("error", "/x.py", "R01", "msg", "fix")
-        warnings = [
-            Finding("warning", f"/w{i}.py", f"W{i:02d}", f"warn{i}", f"fix{i}")
-            for i in range(5)
-        ]
+        warnings = [Finding("warning", f"/w{i}.py", f"W{i:02d}", f"warn{i}", f"fix{i}") for i in range(5)]
         reason = _build_reason([err] + warnings, mode="post_tool_use")
         assert "2 more warning(s)" in reason  # 5 - 3 = 2 remaining
 

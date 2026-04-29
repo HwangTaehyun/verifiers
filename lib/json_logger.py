@@ -2,18 +2,75 @@
 
 Logs each validation run as a single JSON line to logs/<validator-id>.jsonl
 with timestamp, project name, duration, and findings.
+
+Also exposes ``log_exception(...)`` for non-blocking error recording —
+used in place of ``except Exception: pass`` so that silent crashes leave
+a JSONL trace at logs/_errors.jsonl. When the ``VERIFIERS_DEBUG=1``
+environment variable is set, errors are also printed to stderr for
+interactive debugging.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import sys
 import time
+import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 # Default log directory relative to verifiers repo root
 LOG_DIR = Path(__file__).parent.parent / "logs"
+
+# Sentinel error log — captures every silent exception across hooks/lib
+ERROR_LOG_FILE = LOG_DIR / "_errors.jsonl"
+
+
+def log_exception(
+    source: str,
+    error: BaseException,
+    context: dict[str, Any] | None = None,
+) -> None:
+    """Append a structured exception record to logs/_errors.jsonl.
+
+    Replaces ``except Exception: pass`` so that crashes are recoverable
+    via post-mortem analysis without ever blocking the user's turn.
+    Failure of the logger itself is silently swallowed (the goal is to
+    never propagate logging errors back into the hook pipeline).
+
+    Args:
+        source: Identifier of the call site (validator id, hook name, or
+            ``"router"`` / ``"stop_validator"``).
+        error: The caught exception.
+        context: Optional extra fields (file, mode, cwd, ...).
+    """
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        record: dict[str, Any] = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "source": source,
+            "error_type": type(error).__name__,
+            "error_message": str(error),
+            "traceback": traceback.format_exc(),
+        }
+        if context:
+            record["context"] = context
+        with open(ERROR_LOG_FILE, "a") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+    if os.environ.get("VERIFIERS_DEBUG") == "1":
+        try:
+            print(
+                f"[verifiers-debug] {source}: {type(error).__name__}: {error}",
+                file=sys.stderr,
+            )
+            traceback.print_exc(file=sys.stderr)
+        except OSError:
+            pass
 
 
 class JsonLogger:

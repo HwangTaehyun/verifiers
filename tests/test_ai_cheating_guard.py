@@ -208,7 +208,7 @@ class TestCheckEditAssertionRemoved:
 class TestCheckEditTestDisabled:
     def test_go_skip_added(self, validator: AiCheatingGuardValidator) -> None:
         old = "func TestAdd(t *testing.T) {\n\tassert.Equal(t, 2, add(1, 1))\n}\n"
-        new = "func TestAdd(t *testing.T) {\n\tt.Skip(\"temporarily disabled\")\n\tassert.Equal(t, 2, add(1, 1))\n}\n"
+        new = 'func TestAdd(t *testing.T) {\n\tt.Skip("temporarily disabled")\n\tassert.Equal(t, 2, add(1, 1))\n}\n'
         findings = validator.check_edit("math_test.go", old, new)
         assert any(f.rule == "V13-TEST-DISABLED" for f in findings)
 
@@ -379,9 +379,7 @@ class TestMockCounting:
 
 
 class TestExcessiveMocks:
-    def test_python_excessive_mocks_warning(
-        self, validator: AiCheatingGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_python_excessive_mocks_warning(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
         # Create a test with > MOCK_THRESHOLD mocks
         patches = "\n".join(f"    with mock.patch('mod{i}'):" for i in range(MOCK_THRESHOLD + 1))
         content = f"def test_over_mocked():\n{patches}\n        assert True\n"
@@ -393,14 +391,9 @@ class TestExcessiveMocks:
         result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V13-MOCK-EVERYTHING" for f in result.findings)
 
-    def test_python_under_threshold_no_warning(
-        self, validator: AiCheatingGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_python_under_threshold_no_warning(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
         content = (
-            "def test_normal():\n"
-            "    with mock.patch('a'):\n"
-            "        with mock.patch('b'):\n"
-            "            assert True\n"
+            "def test_normal():\n    with mock.patch('a'):\n        with mock.patch('b'):\n            assert True\n"
         )
         fp = _write_file(tmp_path, "test_handler.py", content)
         from lib.project_context import ProjectContext
@@ -410,9 +403,7 @@ class TestExcessiveMocks:
         result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
         assert not any(f.rule == "V13-MOCK-EVERYTHING" for f in result.findings)
 
-    def test_go_excessive_mocks_warning(
-        self, validator: AiCheatingGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_go_excessive_mocks_warning(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
         mocks = "\n".join(f"\tmock{i} := mock.NewMock{i}(ctrl)" for i in range(MOCK_THRESHOLD + 1))
         content = (
             "package handler_test\n\n"
@@ -429,9 +420,7 @@ class TestExcessiveMocks:
         result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V13-MOCK-EVERYTHING" for f in result.findings)
 
-    def test_ts_excessive_mocks_warning(
-        self, validator: AiCheatingGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_ts_excessive_mocks_warning(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
         mocks = "\n".join(f'  jest.mock("./mod{i}");' for i in range(MOCK_THRESHOLD + 1))
         content = f'it("should handle", () => {{\n{mocks}\n  expect(true).toBe(true);\n}});\n'
         fp = _write_file(tmp_path, "handler.test.ts", content)
@@ -501,9 +490,7 @@ class TestTrivialAssertions:
 
 
 class TestTrivialTestValidation:
-    def test_python_trivial_test_warning(
-        self, validator: AiCheatingGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_python_trivial_test_warning(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
         content = "def test_placeholder():\n    assert True\n"
         fp = _write_file(tmp_path, "test_handler.py", content)
         from lib.project_context import ProjectContext
@@ -513,9 +500,7 @@ class TestTrivialTestValidation:
         result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V13-TRIVIAL-TEST" for f in result.findings)
 
-    def test_go_trivial_test_warning(
-        self, validator: AiCheatingGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_go_trivial_test_warning(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
         content = "func TestPlaceholder(t *testing.T) {\n\tassert.True(t, true)\n}\n"
         fp = _write_file(tmp_path, "handler_test.go", content)
         from lib.project_context import ProjectContext
@@ -525,9 +510,7 @@ class TestTrivialTestValidation:
         result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V13-TRIVIAL-TEST" for f in result.findings)
 
-    def test_ts_trivial_test_warning(
-        self, validator: AiCheatingGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_ts_trivial_test_warning(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
         content = 'it("placeholder", () => { expect(true).toBe(true); });\n'
         fp = _write_file(tmp_path, "handler.test.ts", content)
         from lib.project_context import ProjectContext
@@ -537,9 +520,7 @@ class TestTrivialTestValidation:
         result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V13-TRIVIAL-TEST" for f in result.findings)
 
-    def test_real_test_no_trivial_warning(
-        self, validator: AiCheatingGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_real_test_no_trivial_warning(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
         content = "def test_real():\n    result = add(1, 2)\n    assert result == 3\n"
         fp = _write_file(tmp_path, "test_math.py", content)
         from lib.project_context import ProjectContext
@@ -556,9 +537,7 @@ class TestTrivialTestValidation:
 
 
 class TestValidate:
-    def test_validate_detects_skip_in_go_file(
-        self, validator: AiCheatingGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_validate_detects_skip_in_go_file(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
         fp = _write_file(
             tmp_path,
             "math_test.go",
@@ -570,9 +549,7 @@ class TestValidate:
         result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V13-TEST-DISABLED" for f in result.findings)
 
-    def test_validate_detects_skip_in_python_file(
-        self, validator: AiCheatingGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_validate_detects_skip_in_python_file(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
         fp = _write_file(
             tmp_path,
             "test_math.py",
@@ -585,9 +562,7 @@ class TestValidate:
         result = validator.validate(ctx, file_path=fp, mode="post_tool_use")
         assert any(f.rule == "V13-TEST-DISABLED" for f in result.findings)
 
-    def test_validate_clean_file_no_findings(
-        self, validator: AiCheatingGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_validate_clean_file_no_findings(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
         fp = _write_file(
             tmp_path,
             "math_test.go",
@@ -601,9 +576,7 @@ class TestValidate:
         assert not result.has_errors
         assert not result.has_warnings
 
-    def test_validate_non_test_file_no_findings(
-        self, validator: AiCheatingGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_validate_non_test_file_no_findings(self, validator: AiCheatingGuardValidator, tmp_path: Path) -> None:
         fp = _write_file(tmp_path, "handler.go", "package main\n")
         (tmp_path / ".git").mkdir(exist_ok=True)
         from lib.project_context import ProjectContext

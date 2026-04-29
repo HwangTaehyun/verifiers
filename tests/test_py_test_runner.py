@@ -132,9 +132,7 @@ class TestIsTestFile:
 class TestResolveTestFile:
     """Test source → test file resolution."""
 
-    def test_same_dir_test_prefix(
-        self, validator: PyTestRunnerValidator, py_project: Path, py_ctx
-    ) -> None:
+    def test_same_dir_test_prefix(self, validator: PyTestRunnerValidator, py_project: Path, py_ctx) -> None:
         (py_project / "src" / "handler.py").write_text("def handle(): pass\n")
         (py_project / "src" / "test_handler.py").write_text("def test_handle(): pass\n")
 
@@ -142,9 +140,7 @@ class TestResolveTestFile:
         assert result is not None
         assert "test_handler.py" in result
 
-    def test_same_dir_test_suffix(
-        self, validator: PyTestRunnerValidator, py_project: Path, py_ctx
-    ) -> None:
+    def test_same_dir_test_suffix(self, validator: PyTestRunnerValidator, py_project: Path, py_ctx) -> None:
         (py_project / "src" / "handler.py").write_text("def handle(): pass\n")
         (py_project / "src" / "handler_test.py").write_text("def test_handle(): pass\n")
 
@@ -152,9 +148,7 @@ class TestResolveTestFile:
         assert result is not None
         assert "handler_test.py" in result
 
-    def test_tests_dir(
-        self, validator: PyTestRunnerValidator, py_project: Path, py_ctx
-    ) -> None:
+    def test_tests_dir(self, validator: PyTestRunnerValidator, py_project: Path, py_ctx) -> None:
         (py_project / "src" / "handler.py").write_text("def handle(): pass\n")
         (py_project / "tests" / "test_handler.py").write_text("def test_handle(): pass\n")
 
@@ -162,9 +156,7 @@ class TestResolveTestFile:
         assert result is not None
         assert "tests/test_handler.py" in result
 
-    def test_no_test_found(
-        self, validator: PyTestRunnerValidator, py_project: Path, py_ctx
-    ) -> None:
+    def test_no_test_found(self, validator: PyTestRunnerValidator, py_project: Path, py_ctx) -> None:
         (py_project / "src" / "orphan.py").write_text("def orphan(): pass\n")
 
         result = validator._resolve_test_file(py_ctx.project_root, str(py_project / "src" / "orphan.py"))
@@ -179,9 +171,7 @@ class TestResolveTestFile:
 class TestRunTestFile:
     """Test pytest execution with mocked subprocess."""
 
-    def test_tests_pass_no_findings(
-        self, validator: PyTestRunnerValidator, py_project: Path, py_ctx
-    ) -> None:
+    def test_tests_pass_no_findings(self, validator: PyTestRunnerValidator, py_project: Path, py_ctx) -> None:
         mock_result = subprocess.CompletedProcess(
             args=["uv", "run", "pytest"],
             returncode=0,
@@ -192,9 +182,7 @@ class TestRunTestFile:
             findings = validator._run_test_file(py_project, "tests/test_handler.py")
         assert findings == []
 
-    def test_test_failure(
-        self, validator: PyTestRunnerValidator, py_project: Path, py_ctx
-    ) -> None:
+    def test_test_failure(self, validator: PyTestRunnerValidator, py_project: Path, py_ctx) -> None:
         mock_result = subprocess.CompletedProcess(
             args=["uv", "run", "pytest"],
             returncode=1,
@@ -209,16 +197,12 @@ class TestRunTestFile:
         assert test_fail_findings[0].severity == "error"
         assert "test_handler.py" in test_fail_findings[0].message
 
-    def test_pytest_not_installed(
-        self, validator: PyTestRunnerValidator, py_project: Path, py_ctx
-    ) -> None:
+    def test_pytest_not_installed(self, validator: PyTestRunnerValidator, py_project: Path, py_ctx) -> None:
         with patch("subprocess.run", side_effect=FileNotFoundError):
             findings = validator._run_test_file(py_project, "tests/test_handler.py")
         assert findings == []
 
-    def test_timeout(
-        self, validator: PyTestRunnerValidator, py_project: Path, py_ctx
-    ) -> None:
+    def test_timeout(self, validator: PyTestRunnerValidator, py_project: Path, py_ctx) -> None:
         with patch(
             "subprocess.run",
             side_effect=subprocess.TimeoutExpired(cmd="pytest", timeout=60),
@@ -291,9 +275,7 @@ class TestTrackFailure:
 class TestRepeatedFailWarning:
     """Test that V11-REPEATED-FAIL is generated after threshold."""
 
-    def test_repeated_fail_after_threshold(
-        self, validator: PyTestRunnerValidator, py_project: Path, py_ctx
-    ) -> None:
+    def test_repeated_fail_after_threshold(self, validator: PyTestRunnerValidator, py_project: Path, py_ctx) -> None:
         # Pre-seed 2 failures — use the parsed test name (without "FAILED " prefix)
         # _parse_test_failures extracts "tests/test_handler.py::test_create" from "FAILED tests/..."
         validator._track_failure("tests/test_handler.py::test_create", passed=False)
@@ -323,18 +305,14 @@ class TestRepeatedFailWarning:
 class TestValidateIntegration:
     """Test the full validate method."""
 
-    def test_no_python_project(
-        self, validator: PyTestRunnerValidator, tmp_path: Path
-    ) -> None:
+    def test_no_python_project(self, validator: PyTestRunnerValidator, tmp_path: Path) -> None:
         """Non-Python project should return empty findings."""
         (tmp_path / ".git").mkdir()
         ctx = _make_ctx(tmp_path)
         result = validator.validate(ctx, file_path="src/foo.py", mode="post_tool_use")
         assert result.findings == []
 
-    def test_excluded_dir_skipped(
-        self, validator: PyTestRunnerValidator, py_project: Path, py_ctx
-    ) -> None:
+    def test_excluded_dir_skipped(self, validator: PyTestRunnerValidator, py_project: Path, py_ctx) -> None:
         result = validator.validate(
             py_ctx,
             file_path=str(py_project / "__pycache__" / "handler.py"),
@@ -342,18 +320,12 @@ class TestValidateIntegration:
         )
         assert result.findings == []
 
-    def test_stop_mode_skipped(
-        self, validator: PyTestRunnerValidator, py_project: Path, py_ctx
-    ) -> None:
+    def test_stop_mode_skipped(self, validator: PyTestRunnerValidator, py_project: Path, py_ctx) -> None:
         result = validator.validate(py_ctx, file_path="handler.py", mode="stop")
         assert result.findings == []
 
-    def test_non_py_file_skipped(
-        self, validator: PyTestRunnerValidator, py_project: Path, py_ctx
-    ) -> None:
-        result = validator.validate(
-            py_ctx, file_path="README.md", mode="post_tool_use"
-        )
+    def test_non_py_file_skipped(self, validator: PyTestRunnerValidator, py_project: Path, py_ctx) -> None:
+        result = validator.validate(py_ctx, file_path="README.md", mode="post_tool_use")
         assert result.findings == []
 
 

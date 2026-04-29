@@ -76,8 +76,11 @@ class PyQualityValidator(BaseValidator):
         """Find Python project root by pyproject.toml, setup.py, etc."""
         root = ctx.project_root
         indicators = [
-            "pyproject.toml", "setup.py", "setup.cfg",
-            "requirements.txt", "Pipfile",
+            "pyproject.toml",
+            "setup.py",
+            "setup.cfg",
+            "requirements.txt",
+            "Pipfile",
         ]
         for ind in indicators:
             if (root / ind).exists():
@@ -116,9 +119,7 @@ class PyQualityValidator(BaseValidator):
 
         if result.returncode != 0 and result.stdout.strip():
             for line in result.stdout.strip().split("\n"):
-                match = re.match(
-                    r"(.+?):(\d+):(\d+): (\S+) (.+)", line
-                )
+                match = re.match(r"(.+?):(\d+):(\d+): (\S+) (.+)", line)
                 if match:
                     findings.append(
                         Finding(
@@ -183,9 +184,7 @@ class PyQualityValidator(BaseValidator):
         if result.returncode != 0 and result.stdout.strip():
             count = 0
             for line in result.stdout.strip().split("\n"):
-                match = re.match(
-                    r"(.+?):(\d+):(\d+): (\S+) (.+)", line
-                )
+                match = re.match(r"(.+?):(\d+):(\d+): (\S+) (.+)", line)
                 if match:
                     count += 1
                     # Cap at 20 findings to avoid overwhelming output
@@ -226,6 +225,7 @@ class PyQualityValidator(BaseValidator):
     def _load_dotenv(self, py_root: Path) -> dict[str, str]:
         """Load .env file and merge with current environment."""
         import os
+
         env = os.environ.copy()
         dotenv_path = py_root / ".env"
         if dotenv_path.exists():

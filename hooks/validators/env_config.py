@@ -145,9 +145,7 @@ class EnvConfigValidator(BaseValidator):
                     example_vars.add(line.split("=", 1)[0].strip())
         return example_vars
 
-    def _check_compose_env_refs(
-        self, ctx: ProjectContext, example_vars: set[str], env_example: Path
-    ) -> list[Finding]:
+    def _check_compose_env_refs(self, ctx: ProjectContext, example_vars: set[str], env_example: Path) -> list[Finding]:
         """Check docker-compose references: ${VAR} without default."""
         findings: list[Finding] = []
         for compose_file in ctx.project_root.glob("**/docker-compose*.yaml"):
@@ -175,9 +173,7 @@ class EnvConfigValidator(BaseValidator):
                     )
         return findings
 
-    def _check_go_env_refs(
-        self, ctx: ProjectContext, example_vars: set[str], env_example: Path
-    ) -> list[Finding]:
+    def _check_go_env_refs(self, ctx: ProjectContext, example_vars: set[str], env_example: Path) -> list[Finding]:
         """Check Go code: os.Getenv("APP_*")."""
         findings: list[Finding] = []
         if not (ctx.server_dir and ctx.server_dir.exists()):

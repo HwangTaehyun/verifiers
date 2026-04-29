@@ -345,9 +345,7 @@ class TestEslintRules:
 
 
 class TestValidateIntegration:
-    def test_go_project_no_config(
-        self, validator: LinterConfigGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_go_project_no_config(self, validator: LinterConfigGuardValidator, tmp_path: Path) -> None:
         (tmp_path / ".git").mkdir()
         _write_file(tmp_path, "main.go", "package main")
 
@@ -357,9 +355,7 @@ class TestValidateIntegration:
         result = validator.validate(ctx, file_path=None, mode="stop")
         assert any(f.rule == "V16-NO-LINTER-CONFIG" for f in result.findings)
 
-    def test_python_project_no_config(
-        self, validator: LinterConfigGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_python_project_no_config(self, validator: LinterConfigGuardValidator, tmp_path: Path) -> None:
         (tmp_path / ".git").mkdir()
         _write_file(tmp_path, "app.py", "print('hello')")
 
@@ -369,9 +365,7 @@ class TestValidateIntegration:
         result = validator.validate(ctx, file_path=None, mode="stop")
         assert any(f.rule == "V16-NO-LINTER-CONFIG" for f in result.findings)
 
-    def test_ts_project_no_config(
-        self, validator: LinterConfigGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_ts_project_no_config(self, validator: LinterConfigGuardValidator, tmp_path: Path) -> None:
         (tmp_path / ".git").mkdir()
         _write_file(tmp_path / "src", "App.tsx", "export default App")
 
@@ -381,9 +375,7 @@ class TestValidateIntegration:
         result = validator.validate(ctx, file_path=None, mode="stop")
         assert any(f.rule == "V16-NO-LINTER-CONFIG" for f in result.findings)
 
-    def test_go_project_with_config_no_findings(
-        self, validator: LinterConfigGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_go_project_with_config_no_findings(self, validator: LinterConfigGuardValidator, tmp_path: Path) -> None:
         (tmp_path / ".git").mkdir()
         _write_file(tmp_path, "main.go", "package main")
         _write_file(
@@ -398,9 +390,7 @@ class TestValidateIntegration:
         result = validator.validate(ctx, file_path=None, mode="stop")
         assert not any(f.rule == "V16-NO-LINTER-CONFIG" for f in result.findings)
 
-    def test_skip_in_post_tool_use_mode(
-        self, validator: LinterConfigGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_skip_in_post_tool_use_mode(self, validator: LinterConfigGuardValidator, tmp_path: Path) -> None:
         (tmp_path / ".git").mkdir()
         _write_file(tmp_path, "main.go", "package main")
 
@@ -410,9 +400,7 @@ class TestValidateIntegration:
         result = validator.validate(ctx, file_path="main.go", mode="post_tool_use")
         assert len(result.findings) == 0
 
-    def test_empty_project_no_findings(
-        self, validator: LinterConfigGuardValidator, tmp_path: Path
-    ) -> None:
+    def test_empty_project_no_findings(self, validator: LinterConfigGuardValidator, tmp_path: Path) -> None:
         (tmp_path / ".git").mkdir()
 
         from lib.project_context import ProjectContext

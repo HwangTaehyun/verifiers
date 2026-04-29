@@ -218,9 +218,7 @@ class CommitDisciplineValidator(BaseValidator):
 
         return ValidationResult(validator_id=self.id, findings=findings)
 
-    def _check_mixed_changes(
-        self, all_files: list[tuple[str, str]], cwd: str
-    ) -> list[Finding]:
+    def _check_mixed_changes(self, all_files: list[tuple[str, str]], cwd: str) -> list[Finding]:
         """Check if structural and behavioral changes are mixed.
 
         Structural: file renames (R), deletes (D) + adds (A) of similar files
@@ -279,9 +277,7 @@ class CommitDisciplineValidator(BaseValidator):
 
         return findings
 
-    def _check_test_coverage(
-        self, all_files: list[tuple[str, str]], ctx: ProjectContext
-    ) -> list[Finding]:
+    def _check_test_coverage(self, all_files: list[tuple[str, str]], ctx: ProjectContext) -> list[Finding]:
         """Check if feature code changes have corresponding test changes."""
         findings: list[Finding] = []
 
@@ -338,7 +334,7 @@ class CommitDisciplineValidator(BaseValidator):
                     severity="info",
                     file=str(cwd),
                     rule="V12-COMMIT-MSG-FORMAT",
-                    message=f"Recent commit message doesn't follow Conventional Commits format: \"{msg[:60]}{'...' if len(msg) > 60 else ''}\"",
+                    message=f'Recent commit message doesn\'t follow Conventional Commits format: "{msg[:60]}{"..." if len(msg) > 60 else ""}"',
                     fix=(
                         "Use Conventional Commits format: '<type>(<scope>): <description>'. "
                         "Types: feat, fix, refactor, docs, test, chore, style, perf, ci, build, revert."

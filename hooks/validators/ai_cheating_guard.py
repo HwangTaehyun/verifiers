@@ -115,29 +115,29 @@ ASSERT_PATTERNS: dict[str, list[str]] = {
 
 MOCK_PATTERNS: dict[str, list[str]] = {
     "go": [
-        r"\bmock\.New\w+\(",           # testify/gomock: mock.NewMockFoo(...)
-        r"\bgomock\.NewController\(",   # gomock controller creation
-        r"\.EXPECT\(\)",                # gomock expectation setup
+        r"\bmock\.New\w+\(",  # testify/gomock: mock.NewMockFoo(...)
+        r"\bgomock\.NewController\(",  # gomock controller creation
+        r"\.EXPECT\(\)",  # gomock expectation setup
     ],
     "python": [
-        r"\bmock\.patch\(",             # with mock.patch(...) / mock.patch(...)
-        r"@mock\.patch",               # @mock.patch decorator
-        r"@patch\(",                    # @patch() decorator (standalone import)
-        r"\bmock\.patch\.object\(",     # mock.patch.object(...)
-        r"\bmocker\.patch\(",           # pytest-mock: mocker.patch(...)
-        r"\bMagicMock\(",              # standalone MagicMock() call
-        r"(?<!Magic)\bMock\(",         # standalone Mock() call — excludes MagicMock
+        r"\bmock\.patch\(",  # with mock.patch(...) / mock.patch(...)
+        r"@mock\.patch",  # @mock.patch decorator
+        r"@patch\(",  # @patch() decorator (standalone import)
+        r"\bmock\.patch\.object\(",  # mock.patch.object(...)
+        r"\bmocker\.patch\(",  # pytest-mock: mocker.patch(...)
+        r"\bMagicMock\(",  # standalone MagicMock() call
+        r"(?<!Magic)\bMock\(",  # standalone Mock() call — excludes MagicMock
     ],
     "typescript": [
-        r"\bjest\.mock\(",             # jest.mock(...)
-        r"\bjest\.spyOn\(",            # jest.spyOn(...)
-        r"\bvi\.mock\(",               # vitest: vi.mock(...)
-        r"\bvi\.spyOn\(",              # vitest: vi.spyOn(...)
-        r"\bsinon\.stub\(",            # sinon: sinon.stub(...)
-        r"\bsinon\.mock\(",            # sinon: sinon.mock(...)
-        r"\.mockImplementation\(",     # jest/vitest mock setup
-        r"\.mockReturnValue\(",        # jest/vitest mock return
-        r"\.mockResolvedValue\(",      # jest/vitest async mock return
+        r"\bjest\.mock\(",  # jest.mock(...)
+        r"\bjest\.spyOn\(",  # jest.spyOn(...)
+        r"\bvi\.mock\(",  # vitest: vi.mock(...)
+        r"\bvi\.spyOn\(",  # vitest: vi.spyOn(...)
+        r"\bsinon\.stub\(",  # sinon: sinon.stub(...)
+        r"\bsinon\.mock\(",  # sinon: sinon.mock(...)
+        r"\.mockImplementation\(",  # jest/vitest mock setup
+        r"\.mockReturnValue\(",  # jest/vitest mock return
+        r"\.mockResolvedValue\(",  # jest/vitest async mock return
     ],
 }
 
@@ -516,8 +516,7 @@ class AiCheatingGuardValidator(BaseValidator):
                     rule="V13-TEST-DISABLED",
                     message=f"{added} test skip/disable annotation(s) were added",
                     fix=(
-                        f"Remove the skip annotation(s) in {file_path}. "
-                        "Fix the failing test instead of disabling it."
+                        f"Remove the skip annotation(s) in {file_path}. Fix the failing test instead of disabling it."
                     ),
                 )
             )
@@ -554,9 +553,7 @@ class AiCheatingGuardValidator(BaseValidator):
             )
         return findings
 
-    def _check_excessive_mocks(
-        self, file_path: str, content: str, lang: str
-    ) -> list[Finding]:
+    def _check_excessive_mocks(self, file_path: str, content: str, lang: str) -> list[Finding]:
         """V13-MOCK-EVERYTHING: detect test functions with excessive mock/patch usage.
 
         A test that mocks everything is not testing real behavior — it's testing
@@ -573,10 +570,7 @@ class AiCheatingGuardValidator(BaseValidator):
                         severity="warning",
                         file=file_path,
                         rule="V13-MOCK-EVERYTHING",
-                        message=(
-                            f"Test '{func_name}' has {mock_count} mock/patch calls "
-                            f"(threshold: {MOCK_THRESHOLD})"
-                        ),
+                        message=(f"Test '{func_name}' has {mock_count} mock/patch calls (threshold: {MOCK_THRESHOLD})"),
                         fix=(
                             f"Reduce mocking in '{func_name}' in {file_path}. "
                             "Consider using real implementations or integration tests. "
@@ -587,9 +581,7 @@ class AiCheatingGuardValidator(BaseValidator):
 
         return findings
 
-    def _check_trivial_assertions(
-        self, file_path: str, content: str, lang: str
-    ) -> list[Finding]:
+    def _check_trivial_assertions(self, file_path: str, content: str, lang: str) -> list[Finding]:
         """V13-TRIVIAL-TEST: detect meaningless assertions that always pass.
 
         Patterns like `assert True`, `assert 1 == 1`, `expect(true).toBe(true)`
@@ -615,9 +607,7 @@ class AiCheatingGuardValidator(BaseValidator):
 
         return findings
 
-    def _check_weakening(
-        self, file_path: str, old_string: str, new_string: str, lang: str
-    ) -> list[Finding]:
+    def _check_weakening(self, file_path: str, old_string: str, new_string: str, lang: str) -> list[Finding]:
         """Check if strict assertions were replaced with weaker ones."""
         pairs = WEAKENING_PAIRS.get(lang, [])
         findings: list[Finding] = []

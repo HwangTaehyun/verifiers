@@ -236,13 +236,9 @@ class PyTestRunnerValidator(BaseValidator):
                     file=test_file,
                     rule="V11-TEST-FAIL",
                     message=(
-                        f"Tests failed in {test_file_name}: "
-                        f"{', '.join(failed_tests) if failed_tests else 'see output'}"
+                        f"Tests failed in {test_file_name}: {', '.join(failed_tests) if failed_tests else 'see output'}"
                     ),
-                    fix=(
-                        f"Fix failing tests. Run '"
-                        f"{' '.join(cmd)}' for details"
-                    ),
+                    fix=(f"Fix failing tests. Run '{' '.join(cmd)}' for details"),
                 )
             )
         else:
@@ -304,10 +300,7 @@ class PyTestRunnerValidator(BaseValidator):
                 file=file_path,
                 rule="V11-NO-TEST",
                 message="No test file found for this source file.",
-                fix=(
-                    f"Create a test file (e.g., test_{stem}.py) "
-                    f"in the same directory or tests/ directory."
-                ),
+                fix=(f"Create a test file (e.g., test_{stem}.py) in the same directory or tests/ directory."),
             )
         )
 
