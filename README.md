@@ -3,7 +3,7 @@
 > AI 에이전트 코딩 워크플로우를 위한 재사용 가능한 검증 시스템 (Claude Code hooks + skills + agents)
 
 `verifiers`는 Claude Code 가 생성한 코드를 **세 단계(Tier 1/2/3)** 로 검증하는 모듈입니다.
-보안 위반은 즉시 차단하고, 상황별 품질 점검은 skill 로 호출하며, 턴 종료 시점에는 21개의 validator (V01~V16) 가 일괄 실행됩니다. 현재 **782 개의 pytest** 가 검증 로직을 보호합니다.
+보안 위반은 즉시 차단하고, 상황별 품질 점검은 skill 로 호출하며, 턴 종료 시점에는 19개의 등록 validator (V01~V19, V17 UI 미구현) 가 일괄 실행됩니다. 현재 **782 개의 pytest** 가 검증 로직을 보호합니다. 각 validator·hook 의 상세 동작은 [`docs/VERIFIERS-CATALOG.md`](docs/VERIFIERS-CATALOG.md) 를 참조하세요.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -14,7 +14,7 @@
 │         │ verify-go, verify-ts, verify-docker, ...           │
 ├─────────────────────────────────────────────────────────────┤
 │  Tier 3 │ stop_validator.py │ Stop hook, 종합 검증 (≤120s)    │
-│         │ V01~V16 모든 validator 일괄 실행                    │
+│         │ V01~V19 등록 validator 일괄 실행                    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -100,7 +100,7 @@ grep -i verifiers ~/.claude/settings.json        # hook 등록 확인
 
 ```bash
 cd <PROJECT_DIR>
-just --justfile <VERIFIERS_REPO>/justfile verify          # V01~V16 전체
+just --justfile <VERIFIERS_REPO>/justfile verify          # V01~V19 전체
 just --justfile <VERIFIERS_REPO>/justfile verify-one V03  # 특정 validator 만
 ```
 
@@ -115,7 +115,7 @@ echo '{"cwd": "'"$(pwd)"'"}' | \
 
 | 명령                          | 용도                                                 |
 | ----------------------------- | ---------------------------------------------------- |
-| `/verify`                     | 현재 프로젝트에 V01~V16 종합 검증 즉시 실행          |
+| `/verify`                     | 현재 프로젝트에 V01~V19 종합 검증 즉시 실행          |
 | `/build-with-validation`      | Builder ↔ Validator 패턴으로 구현/검증 분리 실행      |
 | `/tdd`, `/tdd-write`, `/tdd-update` | TDD Red 단계 (테스트 먼저 작성) 워크플로우      |
 
@@ -131,17 +131,19 @@ echo '{"cwd": "'"$(pwd)"'"}' | \
 
 ## Validators
 
-`hooks/validators/` 에 위치한 21개 모듈이 V01~V16 검증을 수행합니다:
+`hooks/validators/` 에 위치한 21개 모듈 중 19개가 `validators/__init__.py:get_all_validators()` 에 등록되어 V01~V19 검증을 수행합니다 (V17 UI 는 미구현, `hasura_graphql_enforcement.py` 는 skill 전용 — 자세한 사항은 카탈로그 §6 참조):
 
-- 보안: `security.py`, `dependency_guard.py`, `linter_config_guard.py`
-- 품질: `complexity_guard.py`, `mock_data_guard.py`, `ai_cheating_guard.py`, `commit_discipline.py`
-- Python: `py_quality.py`, `py_test_runner.py`
-- TypeScript: `ts_quality.py`, `ts_test_runner.py`
-- Go: `go_quality.py`, `go_test_runner.py`
-- 인프라: `docker_compose.py`, `env_config.py`
-- API/스키마: `graphql_gen.py`, `proto_connect.py`, `hasura_graphql_enforcement.py`, `hasura_migration.py`
+- 보안: `security.py` (V08), `dependency_guard.py` (V15), `linter_config_guard.py` (V16)
+- 품질: `complexity_guard.py` (V14), `mock_data_guard.py` (V18), `ai_cheating_guard.py` (V13), `commit_discipline.py` (V12)
+- Python: `py_quality.py` (V19), `py_test_runner.py` (V11)
+- TypeScript: `ts_quality.py` (V07), `ts_test_runner.py` (V10)
+- Go: `go_quality.py` (V06), `go_test_runner.py` (V09)
+- 인프라: `docker_compose.py` (V05), `env_config.py` (V01)
+- API/스키마: `graphql_gen.py` (V02), `proto_connect.py` (V03), `hasura_migration.py` (V04), `hasura_graphql_enforcement.py` (skill 전용)
 
 각 validator 는 `tests/test_*.py` 에 1:1 대응하는 단위 테스트를 갖습니다 (총 782 tests).
+
+> 📖 **상세 카탈로그**: 각 validator 가 어느 hook 에서 무엇을 검사하고 왜 필요한지 — file pattern, 정규식, 외부 명령, post_tool_use ↔ stop 모드 차이까지 포함한 풀 스펙은 [`docs/VERIFIERS-CATALOG.md`](docs/VERIFIERS-CATALOG.md) 를 참조하세요. 20개 Tier 2 skill 의 V-ID 매핑 표와 실행 흐름 시퀀스 다이어그램도 함께 수록되어 있습니다.
 
 ## Development
 
