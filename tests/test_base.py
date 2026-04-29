@@ -14,6 +14,7 @@ from hooks.validators.base import (
     Finding,
     ValidationResult,
     _build_reason,
+    _dedup_findings,
     format_output,
     read_hook_input,
     write_hook_output,
@@ -500,3 +501,51 @@ class TestWriteHookOutput:
         captured = capsys.readouterr()
         roundtripped = json.loads(captured.out.strip())
         assert roundtripped == original
+
+
+# ---------------------------------------------------------------------------
+# 7. _dedup_findings — P1-7 cross-tier finding deduplication
+# ---------------------------------------------------------------------------
+
+
+class TestDedupFindings:
+    """Findings duplicated across Tier 1 + Tier 3 should be collapsed."""
+
+    @staticmethod
+    def _f(rule: str, file: str, line: int | None = 1, message: str = "x") -> Finding:
+        return Finding(severity="error", file=file, rule=rule, message=message, fix="fix", line=line)
+
+    def test_empty_input(self) -> None:
+        assert _dedup_findings([]) == []
+
+    def test_distinct_findings_preserved(self) -> None:
+        a = self._f("V08-HARDCODED-SECRET", "/a.go", 1)
+        b = self._f("V08-CORS-WILDCARD", "/a.go", 7)
+        assert _dedup_findings([a, b]) == [a, b]
+
+    def test_collapses_identical_finding(self) -> None:
+        a = self._f("V08-HARDCODED-SECRET", "/a.go", 5, "AWS key")
+        a_again = self._f("V08-HARDCODED-SECRET", "/a.go", 5, "AWS key")
+        result = _dedup_findings([a, a_again])
+        assert len(result) == 1
+        # First occurrence preserved (deterministic)
+        assert result[0] is a
+
+    def test_different_lines_not_collapsed(self) -> None:
+        a = self._f("V08-HARDCODED-SECRET", "/a.go", 5)
+        b = self._f("V08-HARDCODED-SECRET", "/a.go", 12)
+        assert len(_dedup_findings([a, b])) == 2
+
+    def test_different_messages_not_collapsed(self) -> None:
+        a = self._f("V08-HARDCODED-SECRET", "/a.go", 5, "AWS key")
+        b = self._f("V08-HARDCODED-SECRET", "/a.go", 5, "GitHub token")
+        # Same rule+file+line but different message — keep both since
+        # the underlying detection differs.
+        assert len(_dedup_findings([a, b])) == 2
+
+    def test_format_output_uses_dedup(self) -> None:
+        # When format_output sees a duplicate finding it should appear once
+        # in additionalContext.
+        f = self._f("V08-HARDCODED-SECRET", "/a.go", 3, "AWS key")
+        out = format_output([f, f, f], mode="post_tool_use")
+        assert out["additionalContext"].count("V08-HARDCODED-SECRET") == 1

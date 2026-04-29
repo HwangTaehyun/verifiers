@@ -19,7 +19,11 @@ import re
 import sys
 from pathlib import Path
 
-# Secret patterns to detect
+# Secret patterns to detect.
+# The hardcoded-password regex excludes ${...} (shell/yaml interpolation)
+# and {{...}} (Go/Jinja/Helm template placeholders) so that, e.g.,
+#   password = "{{ env.PASSWORD }}"
+# does not produce a V08-HARDCODED-SECRET false positive (P2-2).
 SECRET_REGEXES: list[tuple[str, str]] = [
     (r"AKIA[A-Z0-9]{16}", "AWS Access Key"),
     (r"ghp_[a-zA-Z0-9]{36}", "GitHub Personal Access Token"),
@@ -27,27 +31,40 @@ SECRET_REGEXES: list[tuple[str, str]] = [
     (r"sk-[a-zA-Z0-9]{20,}", "OpenAI/Anthropic API Key"),
     (r"sk_live_[a-zA-Z0-9]{20,}", "Stripe Live Key"),
     (r"xoxb-[a-zA-Z0-9\-]+", "Slack Bot Token"),
-    (r'password\s*[:=]\s*["\'][^"\'$\{]{8,}["\']', "Hardcoded password"),
+    (r"""password\s*[:=]\s*["'][^"'${}]{8,}["']""", "Hardcoded password"),
 ]
 
-# Paths to exclude (false positives)
-# .env files (except .env.example) are allowed to contain secrets
-EXCLUDE_PATHS = [
-    ".env",
-    ".env.production",
-    ".env.development",
-    "_test.go",
-    "test_",
-    "fixtures/",
-    "testdata/",
-    "mock",
-    "__tests__",
-]
+
+# Path classification primitives (P2-3): the previous implementation used
+# ``any(exc in file_path for exc in EXCLUDE_PATHS)`` which is a substring
+# match — e.g. "mock" excluded "mockingbird/Real.go" by accident. Each
+# rule below is now anchored to a path component, suffix, or exact name
+# so genuine source files are never falsely skipped.
+_EXCLUDE_DIRS = frozenset(
+    {"fixtures", "testdata", "mock", "mocks", "__tests__", "vendor", "node_modules", "generated", "gen"}
+)
+_EXCLUDE_FILENAME_PREFIXES = ("test_",)
+_EXCLUDE_FILENAME_SUFFIXES = ("_test.go",)
+# Exact .env names: .env / .env.development / .env.production are allowed
+# to contain secrets (developer-managed). .env.example must still be checked.
+_EXCLUDE_EXACT_NAMES = frozenset({".env", ".env.development", ".env.production"})
+
+
+def _is_excluded_path(file_path: str) -> bool:
+    """Return True iff this path falls into a security-exempt category."""
+    p = Path(file_path)
+    name = p.name
+    if name in _EXCLUDE_EXACT_NAMES:
+        return True
+    if name.startswith(_EXCLUDE_FILENAME_PREFIXES) or name.endswith(_EXCLUDE_FILENAME_SUFFIXES):
+        return True
+    # Path components: directory match must be on a full segment, not a substring.
+    return any(part in _EXCLUDE_DIRS for part in p.parts)
 
 
 def check_secrets(file_path: str) -> list[dict]:
     """Check a file for hardcoded secrets using regex patterns."""
-    if any(exc in file_path for exc in EXCLUDE_PATHS):
+    if _is_excluded_path(file_path):
         return []
 
     try:

@@ -135,6 +135,26 @@ def _build_reason(findings: list[Finding], *, mode: str) -> str:
     return "\n".join(parts)
 
 
+def _dedup_findings(findings: list[Finding]) -> list[Finding]:
+    """Drop duplicate findings keyed on (rule, file, line, message).
+
+    Tier 1 (security_hook) and Tier 3 V08 can both detect the same secret on
+    the same line, in which case Claude would see two identical entries —
+    extra tokens for nothing, plus the risk of treating an already-fixed
+    issue as still-open. We keep the first occurrence to preserve any
+    deterministic ordering an upstream caller relied on (P1-7).
+    """
+    seen: set[tuple[str, str, int | None, str]] = set()
+    unique: list[Finding] = []
+    for f in findings:
+        key = (f.rule, f.file, f.line, f.message)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(f)
+    return unique
+
+
 def format_output(findings: list[Finding], mode: str) -> dict[str, Any]:
     """Convert findings list to Claude Code hook output JSON.
 
@@ -145,7 +165,11 @@ def format_output(findings: list[Finding], mode: str) -> dict[str, Any]:
     - PostToolUse warnings only: additionalContext only (non-blocking)
     - Stop with errors: block + reason (prevents turn from ending)
     - Stop warnings only: approve + additionalContext (informational)
+
+    Findings are de-duplicated on (rule, file, line, message) before
+    rendering — see ``_dedup_findings`` (P1-7).
     """
+    findings = _dedup_findings(findings)
     if not findings:
         if mode == "stop":
             return {"decision": "approve"}
