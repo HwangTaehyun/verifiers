@@ -77,12 +77,15 @@ NAME_MAP = {
     # V18 — mock data guard
     "mock-data-guard": "V18-mock-data-guard",
     "mock": "V18-mock-data-guard",
-    # V19 — Python quality (ruff + pytest)
+    # V19 — Python quality (ruff lint / format / all)
     "py-quality": "V19-py-quality",
     "py": "V19-py-quality",
     # V20 — Hasura GraphQL enforcement (raw SQL forbidden)
     "hasura-graphql": "V20-hasura-graphql",
     "hasura-gql": "V20-hasura-graphql",
+    # V21 — pytest runner (Stop, gated by stop.run_pytest config)
+    "pytest": "V21-pytest",
+    "py-pytest": "V21-pytest",
 }
 
 

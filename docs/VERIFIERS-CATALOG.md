@@ -10,7 +10,7 @@
 | :--: | ----------- | ------ | -------------- | --------- |
 | **1** | `PostToolUse` | `hooks/security_hook.py` | `Edit \| Write \| MultiEdit` · timeout 10s · <100ms | regex 기반 시크릿(V08) 즉시 차단 — 가장 가벼운 첫 줄 방어 |
 | **2** | (hook 미등록) | `hooks/router.py` + `skills/verify-*` (20개) | Claude 가 자율 판단해 skill 호출 / 사용자가 `/verify` 실행 / `just verify-one V##` | file_path 매칭 validator 만 골라 실행 — 상황별 비용 통제 |
-| **3** | `Stop` | `hooks/stop_validator.py` | turn 종료 시도 시 단일 발동 · timeout 120s | 등록된 19개 validator (V01~V20) 일괄 실행 · circuit breaker x3 · FeedbackTracker |
+| **3** | `Stop` | `hooks/stop_validator.py` | turn 종료 시도 시 단일 발동 · timeout 120s | 등록된 20개 validator (V01~V21, V17 미구현) 일괄 실행 · circuit breaker x3 · FeedbackTracker |
 
 ```
 PostToolUse (Edit/Write/MultiEdit)
@@ -210,12 +210,17 @@ Stop 이벤트 (Claude turn 종료 시도)
 
 #### V11 · `py_test_runner.py` · `**/*.py`
 - **검사**: 변경 파일에 대응되는 `pytest` 만 실행. `V11-TEST-FAIL` / `V11-NO-TEST` / `V11-REPEATED-FAIL`. 실패 트래커는 V09/V10/V11 공유.
-- **모드**: post_tool_use 만 (stop 은 V19 가 전체 `pytest` 수행).
+- **모드**: post_tool_use 만 (stop 은 V21 이 전체 `pytest` 수행).
 - **목적**: TDD 사이클의 빨간/초록 즉시 피드백.
 
 #### V19 · `py_quality.py` · `**/*.py`, `**/pyproject.toml`, `**/ruff.toml`
-- **검사**: post_tool_use — `V19-RUFF-CHECK` (단일 파일 `ruff check --output-format text --no-fix`, `(.+?):(\d+):(\d+): (\S+) (.+)` → `V19-RUFF-{CODE}` rule id 보존), `V19-RUFF-FORMAT` (`ruff format --check`). stop — `V19-RUFF-ALL` (프로젝트 전체 `ruff check .`, 최대 20 개 finding 후 요약), `V19-TEST-FAIL` (`pytest -x -q --tb=no`, `(\d+) failed`, `FAILED\s+(\S+)`).
-- **목적**: ruff lint/format + 전체 pytest gate. V11 의 파일 단위와 V19 의 프로젝트 단위 분리.
+- **검사**: post_tool_use — `V19-RUFF-CHECK` (단일 파일 `ruff check --output-format text --no-fix`, `(.+?):(\d+):(\d+): (\S+) (.+)` → `V19-RUFF-{CODE}` rule id 보존), `V19-RUFF-FORMAT` (`ruff format --check`). stop — `V19-RUFF-ALL` (프로젝트 전체 `ruff check .`, 최대 20 개 finding 후 요약).
+- **목적**: ruff lint/format. Phase28 에서 pytest 분리되어 V21 로 이동 — parallel runner 가 lint 와 test 실행을 독립 단위로 본다.
+
+#### V21 · `py_pytest.py` · `**/*.py`, `**/pyproject.toml` · stop 전용
+- **검사**: stop 모드만 동작. `V21-TEST-FAIL` (`pytest -x -q --tb=no`, `(\d+) failed`, `FAILED\s+(\S+)`, 최대 5 개 테스트 이름 포함).
+- **모드 게이팅**: `stop.run_pytest` config 키 (Phase28+) — `"smart"` (기본; `git diff --name-only HEAD` 결과에 `.py` 또는 `pyproject.toml` 있을 때만), `"always"` (legacy 동작), `"never"` (CI 에 위임). git 이 없거나 실패하면 fail-open (pytest 돎).
+- **목적**: V19 와 분리해서 ruff (수백 ms) 와 pytest (수 초) 를 독립 워커 슬롯으로 처리. smart 모드는 매크다운/yaml-only turn 에서 pytest 비용 0.
 
 #### V12 · `commit_discipline.py` · stop mode 전용 (file_patterns 비어있음)
 - **검사**: `V12-UNSTAGED-CHANGES` (`git status --porcelain`), `V12-LARGE-DIFF` (15+ 파일), `V12-MIXED-CHANGE` (`git diff --name-status HEAD` 의 R(rename) vs M(modify) 혼재), `V12-NO-TEST-IN-FEATURE` (`_is_source_file` 와 `_is_test_file` 패턴으로 분류, 소스만 변경되고 테스트 미변경), `V12-COMMIT-MSG-FORMAT` (`^(feat|fix|refactor|docs|test|chore|style|perf|ci|build|revert)(\(.+\))?!?:\s+.+`).

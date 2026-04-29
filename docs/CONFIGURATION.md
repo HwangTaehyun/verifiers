@@ -73,6 +73,13 @@ docker:                              # V05 (Docker validator) 튜닝
                                      # 비우면 default = ["prod","production","release","final","runtime",""]
   dev_stage_names: []                # V05-DEV-NO-BUILD-TARGET 가 인정하는 build.target
                                      # 비우면 default = ["dev"]
+
+stop:                                # Tier 3 (Stop hook) 튜닝 — Phase28+
+  run_pytest: "smart"                # V21-pytest 가 매 Stop 마다 pytest 돌릴지
+                                     # "smart"  — 이번 turn 에 .py / pyproject.toml 변경 있을 때만 (기본)
+                                     #            git diff --name-only HEAD 휴리스틱
+                                     # "always" — 매 Stop 마다 무조건 (Phase27 이전 V19 동작)
+                                     # "never"  — Stop 에서 pytest 안 돎 (CI 에 위임)
 ```
 
 > **Phase21 BREAKING CHANGE**: 기본 `vhost_check_mode` 가 `"production"` 으로 바뀌었습니다 (이전엔 사실상 `"all"`).
@@ -90,6 +97,7 @@ docker:                              # V05 (Docker validator) 튜닝
 | **모든 validator** (registry 단)   | `validators.enabled`, `validators.disabled`                                                                                                                                                                           | enabled (allowlist, 비어있으면 전체) → disabled (deny-list) 순으로 적용. 둘 다 typo 시 hard-fail. |
 | **V08** Security                   | `security.phi_check_enabled`, `security.phi_fields`, `security.required_gitignore`                                                                                                                                    | PHI scanning on/off, PHI 필드 셋 교체, .gitignore 필수 항목 셋 교체.                            |
 | **V05** Docker                     | `docker.vhost_check_mode`, `docker.reverse_proxy_networks`, `docker.production_filename_patterns`, `docker.dev_filename_patterns`, `docker.production_stage_names`, `docker.dev_stage_names`                          | VHOST 검사 발동 모드 (production / all / off), Traefik 등 다른 reverse proxy 인정, 회사 컨벤션 파일명/stage 이름 매핑. |
+| **V21** Pytest Runner              | `stop.run_pytest`                                                                                                                                                                                                     | always / never / smart 모드. smart 는 `git diff --name-only HEAD` 로 .py 변경 감지 후만 pytest 실행. |
 
 **아직 config 와 연결 안 된 항목** (의도적 유지):
 

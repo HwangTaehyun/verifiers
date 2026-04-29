@@ -1,6 +1,8 @@
-"""V19: Python code quality validator — ruff check, ruff format, pytest.
+"""V19: Python code quality validator — ruff check + ruff format.
 
-Mirrors V06 (Go Quality) for Python projects:
+Mirrors V06 (Go Quality) for Python projects, ruff-only after Phase28.
+The pytest path moved to V21 (``py_pytest.py``) so the parallel runner
+treats lint and test execution as independent units.
 
 PostToolUse checks (fast, <5s):
   V19-RUFF-CHECK: Lint errors detected by ruff check
@@ -8,7 +10,6 @@ PostToolUse checks (fast, <5s):
 
 Stop checks (slow, comprehensive):
   V19-RUFF-ALL: Full-project ruff check with all rules
-  V19-TEST-FAIL: Test failures via pytest
 """
 # /// script
 # requires-python = ">=3.11"
@@ -36,7 +37,11 @@ from lib.project_context import ProjectContext
 
 
 class PyQualityValidator(BaseValidator):
-    """V19: Python Quality Validator — ruff + pytest."""
+    """V19: Python Quality Validator — ruff (lint / format / project-wide).
+
+    The pytest path moved to V21 (``py_pytest.py``) in Phase28 so the
+    parallel runner sees lint and test execution as independent units.
+    """
 
     id = "V19-py-quality"
     name = "Python Quality Validator"
@@ -66,7 +71,6 @@ class PyQualityValidator(BaseValidator):
         # Slow checks (Stop mode only) — full project
         if mode == "stop":
             findings.extend(self._check_ruff_all(py_root))
-            findings.extend(self._check_pytest(py_root))
 
         return ValidationResult(validator_id=self.id, findings=findings)
 
@@ -214,78 +218,6 @@ class PyQualityValidator(BaseValidator):
         return findings
 
     # ── Check 4: pytest (Stop mode) ───────────────────────────────────
-
-    def _find_python_bin(self, py_root: Path) -> str:
-        """Find the best python binary (prefer .venv)."""
-        venv_python = py_root / ".venv" / "bin" / "python"
-        if venv_python.exists():
-            return str(venv_python)
-        return "python"
-
-    def _load_dotenv(self, py_root: Path) -> dict[str, str]:
-        """Load .env file and merge with current environment."""
-        import os
-
-        env = os.environ.copy()
-        dotenv_path = py_root / ".env"
-        if dotenv_path.exists():
-            for line in dotenv_path.read_text().splitlines():
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, _, value = line.partition("=")
-                    env[key.strip()] = value.strip().strip("\"'")
-        return env
-
-    def _check_pytest(self, py_root: Path) -> list[Finding]:
-        """Run pytest to verify all tests pass."""
-        findings: list[Finding] = []
-
-        python_bin = self._find_python_bin(py_root)
-        cmd = [python_bin, "-m", "pytest", "-x", "-q", "--tb=no"]
-        env = self._load_dotenv(py_root)
-
-        try:
-            result = subprocess.run(
-                cmd,
-                cwd=str(py_root),
-                capture_output=True,
-                text=True,
-                timeout=180,
-                env=env,
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return findings
-
-        if result.returncode != 0:
-            output = result.stdout + result.stderr
-
-            # Skip if all tests passed (exit code from warnings/plugins/deprecations)
-            if re.search(r"\d+ passed", output) and not re.search(r"\d+ failed", output):
-                return findings
-
-            # Skip if no actual test failure detected (import warnings, etc.)
-            if "FAILED" not in output and "ERROR" not in output and "failed" not in output:
-                return findings
-
-            # Parse failed test count
-            failed_match = re.search(r"(\d+) failed", output)
-            failed_count = failed_match.group(1) if failed_match else "unknown"
-
-            # Parse specific failed test names
-            failed_tests = re.findall(r"FAILED\s+(\S+)", output)
-            test_names = ", ".join(failed_tests[:5]) if failed_tests else "see output"
-
-            findings.append(
-                Finding(
-                    severity="error",
-                    file=str(py_root),
-                    rule="V19-TEST-FAIL",
-                    message=f"pytest: {failed_count} test(s) failed: {test_names}",
-                    fix=f"Fix failing tests. Run 'cd {py_root} && python -m pytest -x -v' for details",
-                )
-            )
-
-        return findings
 
 
 # ── Standalone execution ─────────────────────────────────────────────────────

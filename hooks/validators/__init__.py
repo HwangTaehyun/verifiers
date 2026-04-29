@@ -70,6 +70,7 @@ def get_all_validators() -> list[BaseValidator]:
     from .linter_config_guard import LinterConfigGuardValidator
     from .mock_data_guard import MockDataGuardValidator
     from .proto_connect import ProtoConnectValidator
+    from .py_pytest import PyPytestValidator
     from .py_quality import PyQualityValidator
     from .py_test_runner import PyTestRunnerValidator
     from .security import SecurityValidator
@@ -90,7 +91,8 @@ def get_all_validators() -> list[BaseValidator]:
         GoTestRunnerValidator(),  # V09
         TsTestRunnerValidator(),  # V10
         PyTestRunnerValidator(),  # V11
-        PyQualityValidator(),  # V19 — Python ruff + pytest
+        PyQualityValidator(),  # V19 — Python ruff (lint/format/all)
+        PyPytestValidator(),  # V21 — Python pytest (Stop, gated by stop.run_pytest)
         CommitDisciplineValidator(),  # V12 — commit hygiene (stop mode only)
         ComplexityGuardValidator(),  # V14 — complexity metrics
         DependencyGuardValidator(),  # V15 — layer direction enforcement

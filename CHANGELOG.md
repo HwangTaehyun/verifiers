@@ -8,6 +8,38 @@ The audit IDs cited below (P0-x, P1-x, P2-x) refer to the project-improvement
 audit completed in 2026-04. They're kept here so future commits can link to
 the original rationale.
 
+## [Unreleased]
+
+### Added
+
+- **V21 Pytest Runner** (Phase28, S2): pytest path split out of V19 into
+  a dedicated `hooks/validators/py_pytest.py` so the Tier 3 parallel
+  runner sees ruff and test execution as independent units. The
+  `stop.run_pytest` config key gates the new validator with three modes:
+  - `"smart"` (default) — pytest runs only when this turn's working
+    tree has uncommitted `.py` / `pyproject.toml` changes (heuristic:
+    `git diff --name-only HEAD`). Markdown/yaml-only turns skip pytest.
+  - `"always"` — legacy V19 behavior, runs on every Stop hook.
+  - `"never"` — Stop never runs pytest; CI is the safety net.
+  - Falls open (runs pytest) when git is unavailable so a misconfigured
+    repo never silently suppresses the test gate.
+  - 25 new tests (`tests/test_py_pytest.py`) cover smart trigger, mode
+    gating, and pytest failure parsing. Total tests: 1027.
+- **`StopConfig` dataclass** (Phase28): new `stop:` block in
+  `.verifiers/config.yaml`. Invalid values fall back to `"smart"` rather
+  than silently disabling pytest.
+
+### Changed
+
+- **V19 Python Quality** (Phase28): now ruff-only (`V19-RUFF-CHECK`,
+  `V19-RUFF-FORMAT`, `V19-RUFF-ALL`). The `V19-TEST-FAIL` rule moved to
+  `V21-TEST-FAIL`. Existing projects that disable V19 in
+  `validators.disabled` are unaffected — V19 still owns the ruff lint
+  surface; pytest control is in the new V21 namespace.
+- **`docs/CONFIGURATION.md`** + **`docs/VERIFIERS-CATALOG.md`**: stop
+  block documented, V21 entry added, V19 entry rewritten to drop the
+  pytest claim.
+
 ## [0.2.0] - 2026-04-29
 
 First tagged release. Bundles Phases 1–25 (P0/P1/P2 audit triage,

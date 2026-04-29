@@ -164,12 +164,35 @@ class DockerConfig:
 
 
 @dataclass
+class StopConfig:
+    """Stop-hook (Tier 3) tuning.
+
+    ``run_pytest`` controls whether V21-pytest runs the full pytest suite
+    at the end of every Claude Code turn:
+
+      "always" — run unconditionally (legacy V19 behavior pre-Phase28).
+      "never"  — skip in Stop; rely on CI to catch regressions.
+      "smart"  — run only when this turn's working tree has uncommitted
+                 .py / pyproject.toml changes (default). Heuristic uses
+                 ``git diff --name-only HEAD``; falls open (runs pytest)
+                 if git is not available or the command fails.
+
+    The default "smart" balances feedback-time-to-Claude (don't suppress
+    test failures right before the agent says "done") against the per-
+    turn 5–8s pytest cost on idle/markdown-only turns.
+    """
+
+    run_pytest: str = "smart"  # "always" | "never" | "smart"
+
+
+@dataclass
 class VerifiersConfig:
     thresholds: Thresholds = field(default_factory=Thresholds)
     exclude: ExcludeConfig = field(default_factory=ExcludeConfig)
     validators: ValidatorsConfig = field(default_factory=ValidatorsConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
     docker: DockerConfig = field(default_factory=DockerConfig)
+    stop: StopConfig = field(default_factory=StopConfig)
 
 
 # ── Loader ──────────────────────────────────────────────────────────────
@@ -304,5 +327,11 @@ def _build_config(raw: dict[str, Any]) -> VerifiersConfig:
         cfg.docker.dev_filename_patterns = _coerce_str_list(docker_raw.get("dev_filename_patterns"))
         cfg.docker.production_stage_names = _coerce_str_list(docker_raw.get("production_stage_names"))
         cfg.docker.dev_stage_names = _coerce_str_list(docker_raw.get("dev_stage_names"))
+
+    stop_raw = raw.get("stop")
+    if isinstance(stop_raw, dict):
+        run_pytest = stop_raw.get("run_pytest")
+        if isinstance(run_pytest, str) and run_pytest in ("always", "never", "smart"):
+            cfg.stop.run_pytest = run_pytest
 
     return cfg

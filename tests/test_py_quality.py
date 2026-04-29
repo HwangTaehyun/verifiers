@@ -1,13 +1,12 @@
-"""Tests for hooks/validators/py_quality.py — V19 Python Quality (ruff + pytest).
+"""Tests for hooks/validators/py_quality.py — V19 Python Quality (ruff only).
 
 Covers:
   - V19-RUFF-CHECK   (post_tool_use, single file)
   - V19-RUFF-FORMAT  (post_tool_use, single file)
   - V19-RUFF-ALL     (stop mode, project-wide; truncation at 20 findings)
-  - V19-TEST-FAIL    (stop mode, pytest)
 
-External commands (ruff, pytest) are mocked via subprocess.run patching
-so the test suite never invokes the real binaries.
+The pytest path moved to V21 in Phase28. See tests/test_py_pytest.py
+for the V21-TEST-FAIL coverage and smart-mode trigger semantics.
 """
 
 from __future__ import annotations
@@ -193,51 +192,7 @@ class TestCheckRuffAll:
 
 
 # ---------------------------------------------------------------------------
-# 6. _check_pytest — full project (stop mode)
-# ---------------------------------------------------------------------------
-
-
-class TestCheckPytest:
-    def test_all_passing(self, validator: PyQualityValidator, py_project: Path) -> None:
-        with patch("subprocess.run", return_value=_make_completed(returncode=0, stdout="5 passed\n")):
-            findings = validator._check_pytest(py_project)
-        assert findings == []
-
-    def test_failures_reported(self, validator: PyQualityValidator, py_project: Path) -> None:
-        stdout = (
-            "FAILED tests/test_a.py::test_one - AssertionError\n"
-            "FAILED tests/test_b.py::test_two - ValueError\n"
-            "2 failed\n"
-        )
-        with patch("subprocess.run", return_value=_make_completed(returncode=1, stdout=stdout)):
-            findings = validator._check_pytest(py_project)
-
-        assert len(findings) == 1
-        assert findings[0].rule == "V19-TEST-FAIL"
-        assert findings[0].severity == "error"
-        assert "2" in findings[0].message
-        assert "tests/test_a.py::test_one" in findings[0].message
-
-    def test_warnings_only_no_failure(self, validator: PyQualityValidator, py_project: Path) -> None:
-        # Non-zero exit but tests passed — sometimes pytest plugins / deprecations
-        # cause that. The validator should not flag a failure.
-        with patch("subprocess.run", return_value=_make_completed(returncode=1, stdout="5 passed\n")):
-            findings = validator._check_pytest(py_project)
-        assert findings == []
-
-    def test_pytest_missing(self, validator: PyQualityValidator, py_project: Path) -> None:
-        with patch("subprocess.run", side_effect=FileNotFoundError):
-            findings = validator._check_pytest(py_project)
-        assert findings == []
-
-    def test_pytest_timeout(self, validator: PyQualityValidator, py_project: Path) -> None:
-        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="pytest", timeout=180)):
-            findings = validator._check_pytest(py_project)
-        assert findings == []
-
-
-# ---------------------------------------------------------------------------
-# 7. validate — mode dispatch
+# 6. validate — mode dispatch (V19 = ruff only after Phase28)
 # ---------------------------------------------------------------------------
 
 
@@ -246,12 +201,11 @@ class TestValidateDispatch:
         self, validator: PyQualityValidator, py_ctx: ProjectContext, py_project: Path
     ) -> None:
         # post_tool_use should call _check_ruff_lint and _check_ruff_format,
-        # but NOT _check_ruff_all or _check_pytest.
+        # but NOT _check_ruff_all (which is stop-only).
         with (
             patch.object(validator, "_check_ruff_lint", return_value=[]) as lint,
             patch.object(validator, "_check_ruff_format", return_value=[]) as fmt,
             patch.object(validator, "_check_ruff_all", return_value=[]) as ruff_all,
-            patch.object(validator, "_check_pytest", return_value=[]) as test_run,
         ):
             validator.validate(
                 py_ctx,
@@ -262,17 +216,12 @@ class TestValidateDispatch:
         assert lint.called
         assert fmt.called
         assert not ruff_all.called
-        assert not test_run.called
 
-    def test_stop_runs_full_suite(self, validator: PyQualityValidator, py_ctx: ProjectContext) -> None:
-        with (
-            patch.object(validator, "_check_ruff_all", return_value=[]) as ruff_all,
-            patch.object(validator, "_check_pytest", return_value=[]) as test_run,
-        ):
+    def test_stop_runs_ruff_all(self, validator: PyQualityValidator, py_ctx: ProjectContext) -> None:
+        with patch.object(validator, "_check_ruff_all", return_value=[]) as ruff_all:
             validator.validate(py_ctx, file_path=None, mode="stop")
 
         assert ruff_all.called
-        assert test_run.called
 
     def test_no_python_project_returns_empty(self, validator: PyQualityValidator, tmp_path: Path) -> None:
         (tmp_path / ".git").mkdir()

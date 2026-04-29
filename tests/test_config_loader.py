@@ -211,6 +211,41 @@ class TestPartialOverrides:
 
 
 # ---------------------------------------------------------------------------
+# 2b. StopConfig overrides (Phase28)
+# ---------------------------------------------------------------------------
+
+
+class TestStopConfig:
+    def test_stop_default_run_pytest_smart(self, tmp_path: Path) -> None:
+        # No `stop:` block → smart mode is the default.
+        _write_config(tmp_path, "")
+        cfg = load_config(tmp_path)
+        assert cfg.stop.run_pytest == "smart"
+
+    def test_stop_run_pytest_always(self, tmp_path: Path) -> None:
+        _write_config(tmp_path, "stop:\n  run_pytest: always\n")
+        cfg = load_config(tmp_path)
+        assert cfg.stop.run_pytest == "always"
+
+    def test_stop_run_pytest_never(self, tmp_path: Path) -> None:
+        _write_config(tmp_path, "stop:\n  run_pytest: never\n")
+        cfg = load_config(tmp_path)
+        assert cfg.stop.run_pytest == "never"
+
+    def test_stop_run_pytest_invalid_falls_back(self, tmp_path: Path) -> None:
+        # Typos like "smartt" must NOT silently disable pytest. Fall back
+        # to the default ("smart") so the user notices nothing changed.
+        _write_config(tmp_path, "stop:\n  run_pytest: sometimes\n")
+        cfg = load_config(tmp_path)
+        assert cfg.stop.run_pytest == "smart"
+
+    def test_stop_run_pytest_non_string_ignored(self, tmp_path: Path) -> None:
+        _write_config(tmp_path, "stop:\n  run_pytest: 1\n")
+        cfg = load_config(tmp_path)
+        assert cfg.stop.run_pytest == "smart"
+
+
+# ---------------------------------------------------------------------------
 # 3. Robustness — malformed input never crashes
 # ---------------------------------------------------------------------------
 
