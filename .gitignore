@@ -25,7 +25,10 @@ logs/.gen-hash-cache.json
 *.key
 *.p12
 
-# Verifier temp files
+# Verifier runtime state (machine-generated, never tracked)
+# Tracked configs like .verifiers/layers.yaml stay versioned.
+.verifiers/state/
+# Legacy location kept for back-compat — migrated into .verifiers/state/
 .verifier-block-count
 
 # OMC (oh-my-claudecode) local state

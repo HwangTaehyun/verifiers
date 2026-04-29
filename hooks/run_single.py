@@ -23,40 +23,66 @@ from hooks.validators.base import Finding, format_output, read_hook_input, write
 from lib.json_logger import log_exception
 from lib.project_context import ProjectContext
 
-# Map of short names to validator IDs
+# Map of short names to validator IDs.
+# Kept in sync with hooks/validators/__init__.py:get_all_validators().
+# V17 (UI verifier) is intentionally absent — not yet implemented as a
+# Python validator (see CATALOG §6.2).
 NAME_MAP = {
+    # V01 — env config
     "env-config": "V01-env-config",
     "env": "V01-env-config",
+    # V02 — GraphQL/genqlient
     "graphql-gen": "V02-graphql-gen",
     "graphql": "V02-graphql-gen",
+    # V03 — proto/Connect-RPC
     "proto-connect": "V03-proto-connect",
     "proto": "V03-proto-connect",
+    # V04 — Hasura migration safety
     "hasura-migration": "V04-hasura-migration",
     "hasura": "V04-hasura-migration",
-    "docker-compose": "V05-docker-compose",
-    "docker": "V05-docker-compose",
+    # V05 — Docker compose / Dockerfile
+    "docker-compose": "V05-docker",
+    "docker": "V05-docker",
+    # V06 — Go quality
     "go-quality": "V06-go-quality",
     "go": "V06-go-quality",
+    # V07 — TS quality
     "ts-quality": "V07-ts-quality",
     "ts": "V07-ts-quality",
+    # V08 — Security
     "security": "V08-security",
+    # V09/V10/V11 — language test runners
     "go-test": "V09-go-test-runner",
     "go-test-runner": "V09-go-test-runner",
     "ts-test": "V10-ts-test-runner",
     "ts-test-runner": "V10-ts-test-runner",
     "py-test": "V11-py-test-runner",
     "py-test-runner": "V11-py-test-runner",
+    # V12 — commit discipline
     "commit-discipline": "V12-commit-discipline",
     "commit": "V12-commit-discipline",
+    # V13 — AI cheating guard
     "ai-cheating-guard": "V13-ai-cheating-guard",
     "cheating": "V13-ai-cheating-guard",
+    # V14 — complexity
     "complexity-guard": "V14-complexity-guard",
     "complexity": "V14-complexity-guard",
+    # V15 — dependency direction
     "dependency-guard": "V15-dependency-guard",
     "deps": "V15-dependency-guard",
+    # V16 — linter config
     "linter-config-guard": "V16-linter-config-guard",
     "linter-config": "V16-linter-config-guard",
     "linter": "V16-linter-config-guard",
+    # V18 — mock data guard
+    "mock-data-guard": "V18-mock-data-guard",
+    "mock": "V18-mock-data-guard",
+    # V19 — Python quality (ruff + pytest)
+    "py-quality": "V19-py-quality",
+    "py": "V19-py-quality",
+    # V20 — Hasura GraphQL enforcement (raw SQL forbidden)
+    "hasura-graphql": "V20-hasura-graphql",
+    "hasura-gql": "V20-hasura-graphql",
 }
 
 

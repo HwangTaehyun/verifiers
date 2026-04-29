@@ -1,12 +1,22 @@
-"""V15: Hasura GraphQL Enforcement Validator.
+"""V20: Hasura GraphQL Enforcement Validator.
 
 Enforces GraphQL usage over raw SQL when Hasura is present in the project.
 
-PostToolUse checks:
-  V15-HASURA-FOUND: Project has Hasura configuration detected
-  V15-RAW-SQL-FORBIDDEN: Raw SQL usage forbidden in Hasura projects
-  V15-MISSING-GRAPHQL: GraphQL client not used in service
-  V15-SQL-IMPORT: database/sql package import detected
+PostToolUse checks (single Go file):
+  V20-RAW-SQL-FORBIDDEN: Raw SQL usage forbidden in Hasura projects
+  V20-MISSING-GRAPHQL:   Service struct missing GraphQL client field
+  V20-SQL-IMPORT:        database/sql package import detected
+
+Stop mode (project-wide):
+  Same rules applied across the project's Go files. ``V20-HASURA-FOUND`` is
+  emitted as info severity exactly once when Hasura is detected.
+
+V-ID note: Originally drafted under V15 alongside V15-WRONG-DEPENDENCY
+(``dependency_guard.py``), but that namespace collision broke the
+"V-ID ↔ module 1:1" guarantee that ``run_single.py`` and CATALOG depend on.
+Renumbered to V20 in phase 3 of the P0/P1 cleanup; rule strings carry the
+new prefix so a single grep ('V20-RAW-SQL-FORBIDDEN' etc.) identifies the
+source module without ambiguity.
 """
 # /// script
 # requires-python = ">=3.11"
@@ -22,14 +32,56 @@ from pathlib import Path
 # Add parent directories to path so we can import lib/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from hooks.validators.base import BaseValidator, Finding, ValidationResult, read_hook_input, write_hook_output
+from hooks.validators.base import (
+    BaseValidator,
+    Finding,
+    ValidationResult,
+    format_output,
+    read_hook_input,
+    write_hook_output,
+)
+from lib.json_logger import log_exception
 from lib.project_context import ProjectContext
 
 
-class HasuraGraphQLEnforcementValidator(BaseValidator):
-    """V15: Hasura GraphQL Enforcement Validator."""
+# Files exempt from raw-SQL enforcement: migrations are SQL-by-design,
+# tests/mocks/setup/testdata fixtures often contain test SQL strings.
+_EXEMPT_PATTERNS: tuple[tuple[str, ...], ...] = (
+    ("/migrations/",),  # any migration sql/go
+    ("/mocks/",),
+    ("/setup/",),
+    ("/testdata/",),
+)
 
-    id = "V15-hasura-graphql"
+
+def _is_exempt(file_path: str) -> bool:
+    """Return True if the path is in an exempt directory or is a test file."""
+    if file_path.endswith("_test.go") or file_path.endswith(".test.ts"):
+        return True
+    if file_path.endswith(".sql") and "/migrations/" in file_path:
+        return True
+    return any(all(token in file_path for token in tokens) for tokens in _EXEMPT_PATTERNS)
+
+
+# Raw SQL patterns we forbid in Hasura projects.
+_SQL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\.Query(?:Row)?Context\s*\("), "raw SQL query"),
+    (re.compile(r"\.ExecContext\s*\("), "raw SQL execution"),
+    (re.compile(r"\.PrepareContext\s*\("), "raw SQL prepared statement"),
+    (re.compile(r"\bSELECT\b\s+.*\bFROM\b", re.IGNORECASE), "raw SQL SELECT"),
+    (re.compile(r"\bINSERT\s+INTO\b", re.IGNORECASE), "raw SQL INSERT"),
+    (re.compile(r"\bUPDATE\b\s+\w+\s+\bSET\b", re.IGNORECASE), "raw SQL UPDATE"),
+    (re.compile(r"\bDELETE\s+FROM\b", re.IGNORECASE), "raw SQL DELETE"),
+]
+
+_DATABASE_SQL_IMPORT = re.compile(r'^\s*"database/sql"', re.MULTILINE)
+_SERVICE_STRUCT = re.compile(r"\btype\s+\w*Service\s+struct\b")
+
+
+class HasuraGraphQLEnforcementValidator(BaseValidator):
+    """V20: Hasura GraphQL Enforcement — forbids raw SQL when Hasura is present."""
+
+    id = "V20-hasura-graphql"
     name = "Hasura GraphQL Enforcement"
     file_patterns: list[str] = [
         "**/*.go",
@@ -44,172 +96,181 @@ class HasuraGraphQLEnforcementValidator(BaseValidator):
         file_path: str | None = None,
         mode: str = "post_tool_use",
     ) -> ValidationResult:
+        # Early-exit when Hasura is not part of the project — keeps cost
+        # near zero for every non-Hasura repo using the verifier suite.
+        if not self._detect_hasura(ctx):
+            return ValidationResult(validator_id=self.id, findings=[])
+
         findings: list[Finding] = []
 
-        # Check if Hasura is present in the project
-        hasura_present = self._detect_hasura(ctx)
+        if mode == "post_tool_use":
+            if file_path and file_path.endswith(".go") and not _is_exempt(file_path):
+                findings.extend(self._check_go_file(file_path))
+        else:  # stop
+            findings.extend(self._scan_project(ctx))
 
-        if not hasura_present:
-            # No Hasura detected, skip validation
-            return ValidationResult(
-                validator_id=self.id, findings=[], summary="No Hasura detected in project - GraphQL enforcement skipped"
-            )
+        return ValidationResult(validator_id=self.id, findings=findings)
 
-        findings.append(
-            Finding(
-                code="V15-HASURA-FOUND",
-                severity="info",
-                message="Hasura detected in project - enforcing GraphQL over raw SQL",
-                file_path="",
-                line_number=1,
-                details="Project has Hasura configuration, raw SQL usage is forbidden",
-            )
-        )
-
-        # Check for raw SQL usage in Go files
-        go_files = [f for f in ctx.changed_files if f.endswith(".go")]
-        for go_file in go_files:
-            if self._is_exempted_file(go_file):
-                continue
-
-            go_findings = self._check_go_file_for_sql(ctx, go_file)
-            findings.extend(go_findings)
-
-        return ValidationResult(
-            validator_id=self.id,
-            findings=findings,
-            summary=f"Checked {len(go_files)} Go files for Hasura GraphQL compliance",
-        )
+    # ── Detection ─────────────────────────────────────────────────────────
 
     def _detect_hasura(self, ctx: ProjectContext) -> bool:
-        """Detect if Hasura is present in the project."""
-
-        # Check for hasura directory
-        hasura_dir = ctx.project_root / "hasura"
-        if hasura_dir.exists():
+        """Return True iff the project has a hasura/ directory or hasura
+        graphql-engine in any compose file."""
+        if ctx.hasura_dir is not None:
             return True
 
-        # Check for hasura directory in server subdirectory
-        server_hasura_dir = ctx.project_root / "server" / "hasura"
-        if server_hasura_dir.exists():
-            return True
-
-        # Check for Hasura in docker-compose files
-        docker_compose_files = [
-            "docker-compose.yaml",
-            "docker-compose.yml",
-            "server/docker-compose.yaml",
-            "server/docker-compose.yml",
+        compose_candidates = [
+            ctx.project_root / "docker-compose.yaml",
+            ctx.project_root / "docker-compose.yml",
         ]
+        if ctx.server_dir is not None:
+            compose_candidates += [
+                ctx.server_dir / "docker-compose.yaml",
+                ctx.server_dir / "docker-compose.yml",
+            ]
 
-        for compose_file in docker_compose_files:
-            compose_path = ctx.project_root / compose_file
-            if compose_path.exists():
-                try:
-                    content = compose_path.read_text()
-                    if "hasura/graphql-engine" in content or "hasura:" in content:
-                        return True
-                except Exception:
-                    continue
-
-        return False
-
-    def _is_exempted_file(self, file_path: str) -> bool:
-        """Check if the file is exempted from GraphQL enforcement."""
-        exempted_patterns = ["**/migrations/**/*.sql", "**/*_test.go", "**/mocks/**", "**/setup/**", "**/testdata/**"]
-
-        for pattern in exempted_patterns:
-            # Simple pattern matching - could be enhanced with fnmatch
-            if "migrations" in file_path and file_path.endswith(".sql"):
-                return True
-            if file_path.endswith("_test.go"):
-                return True
-            if "/mocks/" in file_path or "/setup/" in file_path or "/testdata/" in file_path:
+        for compose in compose_candidates:
+            if not compose.exists():
+                continue
+            try:
+                content = compose.read_text(errors="replace")
+            except OSError as exc:
+                log_exception(
+                    source="V20-hasura-graphql/_detect_hasura",
+                    error=exc,
+                    context={"compose": str(compose)},
+                )
+                continue
+            if "hasura/graphql-engine" in content:
                 return True
 
         return False
 
-    def _check_go_file_for_sql(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
-        """Check a Go file for raw SQL usage."""
+    # ── Stop-mode scan ───────────────────────────────────────────────────
+
+    def _scan_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Scan all Go files under server_dir (or project_root) for SQL violations."""
+        findings: list[Finding] = []
+        scan_root = ctx.server_dir or ctx.project_root
+        for go_file in scan_root.rglob("*.go"):
+            fp = str(go_file)
+            if _is_exempt(fp):
+                continue
+            findings.extend(self._check_go_file(fp))
+        return findings
+
+    # ── Per-file checks ──────────────────────────────────────────────────
+
+    def _check_go_file(self, file_path: str) -> list[Finding]:
         findings: list[Finding] = []
 
         try:
-            full_path = ctx.project_root / file_path
-            content = full_path.read_text()
-            lines = content.split("\n")
-        except Exception:
+            content = Path(file_path).read_text(errors="replace")
+        except OSError as exc:
+            log_exception(
+                source="V20-hasura-graphql/_check_go_file",
+                error=exc,
+                context={"file_path": file_path},
+            )
             return findings
 
-        # Check for database/sql import
-        if re.search(r'^\s*"database/sql"', content, re.MULTILINE):
+        # database/sql import
+        m = _DATABASE_SQL_IMPORT.search(content)
+        if m:
+            line_no = content[: m.start()].count("\n") + 1
             findings.append(
                 Finding(
-                    code="V15-SQL-IMPORT",
                     severity="error",
-                    message="database/sql import forbidden in Hasura projects - use GraphQL instead",
-                    file_path=file_path,
-                    line_number=self._find_import_line(lines, "database/sql"),
-                    details="Replace database/sql with GraphQL client using genqlient and Hasura",
+                    file=file_path,
+                    rule="V20-SQL-IMPORT",
+                    message="database/sql import is forbidden in Hasura projects — use the GraphQL client.",
+                    fix=(
+                        f"Remove 'database/sql' import at {file_path}:{line_no} "
+                        "and replace persistence calls with the genqlient-generated GraphQL client."
+                    ),
+                    line=line_no,
                 )
             )
 
-        # Check for SQL query methods
-        sql_patterns = [
-            (r"\.Query(?:Row)?Context\s*\(", "raw SQL query"),
-            (r"\.ExecContext\s*\(", "raw SQL execution"),
-            (r"\.PrepareContext\s*\(", "raw SQL prepared statement"),
-            (r"\bSELECT\b.*\bFROM\b", "raw SQL SELECT"),
-            (r"\bINSERT\s+INTO\b", "raw SQL INSERT"),
-            (r"\bUPDATE\b.*\bSET\b", "raw SQL UPDATE"),
-            (r"\bDELETE\s+FROM\b", "raw SQL DELETE"),
-        ]
-
-        for i, line in enumerate(lines, 1):
-            for pattern, description in sql_patterns:
-                if re.search(pattern, line, re.IGNORECASE):
+        # Per-line raw SQL pattern detection
+        for i, line in enumerate(content.split("\n"), 1):
+            stripped = line.strip()
+            if stripped.startswith(("//", "/*", "*")):
+                continue
+            for pattern, description in _SQL_PATTERNS:
+                if pattern.search(line):
                     findings.append(
                         Finding(
-                            code="V15-RAW-SQL-FORBIDDEN",
                             severity="error",
-                            message=f"Raw SQL usage forbidden: {description}",
-                            file_path=file_path,
-                            line_number=i,
-                            details=f"Line contains: {line.strip()[:100]}... Replace with GraphQL mutation/query",
+                            file=file_path,
+                            rule="V20-RAW-SQL-FORBIDDEN",
+                            message=f"Raw SQL forbidden in Hasura project: {description}",
+                            fix=(
+                                f"Replace the SQL at {file_path}:{i} with a GraphQL "
+                                "mutation/query via gqlClient. Hasura projects must "
+                                "go through the permission/audit layer."
+                            ),
+                            line=i,
                         )
                     )
+                    break  # one finding per line is enough
 
-        # Check for missing GraphQL client in service structs
-        if "type Service struct" in content and "gqlClient" not in content:
-            findings.append(
-                Finding(
-                    code="V15-MISSING-GRAPHQL",
-                    severity="warning",
-                    message="Service struct missing GraphQL client field",
-                    file_path=file_path,
-                    line_number=self._find_service_struct_line(lines),
-                    details="Add 'gqlClient graphql.Client' field to Service struct",
-                )
-            )
+        # Service struct missing GraphQL client
+        if _SERVICE_STRUCT.search(content) and "gqlClient" not in content:
+            for i, line in enumerate(content.split("\n"), 1):
+                if _SERVICE_STRUCT.search(line):
+                    findings.append(
+                        Finding(
+                            severity="warning",
+                            file=file_path,
+                            rule="V20-MISSING-GRAPHQL",
+                            message="Service struct does not declare a GraphQL client field",
+                            fix=(
+                                f"Add 'gqlClient graphql.Client' (or your project's equivalent) "
+                                f"to the Service struct at {file_path}:{i}."
+                            ),
+                            line=i,
+                        )
+                    )
+                    break
 
         return findings
 
-    def _find_import_line(self, lines: list[str], import_name: str) -> int:
-        """Find the line number of a specific import."""
-        for i, line in enumerate(lines, 1):
-            if f'"{import_name}"' in line:
-                return i
-        return 1
 
-    def _find_service_struct_line(self, lines: list[str]) -> int:
-        """Find the line number of Service struct definition."""
-        for i, line in enumerate(lines, 1):
-            if "type Service struct" in line:
-                return i
-        return 1
+# ── Standalone execution ─────────────────────────────────────────────────────
+
+
+def main() -> None:
+    """Run as standalone PostToolUse hook script."""
+    input_data = read_hook_input()
+    if not input_data:
+        write_hook_output({})
+        return
+
+    tool_name = input_data.get("tool_name", "")
+    if tool_name not in ("Edit", "Write", "MultiEdit"):
+        write_hook_output({})
+        return
+
+    tool_input = input_data.get("tool_input", {})
+    file_path = tool_input.get("file_path", "")
+    cwd = input_data.get("cwd", ".")
+
+    if not file_path:
+        write_hook_output({})
+        return
+
+    ctx = ProjectContext(cwd)
+    validator = HasuraGraphQLEnforcementValidator()
+
+    if not validator.should_run(file_path):
+        write_hook_output({})
+        return
+
+    result = validator.run(ctx, file_path, mode="post_tool_use")
+    output = format_output(result.findings, mode="post_tool_use")
+    write_hook_output(output)
 
 
 if __name__ == "__main__":
-    input_data = read_hook_input()
-    validator = HasuraGraphQLEnforcementValidator()
-    result = validator.run_validation(input_data)
-    write_hook_output(result)
+    main()

@@ -79,17 +79,35 @@ def main() -> None:
         output["decision"] = "block"
 
     # ── Circuit breaker: if already in a stop-hook loop, limit retries ──
-    if stop_hook_active and output.get("decision") == "block":
-        # Read the block count from a temp marker file
-        block_marker = Path(cwd) / ".verifier-block-count"
-        block_count = 0
-        try:
-            if block_marker.exists():
-                block_count = int(block_marker.read_text().strip())
-        except (ValueError, OSError):
-            block_count = 0
+    # State lives at <cwd>/.verifiers/state/verifier-block-count to keep
+    # everything verifier-owned inside its own ``.verifiers/`` namespace
+    # (already used by V15 ``dependency_guard`` for ``.verifiers/layers.yaml``).
+    # The legacy <cwd>/.verifier-block-count is read once for back-compat
+    # then unlinked so users don't see a stale dotfile in the project root.
+    # Per-worktree scope is intentional: the circuit breaker tracks
+    # "this conversation keeps hitting the same block", and Claude
+    # sessions are typically scoped to a single worktree.
+    state_dir = Path(cwd) / ".verifiers" / "state"
+    block_marker = state_dir / "verifier-block-count"
+    legacy_marker = Path(cwd) / ".verifier-block-count"
 
-        block_count += 1
+    def _read_block_count() -> int:
+        for marker in (block_marker, legacy_marker):
+            try:
+                if marker.exists():
+                    return int(marker.read_text().strip())
+            except (ValueError, OSError):
+                continue
+        return 0
+
+    def _drop_legacy_marker() -> None:
+        try:
+            legacy_marker.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    if stop_hook_active and output.get("decision") == "block":
+        block_count = _read_block_count() + 1
 
         if block_count >= _MAX_CONSECUTIVE_BLOCKS:
             # Safety valve: let the agent through with warnings
@@ -110,19 +128,22 @@ def main() -> None:
                 block_marker.unlink(missing_ok=True)
             except OSError:
                 pass
+            _drop_legacy_marker()
         else:
             # Persist block count
             try:
+                state_dir.mkdir(parents=True, exist_ok=True)
                 block_marker.write_text(str(block_count))
             except OSError:
                 pass
+            _drop_legacy_marker()
     else:
         # Not in a loop or approved — reset counter
-        block_marker = Path(cwd) / ".verifier-block-count"
         try:
             block_marker.unlink(missing_ok=True)
         except OSError:
             pass
+        _drop_legacy_marker()
 
     # Persist session feedback for cross-session analysis
     try:

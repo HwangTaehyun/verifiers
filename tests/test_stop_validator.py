@@ -127,7 +127,8 @@ class TestCircuitBreaker:
         # Should still block (first retry)
         assert output.get("decision") == "block"
         # Counter file should exist
-        counter_file = tmp_path / ".verifier-block-count"
+        counter_file = tmp_path / ".verifiers" / "state" / "verifier-block-count"
+        counter_file.parent.mkdir(parents=True, exist_ok=True)
         assert counter_file.exists()
         assert counter_file.read_text().strip() == "1"
 
@@ -138,7 +139,8 @@ class TestCircuitBreaker:
         # Pre-set counter to MAX - 1 (so next block triggers circuit breaker)
         from hooks.stop_validator import _MAX_CONSECUTIVE_BLOCKS
 
-        counter_file = tmp_path / ".verifier-block-count"
+        counter_file = tmp_path / ".verifiers" / "state" / "verifier-block-count"
+        counter_file.parent.mkdir(parents=True, exist_ok=True)
         counter_file.write_text(str(_MAX_CONSECUTIVE_BLOCKS - 1))
 
         from hooks.validators.base import Finding
@@ -173,7 +175,8 @@ class TestCircuitBreaker:
     def test_counter_resets_on_approve(self, tmp_path: Path) -> None:
         """When validation passes, the counter file is cleaned up."""
         (tmp_path / ".git").mkdir()
-        counter_file = tmp_path / ".verifier-block-count"
+        counter_file = tmp_path / ".verifiers" / "state" / "verifier-block-count"
+        counter_file.parent.mkdir(parents=True, exist_ok=True)
         counter_file.write_text("2")
 
         # Mock all validators to return no findings
@@ -190,7 +193,8 @@ class TestCircuitBreaker:
     def test_counter_resets_when_not_in_loop(self, tmp_path: Path) -> None:
         """Counter resets when stop_hook_active is false (fresh turn)."""
         (tmp_path / ".git").mkdir()
-        counter_file = tmp_path / ".verifier-block-count"
+        counter_file = tmp_path / ".verifiers" / "state" / "verifier-block-count"
+        counter_file.parent.mkdir(parents=True, exist_ok=True)
         counter_file.write_text("2")
 
         from hooks.validators.base import Finding
@@ -226,7 +230,8 @@ class TestCircuitBreaker:
 
         from hooks.stop_validator import _MAX_CONSECUTIVE_BLOCKS
 
-        counter_file = tmp_path / ".verifier-block-count"
+        counter_file = tmp_path / ".verifiers" / "state" / "verifier-block-count"
+        counter_file.parent.mkdir(parents=True, exist_ok=True)
         counter_file.write_text(str(_MAX_CONSECUTIVE_BLOCKS - 1))
 
         from hooks.validators.base import Finding
