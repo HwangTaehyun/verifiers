@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from hooks.validators import get_all_validators
 from hooks.validators.base import Finding, format_output, read_hook_input, write_hook_output
+from lib.exclusion import filter_disabled_validators
 from lib.feedback_tracker import FeedbackTracker
 from lib.json_logger import log_exception
 from lib.project_context import ProjectContext
@@ -48,10 +49,13 @@ def main() -> None:
     # Create project context
     ctx = ProjectContext(cwd)
 
-    # Run ALL validators in stop mode (comprehensive check)
+    # Run ALL validators in stop mode (comprehensive check), minus any that
+    # the project disabled in .verifiers/config.yaml (P1-3).
+    active = filter_disabled_validators(get_all_validators(), ctx.config.validators.disabled)
+
     all_findings: list[Finding] = []
 
-    for validator in get_all_validators():
+    for validator in active:
         try:
             result = validator.run(ctx, file_path=None, mode="stop")
             all_findings.extend(result.findings)
