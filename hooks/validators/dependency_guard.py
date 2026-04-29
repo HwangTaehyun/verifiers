@@ -32,7 +32,6 @@ except ImportError:
 from hooks.validators.base import (
     BaseValidator,
     Finding,
-    ValidationResult,
     format_output,
     read_hook_input,
     write_hook_output,
@@ -324,21 +323,15 @@ class DependencyGuardValidator(BaseValidator):
     name = "Dependency Direction Guard"
     file_patterns: list[str] = ["**/*.go", "**/*.py", "**/*.ts", "**/*.tsx"]
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
-        findings: list[Finding] = []
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: single-file dependency direction check (Tier 2)."""
         custom_layers = _load_custom_layers(ctx.project_root)
+        return self._check_file(file_path, ctx, custom_layers)
 
-        if file_path:
-            findings.extend(self._check_file(file_path, ctx, custom_layers))
-        elif mode == "stop":
-            findings.extend(self._check_project(ctx, custom_layers))
-
-        return ValidationResult(validator_id=self.id, findings=findings)
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Phase29+ API: project-wide dependency sweep (Tier 3)."""
+        custom_layers = _load_custom_layers(ctx.project_root)
+        return self._check_project(ctx, custom_layers)
 
     def _check_file(
         self,

@@ -20,7 +20,7 @@ from pathlib import Path
 # Add parent directories to path so we can import lib/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from hooks.validators.base import BaseValidator, Finding, ValidationResult, read_hook_input, write_hook_output
+from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output
 from lib.project_context import ProjectContext
 
 # ── Secret patterns ──────────────────────────────────────────────────────────
@@ -82,36 +82,25 @@ class SecurityValidator(BaseValidator):
     name = "Security Validator"
     file_patterns: list[str] = []  # Runs on ALL files
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
-        findings: list[Finding] = []
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: per-file secret / CORS / PHI scan (Tier 2)."""
+        sec_cfg = ctx.config.security
+        phi_fields = sec_cfg.phi_fields or PHI_FIELDS
+        phi_enabled = sec_cfg.phi_check_enabled
+        return self._check_single_file(file_path, phi_fields=phi_fields, phi_enabled=phi_enabled)
 
-        # Resolve config overrides once per validate() so the inner
-        # methods don't need to re-read ctx. Empty config lists fall
-        # back to the module defaults — explicit "no opinion" rather
-        # than implicit merging (matches SecurityConfig docstring).
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Phase29+ API: project-wide gitignore / CORS / secret sweep (Tier 3)."""
         sec_cfg = ctx.config.security
         phi_fields = sec_cfg.phi_fields or PHI_FIELDS
         phi_enabled = sec_cfg.phi_check_enabled
         required_gitignore = sec_cfg.required_gitignore or REQUIRED_GITIGNORE
-
-        if file_path:
-            findings.extend(self._check_single_file(file_path, phi_fields=phi_fields, phi_enabled=phi_enabled))
-        else:
-            findings.extend(
-                self._check_project_wide(
-                    ctx,
-                    phi_fields=phi_fields,
-                    phi_enabled=phi_enabled,
-                    required_gitignore=required_gitignore,
-                )
-            )
-
-        return ValidationResult(validator_id=self.id, findings=findings)
+        return self._check_project_wide(
+            ctx,
+            phi_fields=phi_fields,
+            phi_enabled=phi_enabled,
+            required_gitignore=required_gitignore,
+        )
 
     def _check_single_file(
         self,

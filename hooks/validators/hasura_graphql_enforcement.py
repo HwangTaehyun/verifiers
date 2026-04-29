@@ -35,7 +35,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from hooks.validators.base import (
     BaseValidator,
     Finding,
-    ValidationResult,
     format_output,
     read_hook_input,
     write_hook_output,
@@ -111,26 +110,19 @@ class HasuraGraphQLEnforcementValidator(BaseValidator):
         "**/hasura/**",
     ]
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
-        # Early-exit when Hasura is not part of the project — keeps cost
-        # near zero for every non-Hasura repo using the verifier suite.
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: per-file raw-SQL check (Tier 2). No-op when Hasura absent."""
         if not self._detect_hasura(ctx):
-            return ValidationResult(validator_id=self.id, findings=[])
+            return []
+        if file_path.endswith(".go") and not _is_exempt(file_path):
+            return self._check_go_file(file_path)
+        return []
 
-        findings: list[Finding] = []
-
-        if mode == "post_tool_use":
-            if file_path and file_path.endswith(".go") and not _is_exempt(file_path):
-                findings.extend(self._check_go_file(file_path))
-        else:  # stop
-            findings.extend(self._scan_project(ctx))
-
-        return ValidationResult(validator_id=self.id, findings=findings)
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Phase29+ API: project-wide raw-SQL sweep (Tier 3). No-op when Hasura absent."""
+        if not self._detect_hasura(ctx):
+            return []
+        return self._scan_project(ctx)
 
     # ── Detection ─────────────────────────────────────────────────────────
 

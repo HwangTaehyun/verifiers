@@ -29,7 +29,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from hooks.validators.base import (
     BaseValidator,
     Finding,
-    ValidationResult,
     format_output,
     read_hook_input,
     write_hook_output,
@@ -802,25 +801,15 @@ class ComplexityGuardValidator(BaseValidator):
     name = "Complexity Guard"
     file_patterns: list[str] = ["**/*.go", "**/*.py", "**/*.ts", "**/*.tsx"]
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: per-file complexity analysis (Tier 2)."""
         thresholds = ctx.config.thresholds.complexity
+        return self._analyze_file(file_path, thresholds)
 
-        if file_path:
-            return ValidationResult(
-                validator_id=self.id,
-                findings=self._analyze_file(file_path, thresholds),
-            )
-
-        if mode != "stop":
-            return ValidationResult(validator_id=self.id, findings=[])
-
-        findings = self._scan_all_files(ctx, thresholds)
-        return ValidationResult(validator_id=self.id, findings=findings)
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Phase29+ API: project-wide complexity sweep (Tier 3)."""
+        thresholds = ctx.config.thresholds.complexity
+        return self._scan_all_files(ctx, thresholds)
 
     def _scan_all_files(self, ctx: ProjectContext, thresholds: ComplexityThresholds) -> list[Finding]:
         """Scan all source files in the project for complexity issues."""

@@ -29,7 +29,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from hooks.validators.base import (
     BaseValidator,
     Finding,
-    ValidationResult,
     read_hook_input,
     write_hook_output,
 )
@@ -51,28 +50,23 @@ class PyQualityValidator(BaseValidator):
         "**/ruff.toml",
     ]
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
-        findings: list[Finding] = []
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: Tier 2 per-file ruff lint + format check."""
+        py_root = self._find_python_root(ctx)
+        if not py_root or not file_path.endswith(".py"):
+            return []
 
+        findings: list[Finding] = []
+        findings.extend(self._check_ruff_lint(py_root, file_path))
+        findings.extend(self._check_ruff_format(py_root, file_path))
+        return findings
+
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Phase29+ API: Tier 3 project-wide ruff check."""
         py_root = self._find_python_root(ctx)
         if not py_root:
-            return ValidationResult(validator_id=self.id, findings=findings)
-
-        # Fast checks (PostToolUse) — per-file
-        if file_path and file_path.endswith(".py"):
-            findings.extend(self._check_ruff_lint(py_root, file_path))
-            findings.extend(self._check_ruff_format(py_root, file_path))
-
-        # Slow checks (Stop mode only) — full project
-        if mode == "stop":
-            findings.extend(self._check_ruff_all(py_root))
-
-        return ValidationResult(validator_id=self.id, findings=findings)
+            return []
+        return self._check_ruff_all(py_root)
 
     # ── Python project detection ──────────────────────────────────────
 

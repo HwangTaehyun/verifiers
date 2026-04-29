@@ -34,7 +34,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from hooks.validators.base import (
     BaseValidator,
     Finding,
-    ValidationResult,
     read_hook_input,
     write_hook_output,
 )
@@ -95,31 +94,24 @@ class PyPytestValidator(BaseValidator):
         "**/pyproject.toml",
     ]
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
-        findings: list[Finding] = []
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Phase29+ API: Stop-mode pytest gate.
 
-        # V21 is Stop-only. Tier 2 (PostToolUse) returns immediately.
-        if mode != "stop":
-            return ValidationResult(validator_id=self.id, findings=findings)
-
+        V21 is Stop-only (validate_file stays the base no-op). The
+        ``stop.run_pytest`` config selects always / never / smart.
+        """
         run_mode = ctx.config.stop.run_pytest
         if run_mode == "never":
-            return ValidationResult(validator_id=self.id, findings=findings)
+            return []
 
         py_root = self._find_python_root(ctx)
         if not py_root:
-            return ValidationResult(validator_id=self.id, findings=findings)
+            return []
 
         if run_mode == "smart" and not has_uncommitted_python_changes(py_root):
-            return ValidationResult(validator_id=self.id, findings=findings)
+            return []
 
-        findings.extend(self._check_pytest(py_root))
-        return ValidationResult(validator_id=self.id, findings=findings)
+        return self._check_pytest(py_root)
 
     # ── Python project detection (mirrors V19) ──────────────────────────
 
