@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import sys
-from abc import ABC, abstractmethod
+from abc import ABC
 from dataclasses import asdict, dataclass, field
 from fnmatch import fnmatch
 from typing import Any
@@ -46,7 +46,21 @@ class ValidationResult:
 
 
 class BaseValidator(ABC):
-    """Abstract base class for all validators."""
+    """Base class for all validators.
+
+    Subclasses override either ``validate_file`` (PostToolUse, single
+    file) or ``validate_project`` (Stop, full project) — or both. The
+    legacy ``validate(ctx, file_path, mode)`` API is still honored for
+    back-compat, and a Phase29 default ``validate`` impl dispatches
+    automatically to the new API. Subclasses can therefore migrate one
+    at a time without breaking each other.
+
+    Migration phases (Phase29 → 32):
+      29 — base API + dispatch (this file). No validator changes.
+      30 — migrate V08, V14, V15, V19, V20, V21 to new API.
+      31 — migrate remaining 13 validators.
+      32 — remove the legacy ``validate`` method entirely.
+    """
 
     id: str = ""
     name: str = ""
@@ -61,18 +75,50 @@ class BaseValidator(ABC):
             return True
         return any(fnmatch(file_path, pattern) for pattern in self.file_patterns)
 
-    @abstractmethod
+    # ── New API (Phase29+) — preferred ─────────────────────────────────
+    #
+    # Subclasses override one or both. Defaults are no-op so a validator
+    # that only cares about per-file checks can leave validate_project
+    # alone, and vice versa.
+
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Tier 2 (PostToolUse) entry point. Single file just edited.
+
+        Default no-op. Override for per-file checks.
+        """
+        return []
+
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Tier 3 (Stop) entry point. Full-project sweep.
+
+        Default no-op. Override for project-wide checks.
+        """
+        return []
+
+    # ── Legacy API (≤ Phase28) — back-compat dispatch ─────────────────
+    #
+    # The original abstract method. Default impl now dispatches to the
+    # new pair so a subclass can migrate independently. Subclasses
+    # migrated in Phase30+ won't override this — the default carries
+    # them. Pre-migration subclasses still own ``validate`` and the
+    # default is shadowed.
+
     def validate(
         self, ctx: ProjectContext, file_path: str | None = None, mode: str = "post_tool_use"
     ) -> ValidationResult:
-        """Run validation and return results.
+        """Default dispatch — calls validate_file / validate_project.
 
         Args:
             ctx: Project context with detected paths
             file_path: Specific file that was modified (PostToolUse) or None (Stop)
             mode: "post_tool_use" or "stop"
         """
-        ...
+        findings: list[Finding] = []
+        if mode == "post_tool_use" and file_path:
+            findings.extend(self.validate_file(ctx, file_path))
+        if mode == "stop":
+            findings.extend(self.validate_project(ctx))
+        return ValidationResult(validator_id=self.id, findings=findings)
 
     def run(self, ctx: ProjectContext, file_path: str | None = None, mode: str = "post_tool_use") -> ValidationResult:
         """Run validation with logging."""
