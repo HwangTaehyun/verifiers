@@ -27,7 +27,8 @@ from lib.project_context import ProjectContext
 # Failure tracker file path (shared with V09/V11)
 FAILURE_TRACKER = Path(__file__).parent.parent.parent / "logs" / "test-failure-tracker.json"
 
-# Threshold for repeated failure warning
+# Default; the live value comes from
+# ctx.config.thresholds.test_runner.repeated_failure_count (P1-3 wiring).
 REPEATED_FAIL_THRESHOLD = 3
 
 # Directories to exclude
@@ -55,6 +56,8 @@ class TsTestRunnerValidator(BaseValidator):
         if not ctx.web_dir or not ctx.web_dir.exists():
             return ValidationResult(validator_id=self.id, findings=findings)
 
+        threshold = ctx.config.thresholds.test_runner.repeated_failure_count
+
         if mode == "post_tool_use" and file_path and file_path.endswith((".ts", ".tsx")):
             # Skip excluded directories
             if self._is_excluded(file_path):
@@ -62,11 +65,11 @@ class TsTestRunnerValidator(BaseValidator):
 
             if self._is_test_file(file_path):
                 # Test file modified — run it directly
-                findings.extend(self._run_test_file(ctx, file_path))
+                findings.extend(self._run_test_file(ctx, file_path, threshold))
             else:
                 test_file = self._resolve_test_file(ctx, file_path)
                 if test_file:
-                    findings.extend(self._run_test_file(ctx, test_file))
+                    findings.extend(self._run_test_file(ctx, test_file, threshold))
                 else:
                     findings.extend(self._check_test_exists(file_path))
 
@@ -180,8 +183,18 @@ class TsTestRunnerValidator(BaseValidator):
 
     # ── Test execution ──────────────────────────────────────────────────
 
-    def _run_test_file(self, ctx: ProjectContext, test_file: str) -> list[Finding]:
-        """Run a specific test file and parse results."""
+    def _run_test_file(
+        self,
+        ctx: ProjectContext,
+        test_file: str,
+        repeated_fail_threshold: int = REPEATED_FAIL_THRESHOLD,
+    ) -> list[Finding]:
+        """Run a specific test file and parse results.
+
+        ``repeated_fail_threshold`` controls when V10-REPEATED-FAIL fires;
+        defaults to the module constant for back-compat with any external
+        caller, while ``validate()`` always supplies the config value.
+        """
         findings: list[Finding] = []
         cmd_parts, runner = self._detect_test_runner(ctx)
 
@@ -213,7 +226,7 @@ class TsTestRunnerValidator(BaseValidator):
             # Track failures
             for test_name in failed_tests:
                 count = self._track_failure(test_name, passed=False)
-                if count >= REPEATED_FAIL_THRESHOLD:
+                if count >= repeated_fail_threshold:
                     findings.append(
                         Finding(
                             severity="warning",

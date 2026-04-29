@@ -29,7 +29,8 @@ FAILURE_TRACKER = Path(__file__).parent.parent.parent / "logs" / "test-failure-t
 # Directories to exclude from test existence checks
 EXCLUDE_DIRS = {"vendor", "testdata", "mock", "mocks", "generated", "gen", "third_party"}
 
-# Threshold for repeated failure warning
+# Default; the live value comes from
+# ctx.config.thresholds.test_runner.repeated_failure_count (P1-3 wiring).
 REPEATED_FAIL_THRESHOLD = 3
 
 
@@ -54,13 +55,15 @@ class GoTestRunnerValidator(BaseValidator):
         if not ctx.server_dir or not ctx.server_dir.exists():
             return ValidationResult(validator_id=self.id, findings=findings)
 
+        threshold = ctx.config.thresholds.test_runner.repeated_failure_count
+
         if mode == "post_tool_use" and file_path and file_path.endswith(".go"):
             # Skip test file modifications — they don't need test resolution
             if file_path.endswith("_test.go"):
                 # Run the test file directly
                 pkg_dir = self._get_package_dir(ctx, file_path)
                 if pkg_dir:
-                    findings.extend(self._run_package_tests(ctx, pkg_dir, file_path))
+                    findings.extend(self._run_package_tests(ctx, pkg_dir, file_path, threshold))
                 return ValidationResult(validator_id=self.id, findings=findings)
 
             # Check if the file is in an excluded directory
@@ -69,7 +72,7 @@ class GoTestRunnerValidator(BaseValidator):
 
             pkg_dir = self._resolve_test_package(ctx, file_path)
             if pkg_dir:
-                findings.extend(self._run_package_tests(ctx, pkg_dir, file_path))
+                findings.extend(self._run_package_tests(ctx, pkg_dir, file_path, threshold))
             else:
                 findings.extend(self._check_test_exists(ctx, file_path))
 
@@ -125,8 +128,19 @@ class GoTestRunnerValidator(BaseValidator):
 
     # ── Test execution ──────────────────────────────────────────────────
 
-    def _run_package_tests(self, ctx: ProjectContext, pkg_dir: str, file_path: str) -> list[Finding]:
-        """Run go test for a specific package and parse results."""
+    def _run_package_tests(
+        self,
+        ctx: ProjectContext,
+        pkg_dir: str,
+        file_path: str,
+        repeated_fail_threshold: int = REPEATED_FAIL_THRESHOLD,
+    ) -> list[Finding]:
+        """Run go test for a specific package and parse results.
+
+        ``repeated_fail_threshold`` controls when V09-REPEATED-FAIL fires;
+        defaults to the module constant for back-compat with any external
+        caller, while ``validate()`` always supplies the config value.
+        """
         findings: list[Finding] = []
 
         try:
@@ -170,7 +184,7 @@ class GoTestRunnerValidator(BaseValidator):
         for test_name in failed_tests:
             count = self._track_failure(test_name, passed=False)
 
-            if count >= REPEATED_FAIL_THRESHOLD:
+            if count >= repeated_fail_threshold:
                 findings.append(
                     Finding(
                         severity="warning",

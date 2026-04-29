@@ -37,6 +37,9 @@ from lib.project_context import ProjectContext
 
 import re as _re  # imported here to avoid shadowing at module level
 
+# Default; the live value comes from ctx.config.thresholds.commit.large_diff_files
+# (P1-3 wiring). Kept here as a back-compat constant for anything that
+# imported it historically.
 LARGE_DIFF_THRESHOLD = 15  # Files modified
 
 # Conventional Commits prefixes
@@ -158,6 +161,7 @@ class CommitDisciplineValidator(BaseValidator):
         if mode != "stop":
             return ValidationResult(validator_id=self.id, findings=findings)
 
+        large_diff_threshold = ctx.config.thresholds.commit.large_diff_files
         cwd = str(ctx.project_root)
 
         # Get git status
@@ -196,13 +200,17 @@ class CommitDisciplineValidator(BaseValidator):
 
         # ── V12-LARGE-DIFF ──
         changed_files = [f for _, f in all_files if _ != "??"]
-        if len(changed_files) >= LARGE_DIFF_THRESHOLD:
+        if len(changed_files) >= large_diff_threshold:
             findings.append(
                 Finding(
                     severity="warning",
                     file=str(ctx.project_root),
                     rule="V12-LARGE-DIFF",
-                    message=f"{len(changed_files)} files modified (recommended max {LARGE_DIFF_THRESHOLD}). Consider splitting into atomic commits.",
+                    message=(
+                        f"{len(changed_files)} files modified "
+                        f"(recommended max {large_diff_threshold}). "
+                        "Consider splitting into atomic commits."
+                    ),
                     fix="Split changes into smaller, focused commits. Each commit should represent a single logical change.",
                 )
             )
