@@ -22,7 +22,7 @@ import yaml
 # Add parent directories to path so we can import lib/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from hooks.validators.base import BaseValidator, Finding, ValidationResult, read_hook_input, write_hook_output
+from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output
 from lib.project_context import ProjectContext
 
 # ── Secret patterns for config files ─────────────────────────────────────────
@@ -54,24 +54,27 @@ class EnvConfigValidator(BaseValidator):
         "**/docker-compose*.yml",
     ]
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
-        findings: list[Finding] = []
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: env/config files trigger the full project sweep.
 
-        # Always run these checks (they're fast, file-system only)
+        V01's checks are inherently project-level (env-example completeness,
+        config consistency, vite sync) so PostToolUse on .env/config files
+        runs the same battery as Stop. file_path is unused.
+        """
+        return self._all_checks(ctx)
+
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Phase29+ API: project-wide env/config consistency sweep (Tier 3)."""
+        return self._all_checks(ctx)
+
+    def _all_checks(self, ctx: ProjectContext) -> list[Finding]:
+        findings: list[Finding] = []
         findings.extend(self._check_secret_in_config(ctx))
         findings.extend(self._check_env_example_completeness(ctx))
         findings.extend(self._check_config_consistency(ctx))
-
-        # Frontend VITE_* sync only if web dir exists
         if ctx.web_dir and ctx.web_dir.exists():
             findings.extend(self._check_vite_env_sync(ctx))
-
-        return ValidationResult(validator_id=self.id, findings=findings)
+        return findings
 
     # ── Check 1: 3-Layer boundary violation ──────────────────────────────
 

@@ -26,7 +26,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from hooks.validators.base import (
     BaseValidator,
     Finding,
-    ValidationResult,
     format_output,
     read_hook_input,
     write_hook_output,
@@ -149,25 +148,16 @@ class CommitDisciplineValidator(BaseValidator):
     name = "Commit Discipline"
     file_patterns: list[str] = []  # Stop mode only — all files
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Phase29+ API: Stop-only commit discipline checks (Tier 3)."""
         findings: list[Finding] = []
-
-        # Only run in stop mode
-        if mode != "stop":
-            return ValidationResult(validator_id=self.id, findings=findings)
-
         large_diff_threshold = ctx.config.thresholds.commit.large_diff_files
         cwd = str(ctx.project_root)
 
         # Get git status
         status = _run_git(["status", "--porcelain"], cwd)
         if not status:
-            return ValidationResult(validator_id=self.id, findings=findings)
+            return findings
 
         status_lines = [line for line in status.split("\n") if line.strip()]
 
@@ -224,7 +214,7 @@ class CommitDisciplineValidator(BaseValidator):
         # ── V12-COMMIT-MSG-FORMAT ──
         findings.extend(self._check_commit_msg_format(cwd))
 
-        return ValidationResult(validator_id=self.id, findings=findings)
+        return findings
 
     def _check_mixed_changes(self, all_files: list[tuple[str, str]], cwd: str) -> list[Finding]:
         """Check if structural and behavioral changes are mixed.

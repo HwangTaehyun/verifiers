@@ -22,7 +22,7 @@ import yaml
 # Add parent directories to path so we can import lib/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from hooks.validators.base import BaseValidator, Finding, ValidationResult, read_hook_input, write_hook_output
+from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output
 from lib.hash_cache import HashCache, hash_files
 from lib.project_context import ProjectContext
 
@@ -48,28 +48,33 @@ class GraphqlGenValidator(BaseValidator):
         super().__init__()
         self.hash_cache = HashCache()
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
-        findings: list[Finding] = []
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: per-file GraphQL gen check (Tier 2).
 
+        Function-reference check is heavier — only runs when genqlient.go
+        is the file just edited.
+        """
         if not ctx.graph_dir or not ctx.graph_dir.exists():
-            return ValidationResult(validator_id=self.id, findings=findings)
+            return []
+        findings = self._common_checks(ctx)
+        if "genqlient" in file_path:
+            findings.extend(self._check_function_references(ctx))
+        return findings
 
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Phase29+ API: project-wide GraphQL gen sweep (Tier 3)."""
+        if not ctx.graph_dir or not ctx.graph_dir.exists():
+            return []
+        findings = self._common_checks(ctx)
+        findings.extend(self._check_function_references(ctx))
+        return findings
+
+    def _common_checks(self, ctx: ProjectContext) -> list[Finding]:
+        findings: list[Finding] = []
         findings.extend(self._check_genqlient_yaml(ctx))
         findings.extend(self._check_omitempty(ctx))
-
-        # Hash-based stale detection (always useful)
         findings.extend(self._check_stale_generated(ctx))
-
-        # Function reference check (heavier, for stop mode or if genqlient.go was edited)
-        if mode == "stop" or (file_path and "genqlient" in file_path):
-            findings.extend(self._check_function_references(ctx))
-
-        return ValidationResult(validator_id=self.id, findings=findings)
+        return findings
 
     # ── Check 1: genqlient.yaml required fields ─────────────────────────
 

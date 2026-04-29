@@ -21,7 +21,7 @@ from pathlib import Path
 # Add parent directories to path so we can import lib/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from hooks.validators.base import BaseValidator, Finding, ValidationResult, read_hook_input, write_hook_output
+from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output
 from lib.hash_cache import HashCache, hash_files
 from lib.project_context import ProjectContext
 
@@ -42,27 +42,25 @@ class ProtoConnectValidator(BaseValidator):
         super().__init__()
         self.hash_cache = HashCache()
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
-        findings: list[Finding] = []
-
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: per-file buf lint + stale-gen check (Tier 2)."""
         if not ctx.proto_dir or not ctx.proto_dir.exists():
-            return ValidationResult(validator_id=self.id, findings=findings)
-
-        # Fast checks (PostToolUse)
+            return []
+        findings: list[Finding] = []
         findings.extend(self._check_buf_lint(ctx))
         findings.extend(self._check_stale_generated(ctx))
+        return findings
 
-        # Slower checks (Stop mode)
-        if mode == "stop":
-            findings.extend(self._check_handler_coverage(ctx))
-            findings.extend(self._check_breaking(ctx))
-
-        return ValidationResult(validator_id=self.id, findings=findings)
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Phase29+ API: project-wide proto sweep + breaking-change scan (Tier 3)."""
+        if not ctx.proto_dir or not ctx.proto_dir.exists():
+            return []
+        findings: list[Finding] = []
+        findings.extend(self._check_buf_lint(ctx))
+        findings.extend(self._check_stale_generated(ctx))
+        findings.extend(self._check_handler_coverage(ctx))
+        findings.extend(self._check_breaking(ctx))
+        return findings
 
     # ── Check 1: buf lint ────────────────────────────────────────────────
 

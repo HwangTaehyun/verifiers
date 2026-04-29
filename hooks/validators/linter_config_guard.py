@@ -28,7 +28,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from hooks.validators.base import (
     BaseValidator,
     Finding,
-    ValidationResult,
     format_output,
     read_hook_input,
     write_hook_output,
@@ -379,18 +378,9 @@ class LinterConfigGuardValidator(BaseValidator):
     name = "Linter Config Guard"
     file_patterns: list[str] = []  # Stop mode only — runs on whole project
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Phase29+ API: Stop-only project-wide linter config sweep (Tier 3)."""
         findings: list[Finding] = []
-
-        # Only run in stop mode (project-wide analysis)
-        if mode != "stop":
-            return ValidationResult(validator_id=self.id, findings=findings)
-
         root = ctx.project_root
 
         # ── Go ──
@@ -447,7 +437,7 @@ class LinterConfigGuardValidator(BaseValidator):
             else:
                 findings.extend(_check_eslint_rules(config))
 
-        return ValidationResult(validator_id=self.id, findings=findings)
+        return findings
 
 
 # ── Standalone execution ──────────────────────────────────────────────────────

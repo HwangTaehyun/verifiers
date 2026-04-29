@@ -26,7 +26,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from hooks.validators.base import (
     BaseValidator,
     Finding,
-    ValidationResult,
     format_output,
     read_hook_input,
     write_hook_output,
@@ -411,20 +410,12 @@ class AiCheatingGuardValidator(BaseValidator):
         "*__tests__*",
     ]
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
-        findings: list[Finding] = []
-
-        if file_path:
-            lang = _detect_test_language(file_path)
-            if lang:
-                findings.extend(self._check_file(file_path, lang))
-
-        return ValidationResult(validator_id=self.id, findings=findings)
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: per-file test-cheating heuristic (Tier 2)."""
+        lang = _detect_test_language(file_path)
+        if not lang:
+            return []
+        return self._check_file(file_path, lang)
 
     def _check_file(self, file_path: str, lang: str) -> list[Finding]:
         """Run all cheating checks on a single test file."""

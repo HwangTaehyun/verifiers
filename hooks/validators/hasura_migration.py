@@ -22,7 +22,7 @@ from pathlib import Path
 # Add parent directories to path so we can import lib/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from hooks.validators.base import BaseValidator, Finding, ValidationResult, read_hook_input, write_hook_output
+from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output
 from lib.project_context import ProjectContext
 
 # ── Dangerous DDL patterns ───────────────────────────────────────────────────
@@ -46,36 +46,39 @@ class HasuraMigrationValidator(BaseValidator):
         "**/hasura/metadata/**/*.yml",
     ]
 
-    def validate(
-        self,
-        ctx: ProjectContext,
-        file_path: str | None = None,
-        mode: str = "post_tool_use",
-    ) -> ValidationResult:
-        findings: list[Finding] = []
-
+    def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
+        """Phase29+ API: per-file Hasura migration check (Tier 2)."""
         if not ctx.hasura_dir or not ctx.hasura_dir.exists():
-            return ValidationResult(validator_id=self.id, findings=findings)
-
+            return []
         migration_dir = self._find_migration_dir(ctx)
         if not migration_dir:
-            return ValidationResult(validator_id=self.id, findings=findings)
+            return []
 
+        findings = self._common_checks(migration_dir)
+        if file_path.endswith("up.sql"):
+            findings.extend(self._check_dangerous_ddl(file_path))
+        return findings
+
+    def validate_project(self, ctx: ProjectContext) -> list[Finding]:
+        """Phase29+ API: project-wide migration sweep + metadata consistency (Tier 3)."""
+        if not ctx.hasura_dir or not ctx.hasura_dir.exists():
+            return []
+        migration_dir = self._find_migration_dir(ctx)
+        if not migration_dir:
+            return []
+
+        findings = self._common_checks(migration_dir)
+        for sql_file in migration_dir.rglob("up.sql"):
+            findings.extend(self._check_dangerous_ddl(str(sql_file)))
+        findings.extend(self._check_metadata_consistency(ctx, migration_dir))
+        return findings
+
+    def _common_checks(self, migration_dir: Path) -> list[Finding]:
+        findings: list[Finding] = []
         findings.extend(self._check_timestamp_ordering(migration_dir))
         findings.extend(self._check_duplicate_timestamps(migration_dir))
         findings.extend(self._check_up_down_pairing(migration_dir))
-
-        # Per-file DDL check
-        if file_path and file_path.endswith("up.sql"):
-            findings.extend(self._check_dangerous_ddl(file_path))
-
-        # Stop mode: full DDL scan + metadata consistency
-        if mode == "stop":
-            for sql_file in migration_dir.rglob("up.sql"):
-                findings.extend(self._check_dangerous_ddl(str(sql_file)))
-            findings.extend(self._check_metadata_consistency(ctx, migration_dir))
-
-        return ValidationResult(validator_id=self.id, findings=findings)
+        return findings
 
     def _find_migration_dir(self, ctx: ProjectContext) -> Path | None:
         """Find the migration directory for the current project."""

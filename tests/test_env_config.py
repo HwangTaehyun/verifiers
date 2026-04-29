@@ -770,15 +770,19 @@ class TestValidateIntegration:
         ts_file.write_text("const x = import.meta.env.VITE_MISSING;\n")
 
         validator = EnvConfigValidator()
-        result = validator.validate(project_ctx)
+        # Phase29+ API: project-level checks live in validate_project. The
+        # legacy `validator.validate(ctx)` call no longer triggers the
+        # full battery because the base dispatch needs an explicit mode
+        # ("stop") or file_path (PostToolUse) to know which lane to fire.
+        findings = validator.validate_project(project_ctx)
 
-        rules_found = {f.rule for f in result.findings}
+        rules_found = {f.rule for f in findings}
         assert "V01-SECRET-IN-CONFIG" in rules_found
         assert "V01-ENV-MISSING" in rules_found
         assert "V01-CONFIG-KEY-MISSING" in rules_found
         assert "V01-VITE-ENV-MISSING" in rules_found
-        assert result.has_errors  # SECRET-IN-CONFIG is an error
-        assert result.has_warnings  # ENV-MISSING and VITE-ENV-MISSING are warnings
+        assert any(f.severity == "error" for f in findings)  # SECRET-IN-CONFIG is an error
+        assert any(f.severity == "warning" for f in findings)  # ENV-MISSING and VITE-ENV-MISSING are warnings
 
 
 # ===========================================================================
