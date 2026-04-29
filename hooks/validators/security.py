@@ -25,15 +25,11 @@ from lib.project_context import ProjectContext
 
 # ── Secret patterns ──────────────────────────────────────────────────────────
 
-SECRET_REGEXES: list[tuple[str, str]] = [
-    (r"AKIA[A-Z0-9]{16}", "AWS Access Key"),
-    (r"ghp_[a-zA-Z0-9]{36}", "GitHub Personal Access Token"),
-    (r"gho_[a-zA-Z0-9]{36}", "GitHub OAuth Token"),
-    (r"sk-[a-zA-Z0-9]{20,}", "OpenAI/Anthropic API Key"),
-    (r"sk_live_[a-zA-Z0-9]{20,}", "Stripe Live Key"),
-    (r"xoxb-[a-zA-Z0-9\-]+", "Slack Bot Token"),
-    (r'password\s*[:=]\s*["\'][^"\'$\{]{8,}["\']', "Hardcoded password"),
-]
+# Phase38 (A3 audit): regex set is now shared with Tier 1 via
+# ``lib.secret_regexes``. Pre-Phase38 V08 carried its own copy that
+# missed the P2-2 ``${`` / ``${}`` template-placeholder fix; centralizing
+# in lib closes the drift surface for good.
+from lib.secret_regexes import SECRET_REGEXES  # noqa: E402  (after sys.path mutation)
 
 EXCLUDE_PATHS = [
     ".env.example",

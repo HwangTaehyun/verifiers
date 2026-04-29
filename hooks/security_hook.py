@@ -24,42 +24,18 @@ from pathlib import Path
 # and {{...}} (Go/Jinja/Helm template placeholders) so that, e.g.,
 #   password = "{{ env.PASSWORD }}"
 # does not produce a V08-HARDCODED-SECRET false positive (P2-2).
-SECRET_REGEXES: list[tuple[str, str]] = [
-    (r"AKIA[A-Z0-9]{16}", "AWS Access Key"),
-    (r"ghp_[a-zA-Z0-9]{36}", "GitHub Personal Access Token"),
-    (r"gho_[a-zA-Z0-9]{36}", "GitHub OAuth Token"),
-    (r"sk-[a-zA-Z0-9]{20,}", "OpenAI/Anthropic API Key"),
-    (r"sk_live_[a-zA-Z0-9]{20,}", "Stripe Live Key"),
-    (r"xoxb-[a-zA-Z0-9\-]+", "Slack Bot Token"),
-    (r"""password\s*[:=]\s*["'][^"'${}]{8,}["']""", "Hardcoded password"),
-]
-
-
-# Path classification primitives (P2-3): the previous implementation used
-# ``any(exc in file_path for exc in EXCLUDE_PATHS)`` which is a substring
-# match — e.g. "mock" excluded "mockingbird/Real.go" by accident. Each
-# rule below is now anchored to a path component, suffix, or exact name
-# so genuine source files are never falsely skipped.
-_EXCLUDE_DIRS = frozenset(
-    {"fixtures", "testdata", "mock", "mocks", "__tests__", "vendor", "node_modules", "generated", "gen"}
+# Phase38 (A3 audit): regex set + exclusion primitives moved to
+# ``lib/secret_regexes.py`` so Tier 1 and V08 share one source of
+# truth. Re-exported as the legacy module-level names for back-compat
+# with any consumer that imported from this file.
+from lib.secret_regexes import (
+    EXCLUDE_DIRS as _EXCLUDE_DIRS,  # noqa: F401  (re-exported for back-compat)
+    EXCLUDE_EXACT_NAMES as _EXCLUDE_EXACT_NAMES,  # noqa: F401
+    EXCLUDE_FILENAME_PREFIXES as _EXCLUDE_FILENAME_PREFIXES,  # noqa: F401
+    EXCLUDE_FILENAME_SUFFIXES as _EXCLUDE_FILENAME_SUFFIXES,  # noqa: F401
+    SECRET_REGEXES,
+    is_excluded_path as _is_excluded_path,
 )
-_EXCLUDE_FILENAME_PREFIXES = ("test_",)
-_EXCLUDE_FILENAME_SUFFIXES = ("_test.go",)
-# Exact .env names: .env / .env.development / .env.production are allowed
-# to contain secrets (developer-managed). .env.example must still be checked.
-_EXCLUDE_EXACT_NAMES = frozenset({".env", ".env.development", ".env.production"})
-
-
-def _is_excluded_path(file_path: str) -> bool:
-    """Return True iff this path falls into a security-exempt category."""
-    p = Path(file_path)
-    name = p.name
-    if name in _EXCLUDE_EXACT_NAMES:
-        return True
-    if name.startswith(_EXCLUDE_FILENAME_PREFIXES) or name.endswith(_EXCLUDE_FILENAME_SUFFIXES):
-        return True
-    # Path components: directory match must be on a full segment, not a substring.
-    return any(part in _EXCLUDE_DIRS for part in p.parts)
 
 
 def check_secrets(file_path: str) -> list[dict]:
@@ -98,8 +74,12 @@ def check_secrets(file_path: str) -> list[dict]:
 
 
 def main() -> None:
+    # Phase38 (A5 audit): cap stdin at 1 MiB. Claude Code hook payloads
+    # are far smaller than this; the cap exists to neutralize the
+    # documented standalone CLI surface (``echo '{...}' | hook``) so a
+    # misbehaving wrapper can't pipe gigabytes and pin the process.
     try:
-        input_data = json.loads(sys.stdin.read())
+        input_data = json.loads(sys.stdin.read(1_048_576))
     except (json.JSONDecodeError, EOFError):
         print("{}")
         return

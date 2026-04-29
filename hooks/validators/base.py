@@ -271,10 +271,23 @@ def format_output(findings: list[Finding], mode: str) -> dict[str, Any]:
         return {"additionalContext": context}
 
 
+# Phase38 (A5 audit): Claude Code hook payloads are tiny (a few hundred
+# bytes typically), but the standalone CLI surface (``echo '{...}' |
+# uv run --script stop_validator.py``) is documented in the README.
+# A 1 MiB cap blocks ``yes ... | head -c 10G`` style local DoS without
+# clipping any real Claude payload.
+_MAX_STDIN_BYTES = 1_048_576
+
+
 def read_hook_input() -> dict[str, Any]:
-    """Read JSON input from stdin (Claude Code hook protocol)."""
+    """Read JSON input from stdin (Claude Code hook protocol).
+
+    Caps the read at ``_MAX_STDIN_BYTES`` so a misuse of the standalone
+    CLI surface (e.g. piping a huge stream into a hook script for
+    debugging) can't OOM the worker.
+    """
     try:
-        return json.loads(sys.stdin.read())
+        return json.loads(sys.stdin.read(_MAX_STDIN_BYTES))
     except (json.JSONDecodeError, EOFError):
         return {}
 
