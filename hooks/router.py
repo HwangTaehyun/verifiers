@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
-"""Tier 2 full activation: Routes to matching validators by file pattern.
+"""Tier 2 router (P2-1): runs file-pattern-matched validators after Edit/Write.
 
-Used by /verify skill (full activation) — runs all validators that match
-the modified file's pattern.
+Registered on ``PostToolUse`` alongside the Tier 1 ``security_hook.py``
+when ``scripts/merge_settings.py`` runs. Two cost-saving prefilters
+keep this cheap on every Edit:
+
+  1. **Extension prefilter** — if no registered validator's
+     ``should_run(file_path)`` returns True (e.g. a Markdown edit when
+     no validator cares about ``.md``), short-circuit before doing any
+     work.
+  2. **Content-hash cache** — if the file's current bytes match the
+     hash recorded by the previous router run for the same path, skip.
+     Lives at ``<cwd>/.verifiers/state/router-cache.json``.
 
 stdin: {"tool_name": "Edit", "tool_input": {"file_path": "/path"}, "cwd": "/project"}
 stdout: {"additionalContext": "..."} or {}
@@ -25,6 +34,7 @@ from hooks.validators.base import Finding, format_output, read_hook_input, write
 from lib.exclusion import filter_disabled_validators, is_excluded
 from lib.json_logger import log_exception
 from lib.project_context import ProjectContext
+from lib.router_cache import file_content_hash, load_cache, record_hit, save_cache, should_skip
 
 
 def main() -> None:
@@ -49,16 +59,33 @@ def main() -> None:
     # Create project context (loads .verifiers/config.yaml if present)
     ctx = ProjectContext(cwd)
 
-    # P1-4: respect ctx.config.exclude.paths — files matching the project's
-    # exclusion globs are skipped before any validator runs.
+    # ── P1-4: project-configured exclusions ───────────────────────────
     if is_excluded(file_path, ctx.project_root, ctx.config.exclude.paths):
         write_hook_output({})
         return
 
-    # P1-3: drop validators the project explicitly disabled.
+    # ── P1-3: drop validators the project explicitly disabled ────────
     active = filter_disabled_validators(get_all_validators(), ctx.config.validators.disabled)
 
-    # Collect findings from all matching validators
+    # ── P2-1 prefilter 1: extension matching ─────────────────────────
+    # If no active validator declares interest in this file, exit
+    # immediately — saves the cost of opening + hashing the file
+    # for every Markdown / lockfile / yaml edit Claude makes.
+    if not any(v.should_run(file_path) for v in active):
+        write_hook_output({})
+        return
+
+    # ── P2-1 prefilter 2: content-hash cache ─────────────────────────
+    # If the file's bytes exactly match what the router last saw
+    # (e.g. an Edit whose new_string equalled the existing content),
+    # skip the validator suite entirely.
+    cache = load_cache(ctx.project_root)
+    current_hash = file_content_hash(file_path)
+    if should_skip(cache, file_path, current_hash):
+        write_hook_output({})
+        return
+
+    # ── Run matching validators ──────────────────────────────────────
     all_findings: list[Finding] = []
 
     for validator in active:
@@ -74,6 +101,11 @@ def main() -> None:
                     error=exc,
                     context={"file_path": file_path, "cwd": cwd, "mode": "post_tool_use"},
                 )
+
+    # Update the cache so an immediately-following Edit on the same
+    # file with identical content takes the fast path next time.
+    record_hit(cache, file_path, current_hash)
+    save_cache(ctx.project_root, cache)
 
     output = format_output(all_findings, mode="post_tool_use")
     write_hook_output(output)
