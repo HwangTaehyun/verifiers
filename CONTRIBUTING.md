@@ -152,6 +152,27 @@ V09 / V10 / V11 / V19's test files (`tests/test_*_test_runner.py`,
 `tests/test_py_quality.py`) are good references for subprocess-mocking
 patterns.
 
+#### Style: Classical (Chicago) school is mandatory
+
+This project follows the [`test-classical`](skills/test-classical/SKILL.md)
+skill (sourced from [Atipico1/ai-testing-rules](https://github.com/Atipico1/ai-testing-rules)).
+Read the skill once before writing your first test. The short version:
+
+- Mock at the **system boundary** only — `subprocess.run`, real HTTP, real
+  filesystem APIs at the OS level. **Never** mock `BaseValidator.run`,
+  internal helpers, or your own dataclasses.
+- Use real `tmp_path` directories with real files — see
+  `tests/test_router_cache.py`, `tests/test_config_loader.py`,
+  `tests/test_exclusion.py` for the canonical pattern.
+- For collaborator stand-ins, prefer module-level dataclass test doubles
+  (`_PassValidator`, `_CrashValidator` in `tests/test_parallel_runner.py`)
+  over `mock.patch` of internal classes.
+- Assert on **return values and observable state**, not on
+  `assert_called_with(...)` / `mock.call_count`.
+- Test names describe behavior:
+  `test_returns_cached_result_when_fetched_within_ttl`, NOT
+  `test_findUnique_called_once`.
+
 ### 7. Document in the catalog
 
 Add a section to `docs/VERIFIERS-CATALOG.md` §3 covering:

@@ -93,19 +93,33 @@ the original rationale.
 - **2 ruff lint debts**: `E741` ambiguous `l` and `F541` f-string-
   without-placeholder in `docker_compose.py`.
 
-### Deferred (next batch)
+### Added (post-deferred batch)
 
-- **V12 / V09 / V10 / V11 config wiring** (P1-3 follow-up): currently
-  still read hardcoded `LARGE_DIFF_THRESHOLD` and
-  `REPEATED_FAIL_THRESHOLD` constants. Mechanical refactor matching
-  V14's pattern.
-- **Tier 3 parallelization** (P1-5): 19 validators run sequentially in
-  `stop_validator.py`; on large repos this can exceed the 120s hook
-  timeout. Plan: `concurrent.futures.ProcessPoolExecutor(max_workers=4)`
-  with a per-validator 30s timeout. Risk of pickle issues with
-  `JsonLogger` / `ProjectContext` requires a careful test pass.
-- **Tier 2 auto-gateway** (P2-1): the 20 `verify-*` skills are not
-  registered as PostToolUse hooks today, so they fire only when Claude
-  judges them relevant or the user types `/verify`. Two options on the
-  table — explicit hook wiring in `merge_settings.py` (deterministic,
-  costlier) vs. tightening skill descriptions (cheaper, less reliable).
+- **V12 / V09 / V10 / V11 config wiring** (phase11, P1-3 follow-up):
+  the four remaining hardcoded thresholds now read from
+  `ctx.config.thresholds.commit.large_diff_files` and
+  `ctx.config.thresholds.test_runner.repeated_failure_count`.
+  Module-level `LARGE_DIFF_THRESHOLD` / `REPEATED_FAIL_THRESHOLD`
+  constants stay as default fallbacks for back-compat.
+- **Tier 3 ProcessPoolExecutor parallelization** (phase12, P1-5):
+  new `lib/parallel_runner.py` farms each Stop-mode validator into its
+  own worker process (4 workers default, 30s per-validator timeout).
+  Crashed/timed-out validators emit `V##-CRASHED` / `V##-TIMEOUT`
+  sentinel `Finding`s so the Stop hook can never silent-approve.
+  `VERIFIERS_PARALLEL=0` opts out; auto-fallback to sequential on
+  `pickle.PicklingError` or `OSError` during pool setup.
+- **Tier 2 router auto-gateway** (phase13, P2-1): `merge_settings.py`
+  now registers a third hook entry on PostToolUse so `hooks/router.py`
+  fires after every Edit/Write/MultiEdit. Two prefilters keep the
+  per-Edit cost low: an extension prefilter short-circuits when no
+  active validator's `should_run()` matches the file, and a content-
+  hash cache at `<project>/.verifiers/state/router-cache.json` (1000
+  entries, FIFO eviction) skips re-runs on identical content.
+- **`test-classical` skill** (phase14): codifies the Classical
+  (Chicago) testing rules from
+  [Atipico1/ai-testing-rules](https://github.com/Atipico1/ai-testing-rules)
+  — mock only at system boundary, assert on observable state, use real
+  filesystems / module-level dataclass doubles instead of
+  `mock.patch`. Installed alongside the `verify-*` skills via
+  `just install` / `just install-project`. New CONTRIBUTING.md
+  subsection makes the style mandatory for this project.
