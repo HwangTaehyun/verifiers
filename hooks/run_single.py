@@ -86,6 +86,9 @@ NAME_MAP = {
     # V21 — pytest runner (Stop, gated by stop.run_pytest config)
     "pytest": "V21-pytest",
     "py-pytest": "V21-pytest",
+    # V22 — multi-environment consistency (APP_ prefix + drift + viper mapping)
+    "multi-env": "V22-multi-env",
+    "env-consistency": "V22-multi-env",
 }
 
 

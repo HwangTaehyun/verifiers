@@ -69,6 +69,7 @@ def get_all_validators() -> list[BaseValidator]:
     from .hasura_migration import HasuraMigrationValidator
     from .linter_config_guard import LinterConfigGuardValidator
     from .mock_data_guard import MockDataGuardValidator
+    from .multi_env import MultiEnvConsistencyValidator
     from .proto_connect import ProtoConnectValidator
     from .py_pytest import PyPytestValidator
     from .py_quality import PyQualityValidator
@@ -99,6 +100,7 @@ def get_all_validators() -> list[BaseValidator]:
         LinterConfigGuardValidator(),  # V16 — linter config enforcement (stop mode only)
         MockDataGuardValidator(),  # V18 — mock data detection in frontend hooks
         HasuraGraphQLEnforcementValidator(),  # V20 — raw SQL forbidden when Hasura present
+        MultiEnvConsistencyValidator(),  # V22 — APP_ prefix + root/server drift + viper key↔env
     ]
     _assert_registry_invariants(validators)
     return validators
