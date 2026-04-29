@@ -319,34 +319,123 @@ Claude: turn 종료 시도 (Stop 이벤트)
 
 ---
 
-## 6. 주의사항 / 미정합
+## 6. 주의사항 / 구현 이력
 
-조사 중 발견된 비자명 사항입니다.
+본 카탈로그는 Phase 1 ~ Phase 22 까지 누적된 변경을 반영합니다. 초기 조사에서 flagged 된 후 나중에 해결된 항목도 이력으로 남겨둡니다.
 
-1. **`hasura_graphql_enforcement.py` 는 `get_all_validators()` 에 등록되어 있지 않음** — `validators/__init__.py` 를 grep 해도 import 가 없습니다. `verify-hasura-graphql` skill 은 이 모듈을 참조하지만 Tier 3 의 자동 일괄 실행에서는 빠져 있어서 **stop hook 으로는 검사되지 않음**. `/verify` 를 명시적으로 호출하거나 skill 을 직접 부를 때만 동작. 의도된 것인지 확인 필요.
+### 6.1 해결됨 (resolved in later phases)
 
-2. **V17 (UI) 미구현** — `verify-ui` skill 은 존재하지만 validator 모듈 없음. 시각 비교(Chrome DevTools + Pencil/Figma) 는 외부 MCP 호출에 의존.
+1. ~~**`hasura_graphql_enforcement.py` 미등록**~~ → **Phase 3 에서 해결**: `__init__.py` 에 등록 + V15→V20 prefix 재할당. Hasura 미감지 프로젝트는 early-exit 으로 비용 0.
 
-3. **V15 가 두 모듈을 공유** — `dependency_guard.py` 와 `hasura_graphql_enforcement.py` 가 같은 V-ID 접두어를 사용. rule id 까지 보면 구분되지만 (V15-WRONG-DEPENDENCY vs V15-RAW-SQL-FORBIDDEN), V-ID 만으로 모듈 1:1 매핑이 깨지는 유일 케이스.
+2. ~~**V15 가 두 모듈을 공유**~~ → **Phase 3 에서 해결**: hasura_graphql_enforcement 의 모든 rule prefix 가 V20-* 로 이동. V-ID ↔ 모듈 1:1 매핑이 `_assert_registry_invariants` (Phase 3) 로 import 시점에 강제됨.
 
-4. **`docker_prod_deploy.py`** 는 코드베이스에 없고 `__init__.py:18` 에 `# TODO: not yet implemented` 주석으로 남아있음 (V17 자리).
+3. ~~**`hasura_graphql_enforcement.py` 가 깨진 코드 (실제로 한 번도 작동 안함)**~~ → **Phase 3 에서 재구현**: `Finding(code=…, file_path=…, line_number=…, details=…)` 같은 존재하지 않는 필드 사용 + `ctx.changed_files` 같은 없는 속성 참조를 모두 정리.
 
-5. **`run_single.py`** 는 등록 흐름에 없음 — `just verify-one V<NN>` 으로 단일 validator 만 실행하는 디버그 진입점. CI 나 hook 에서는 호출되지 않음.
+### 6.2 의도적 미해결 (intentional gaps)
 
-6. **Tier 1 의 시크릿 패턴 셋이 Tier 3 V08 의 셋보다 작음** — Tier 1 은 7 개 정규식, V08 (`security.py`) 은 더 풍부한 패턴 + CORS + PHI + .gitignore. Tier 1 은 의도적으로 가벼운 첫 줄 방어.
+4. **V17 (UI) 미구현** — `verify-ui` skill 은 외부 MCP 호출 (Chrome DevTools, Pencil/Figma) 에 의존하기 때문에 Python validator 로 적합하지 않음. `__init__.py` 의 `# TODO: not yet implemented` 주석은 의도적.
+
+5. **`run_single.py` 는 hook 흐름에 없음** — `just verify-one V<NN>` 의 디버그 진입점이며 CI 나 자동 hook 에서는 호출되지 않음. NAME_MAP 은 `__init__.py:get_all_validators()` 와 lockstep 으로 관리.
+
+6. **Tier 1 의 시크릿 패턴 셋이 Tier 3 V08 의 셋보다 작음** — Tier 1 (security_hook.py) 은 7 개 정규식, V08 (security.py) 은 더 풍부한 패턴 + CORS + PHI + .gitignore. Tier 1 은 의도적으로 가벼운 첫 줄 방어.
 
 ---
 
-## 7. 정리 (TL;DR)
+## 7. Configuration system (Phase 6, 7, 15, 17, 19, 21)
 
-- **세 Tier 의 분업이 핵심**:
-  - Tier 1 (`security_hook.py`, < 100 ms, regex only) — 시크릿 누설 즉시 차단.
-  - Tier 2 (`hooks/router.py` + 20 개 skill) — Claude 또는 사용자가 상황 판단해 호출하는 상세 검증.
-  - Tier 3 (`stop_validator.py`, ≤ 120 s, 19 개 validator) — turn 종료 게이트. 회로차단기와 반복 위반 트래커로 deadlock 회피.
-- **register 위치**: `scripts/merge_settings.py` 가 글로벌/프로젝트 양쪽의 `settings.json` 에 Tier 1+3 만 등록. Tier 2 는 hook 자동발동 X (skill 시스템으로만).
-- **검사 분류**:
+`<project>/.verifiers/config.yaml` 가 21+ 개 knob 으로 검증 동작을 조정합니다. 자세한 schema 는 [`/docs/CONFIGURATION.md`](CONFIGURATION.md) — 여기서는 카탈로그 관점만 정리.
+
+### 7.1 Knob 카테고리
+
+| 카테고리                     | 영향 받는 validator              | Phase | 핵심 키 |
+| ---------------------------- | -------------------------------- | ----- | ------- |
+| `thresholds.complexity.*`    | V14                              | 7     | cyclomatic / cognitive / function_lines / nesting / params |
+| `thresholds.commit.*`        | V12                              | 11    | large_diff_files |
+| `thresholds.test_runner.*`   | V09 / V10 / V11                  | 11    | repeated_failure_count |
+| `exclude.paths` (글로벌)      | 모든 validator (router post-filter) | 7     | gitignore-style globs |
+| `exclude.per_validator`      | 특정 validator 만               | 15    | `{V-id-or-prefix: [globs]}` |
+| `validators.enabled`         | 모든 validator                   | 16    | strict allowlist (typo 시 hard-fail, Phase 22) |
+| `validators.disabled`        | 모든 validator                   | 7     | deny-list (allowlist 와 함께면 disabled 우선) |
+| `security.*`                 | V08                              | 19    | phi_check_enabled / phi_fields / required_gitignore |
+| `docker.*`                   | V05                              | 21    | vhost_check_mode (BREAKING) / reverse_proxy_networks / filename / stage names |
+
+### 7.2 적용 우선순위 (router 단)
+
+```
+Edit/Write file
+  ↓
+1. global exclude.paths        — 매칭 → router 자체 종료
+  ↓ (통과)
+2. validators.enabled         — non-empty + 0 매칭 → CONFIG-EMPTY-ALLOWLIST 에러
+  ↓ (통과)
+3. validators.disabled        — V-ID 매칭 validator 제거
+  ↓
+4. exclude.per_validator      — 파일×validator 단위 skip
+  ↓
+5. validator.should_run(file) — file_patterns 매칭 안 하는 validator 제거
+  ↓
+6. content-hash cache         — 직전과 동일 내용 → router 종료
+  ↓
+7. 살아남은 validator 들 실제 실행
+```
+
+stop_validator (Tier 3) 는 (1)·(2)·(3) 만 순차 적용 후 모든 validator 를 일괄 실행하고, 결과 finding 들을 `_apply_exclude_filters` 가 `(1) + per_validator` 로 post-filter (Phase 17).
+
+---
+
+## 8. Tier 3 parallelism + sentinel findings (Phase 12)
+
+`hooks/stop_validator.py` 는 19 개 validator 를 `lib/parallel_runner.run_all` 을 통해 **`ProcessPoolExecutor(max_workers=4)`** 로 병렬 실행합니다. 합성 워크로드 측정에서 **2.47× speedup** (`scripts/benchmark_stop.py`).
+
+### 8.1 안전망 — Sentinel findings
+
+| Rule                           | 발생 조건                                            | severity  |
+| ------------------------------ | ---------------------------------------------------- | --------- |
+| `V##-CRASHED`                  | validator 가 던진 예외                                | warning   |
+| `V##-TIMEOUT`                  | per-validator 30 s timeout 초과                       | warning   |
+| `VERIFIERS-CONFIG-EMPTY-ALLOWLIST` | `validators.enabled` 가 0 개 매칭 (typo, Phase 22) | error     |
+
+핵심 invariant: **silent false-approve 금지**. 어떤 형태의 실패든 finding 으로 surface 되어 사용자가 "검사가 통과했다" 라고 착각할 수 없게 함.
+
+### 8.2 Opt-out
+
+- `VERIFIERS_PARALLEL=0` env var: sequential fallback. CI 디버깅용.
+- 자동 fallback: `pickle.PicklingError` 또는 pool setup `OSError` 시 sequential 로 자동 전환 (사용자 turn 차단 방지).
+
+---
+
+## 9. Tier 2 auto-gateway + content cache (Phase 13)
+
+이전 카탈로그가 작성된 시점엔 **Tier 2 router 가 hook 자동등록 안 됨** 이라고 적혀 있었습니다 (`/verify` 명령으로만 동작). **Phase 13 에서 변경됨**:
+
+- `scripts/merge_settings.py` 가 PostToolUse 에 **3 개 hook 등록**:
+  1. Tier 1: `security_hook.py` (< 100 ms, 시크릿 즉시 차단)
+  2. **Tier 2: `router.py`** (≤ 60 s, 상황별 validator 자동 디스패치) ← Phase 13 추가
+  3. Tier 3 hook: `Stop` 이벤트 시 `stop_validator.py` (≤ 120 s)
+
+### 9.1 Tier 2 의 두 prefilter
+
+매 Edit/Write 마다 router 가 전체 발동되면 비싸므로:
+
+1. **확장자 prefilter**: 어떤 active validator 도 `should_run(file)` True 가 안 나오면 즉시 종료 (`.md` / lockfile / 무관한 yaml 등).
+2. **Content-hash 캐시**: 파일의 sha256 이 직전 router run 과 같으면 skip. `<cwd>/.verifiers/state/router-cache.json` (1000 entry FIFO).
+
+이 두 가드 덕분에 PostToolUse 매번 발동의 cost 가 의미있게 낮아짐.
+
+---
+
+## 10. 정리 (TL;DR — Phase 22 기준)
+
+- **세 Tier 분업**:
+  - **Tier 1** (`security_hook.py`, < 100 ms, regex only) — 시크릿 누설 즉시 차단. 항상 자동.
+  - **Tier 2** (`router.py` + 20 개 skill, ≤ 60 s, content-cache + 확장자 prefilter) — 상황별 validator 자동. **Phase 13 부터 hook 자동등록**.
+  - **Tier 3** (`stop_validator.py`, ≤ 120 s, 19 개 validator, ProcessPoolExecutor 4w) — turn 종료 게이트. circuit breaker (3 회 연속 block 시 통과) + FeedbackTracker + sentinel findings.
+- **3 hook 등록 위치**: `scripts/merge_settings.py` 가 글로벌/프로젝트 양쪽의 `settings.json` 에 Tier 1+2+3 모두 등록.
+- **검사 분류** (V01–V20, V17 미구현):
   - 보안: V01 (config 시크릿), V08 (전체 시크릿/CORS/PHI/.gitignore) — Tier 1 도 같은 라인.
   - 코드 품질: V06 (Go), V07 (TS), V19 (Python), V14 (복잡도), V15 (의존 방향), V16 (린터 설정).
   - 테스트 무결성: V09/V10/V11 (언어별 테스트 러너), V13 (AI 치팅 방지).
-  - 인프라/스키마: V05 (Docker), V04 (Hasura migration), V02 (genqlient), V03 (proto/Connect).
-  - 운영 위생: V12 (commit), V18 (mock data), (V17 UI - 미구현).
+  - 인프라/스키마: V05 (Docker), V04 (Hasura migration), V02 (genqlient), V03 (proto/Connect), V20 (Hasura GraphQL enforcement).
+  - 운영 위생: V12 (commit), V18 (mock data).
+- **Configuration**: 21+ knob via `.verifiers/config.yaml`. Hard-fail on `validators.enabled` typo. 자세히는 [`/docs/CONFIGURATION.md`](CONFIGURATION.md).
+- **테스트 안전망**: 1005+ tests, Tier 3 dogfood CI, PEP 723 inline-deps drift gate, classical-school test 강제 (CONTRIBUTING).
