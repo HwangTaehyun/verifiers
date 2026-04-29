@@ -22,8 +22,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from hooks.validators import get_all_validators
-from hooks.validators.base import format_output, read_hook_input, write_hook_output
-from lib.exclusion import filter_disabled_validators
+from hooks.validators.base import Finding, format_output, read_hook_input, write_hook_output
+from lib.exclusion import (
+    filter_disabled_validators,
+    filter_enabled_validators,
+    is_excluded,
+    is_excluded_for_validator,
+)
 from lib.feedback_tracker import FeedbackTracker
 from lib.json_logger import log_exception
 from lib.parallel_runner import run_all
@@ -31,6 +36,41 @@ from lib.project_context import ProjectContext
 
 
 _MAX_CONSECUTIVE_BLOCKS = 3  # Approve after N consecutive blocks to prevent infinite loop
+
+
+def _apply_exclude_filters(findings: list[Finding], ctx: ProjectContext) -> list[Finding]:
+    """Drop findings whose file path is in ``exclude.paths`` (global) or
+    in ``exclude.per_validator[<v-id>]`` for the rule's owning validator.
+
+    Validator-id resolution: each Finding carries ``rule`` like
+    ``V20-RAW-SQL-FORBIDDEN``; the V-ID prefix (``V20``) is what
+    ``per_validator`` config keys match against. Both forms work in
+    config — ``V20`` (prefix) and ``V20-hasura-graphql`` (full id) —
+    because ``is_excluded_for_validator`` handles both internally.
+
+    Findings without a file path (e.g., project-level proto warnings)
+    can't be path-filtered and pass through unchanged.
+    """
+    paths = ctx.config.exclude.paths
+    per_validator = ctx.config.exclude.per_validator
+    if not paths and not per_validator:
+        return findings
+
+    out: list[Finding] = []
+    for f in findings:
+        # Some findings (e.g., schema-level proto warnings) have file=""
+        # or a non-file marker. Skip filtering for those.
+        if not f.file:
+            out.append(f)
+            continue
+        if paths and is_excluded(f.file, ctx.project_root, paths):
+            continue
+        if per_validator:
+            vid_prefix = f.rule.split("-", 1)[0] if f.rule else ""
+            if vid_prefix and is_excluded_for_validator(f.file, ctx.project_root, per_validator, vid_prefix):
+                continue
+        out.append(f)
+    return out
 
 
 def main() -> None:
@@ -50,15 +90,30 @@ def main() -> None:
     # Create project context
     ctx = ProjectContext(cwd)
 
-    # Run ALL validators in stop mode (comprehensive check), minus any that
-    # the project disabled in .verifiers/config.yaml (P1-3).
-    active = filter_disabled_validators(get_all_validators(), ctx.config.validators.disabled)
+    # P1-3: enabled allowlist + disabled deny-list (disabled wins on
+    # conflict). Empty enabled list means "no allowlist filtering" so
+    # the default behaviour (all validators run) is preserved.
+    active = filter_enabled_validators(get_all_validators(), ctx.config.validators.enabled)
+    active = filter_disabled_validators(active, ctx.config.validators.disabled)
 
     # Parallel by default (4 workers, 30s per-validator timeout). Set
     # VERIFIERS_PARALLEL=0 to fall back to the legacy sequential loop.
     # Crashed/timed-out validators contribute V##-CRASHED / V##-TIMEOUT
     # sentinel findings so the user can never get a silent false-approve.
     all_findings = run_all(active, ctx, mode="stop")
+
+    # Post-filter findings by config.exclude — Tier 3 parity with Tier 2 router.
+    # Without this filter the Stop hook would report violations that the
+    # router (PostToolUse) already silenced, defeating the purpose of
+    # `exclude.paths` / `exclude.per_validator` in stop mode.
+    #
+    # Reasons we filter findings (not files-pre-scan):
+    #   1. validators here scan the project themselves; we don't have a
+    #      single per-file dispatch point like router.py does.
+    #   2. Findings carry the absolute file path that matched, so
+    #      filtering them is straightforward and keeps validator
+    #      internals unchanged.
+    all_findings = _apply_exclude_filters(all_findings, ctx)
 
     # Track findings for repeated violation detection
     tracker = FeedbackTracker()

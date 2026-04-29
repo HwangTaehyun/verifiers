@@ -31,7 +31,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from hooks.validators import get_all_validators
 from hooks.validators.base import Finding, format_output, read_hook_input, write_hook_output
-from lib.exclusion import filter_disabled_validators, is_excluded, is_excluded_for_validator
+from lib.exclusion import (
+    filter_disabled_validators,
+    filter_enabled_validators,
+    is_excluded,
+    is_excluded_for_validator,
+)
 from lib.json_logger import log_exception
 from lib.project_context import ProjectContext
 from lib.router_cache import file_content_hash, load_cache, record_hit, save_cache, should_skip
@@ -64,8 +69,12 @@ def main() -> None:
         write_hook_output({})
         return
 
-    # ── P1-3: drop validators the project explicitly disabled ────────
-    active = filter_disabled_validators(get_all_validators(), ctx.config.validators.disabled)
+    # ── P1-3: enabled allowlist + disabled deny-list ────────────────
+    # ``enabled`` is applied first as a strict allowlist (empty = no
+    # filter), then ``disabled`` subtracts from whatever remains so it
+    # always wins on conflict (matches the README's documented order).
+    active = filter_enabled_validators(get_all_validators(), ctx.config.validators.enabled)
+    active = filter_disabled_validators(active, ctx.config.validators.disabled)
 
     # ── Phase15: per-validator file exclusion ────────────────────────
     # Drop validators that the user told to skip *this specific file*

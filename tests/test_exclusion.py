@@ -7,7 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from lib.exclusion import filter_disabled_validators, is_excluded, is_excluded_for_validator
+from lib.exclusion import (
+    filter_disabled_validators,
+    filter_enabled_validators,
+    is_excluded,
+    is_excluded_for_validator,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -159,3 +164,51 @@ class TestIsExcludedForValidator:
         per_v = {"V14": ["legacy/**"]}
         # Path outside root — relativize fails, raw fnmatch is used.
         assert is_excluded_for_validator("/tmp/elsewhere/legacy/x.go", tmp_path, per_v, "V14-complexity-guard") is False
+
+
+# ---------------------------------------------------------------------------
+# 4. filter_enabled_validators — allowlist semantics (Phase16 A)
+# ---------------------------------------------------------------------------
+
+
+class TestFilterEnabledValidators:
+    @pytest.fixture
+    def validators(self) -> list[_FakeValidator]:
+        return [
+            _FakeValidator(id="V01-env-config"),
+            _FakeValidator(id="V08-security"),
+            _FakeValidator(id="V14-complexity-guard"),
+            _FakeValidator(id="V20-hasura-graphql"),
+        ]
+
+    def test_empty_allowlist_keeps_all(self, validators: list[_FakeValidator]) -> None:
+        # Empty list = no allowlist filter (matches README defaults).
+        assert filter_enabled_validators(validators, []) == validators
+
+    def test_v_id_prefix_keeps_only_listed(self, validators: list[_FakeValidator]) -> None:
+        out = filter_enabled_validators(validators, ["V14"])
+        assert [v.id for v in out] == ["V14-complexity-guard"]
+
+    def test_full_id_keeps_only_listed(self, validators: list[_FakeValidator]) -> None:
+        out = filter_enabled_validators(validators, ["V08-security"])
+        assert [v.id for v in out] == ["V08-security"]
+
+    def test_multiple_entries(self, validators: list[_FakeValidator]) -> None:
+        out = filter_enabled_validators(validators, ["V01", "V20"])
+        assert [v.id for v in out] == ["V01-env-config", "V20-hasura-graphql"]
+
+    def test_unknown_id_silently_filters_to_empty(self, validators: list[_FakeValidator]) -> None:
+        # User typo or removed validator — return empty rather than crash.
+        out = filter_enabled_validators(validators, ["V99-not-real"])
+        assert out == []
+
+    def test_combined_with_disabled_disabled_wins(self, validators: list[_FakeValidator]) -> None:
+        # Same precedence rule the router applies: enabled THEN disabled,
+        # so disabled subtracts from the allowlist.
+        allowed = filter_enabled_validators(validators, ["V01", "V08", "V14"])
+        final = filter_disabled_validators(allowed, ["V14"])
+        assert [v.id for v in final] == ["V01-env-config", "V08-security"]
+
+    def test_returns_new_list(self, validators: list[_FakeValidator]) -> None:
+        out = filter_enabled_validators(validators, [])
+        assert out is not validators

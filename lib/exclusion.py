@@ -65,6 +65,30 @@ def filter_disabled_validators(validators, disabled: list[str]):
     return out
 
 
+def filter_enabled_validators(validators, enabled: list[str]):
+    """Keep only validators whose V-ID prefix or full id is in the allowlist.
+
+    Empty ``enabled`` means **no allowlist** — every validator passes
+    through (the README's default semantics: "비워두면 모든 validator
+    활성"). When non-empty, this is a strict allowlist: only validators
+    explicitly named survive. Combine with ``filter_disabled_validators``
+    to subtract from the allowlist (router applies enabled THEN disabled
+    so ``disabled`` wins on conflict).
+
+    Names follow the same form as ``filter_disabled_validators``:
+    full id (``"V01-env-config"``) or just the V-ID prefix (``"V01"``).
+    """
+    if not enabled:
+        return list(validators)
+    enabled_set = set(enabled)
+    out = []
+    for v in validators:
+        prefix = v.id.split("-", 1)[0]
+        if v.id in enabled_set or prefix in enabled_set:
+            out.append(v)
+    return out
+
+
 def is_excluded_for_validator(
     file_path: str,
     project_root: Path,
@@ -79,6 +103,13 @@ def is_excluded_for_validator(
     (``"V14"``); both forms are checked so configs can use whichever the
     user prefers in ``.verifiers/config.yaml``.
 
+    The ``validator_id`` argument may itself be either form. When it's a
+    bare prefix (``"V14"``) — as happens in
+    ``hooks/stop_validator.py:_apply_exclude_filters`` where only a
+    finding's rule is available — we also match any config key that
+    starts with ``"<prefix>-"`` so a config written with full ids still
+    applies.
+
     Returns False fast when the map is empty (the common case).
     """
     if not per_validator:
@@ -86,12 +117,18 @@ def is_excluded_for_validator(
 
     prefix = validator_id.split("-", 1)[0]  # "V14-complexity-guard" → "V14"
 
-    # Patterns can be registered under either form; merge both buckets.
+    # Patterns can be registered under either form; merge all matching buckets.
     patterns: list[str] = []
     if validator_id in per_validator:
         patterns.extend(per_validator[validator_id])
     if prefix != validator_id and prefix in per_validator:
         patterns.extend(per_validator[prefix])
+    # Bare-prefix caller (e.g. _apply_exclude_filters): also pick up any
+    # full-id keys in the same V-NN family.
+    if validator_id == prefix:
+        for key, vals in per_validator.items():
+            if key != prefix and key.startswith(f"{prefix}-"):
+                patterns.extend(vals)
 
     if not patterns:
         return False

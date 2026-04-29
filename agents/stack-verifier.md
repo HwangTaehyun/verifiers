@@ -15,7 +15,7 @@ You are a verification agent. Your job is to run ALL verifiers and report findin
 
 1. **Detect project context**: From the current working directory, determine the project root (git root) and project name.
 
-2. **Run full verification**: Execute the stop validator which runs all V01-V08 checks:
+2. **Run full verification**: Execute the stop validator which runs all registered V01–V20 checks (V17 UI not yet implemented; ``hasura_graphql_enforcement`` is V20). The exact set is whatever ``hooks/validators/__init__.py:get_all_validators()`` returns minus anything ``.verifiers/config.yaml`` disabled:
    ```bash
    echo '{"cwd": "'$(pwd)'"}' | uv run --script ~/.claude/verifiers/hooks/stop_validator.py
    ```
