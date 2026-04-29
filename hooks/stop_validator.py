@@ -22,10 +22,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from hooks.validators import get_all_validators
-from hooks.validators.base import Finding, format_output, read_hook_input, write_hook_output
+from hooks.validators.base import format_output, read_hook_input, write_hook_output
 from lib.exclusion import filter_disabled_validators
 from lib.feedback_tracker import FeedbackTracker
 from lib.json_logger import log_exception
+from lib.parallel_runner import run_all
 from lib.project_context import ProjectContext
 
 
@@ -53,20 +54,11 @@ def main() -> None:
     # the project disabled in .verifiers/config.yaml (P1-3).
     active = filter_disabled_validators(get_all_validators(), ctx.config.validators.disabled)
 
-    all_findings: list[Finding] = []
-
-    for validator in active:
-        try:
-            result = validator.run(ctx, file_path=None, mode="stop")
-            all_findings.extend(result.findings)
-        except Exception as exc:
-            # Individual validator failure shouldn't block the stop, but
-            # we record it so debugging is possible (P0-4).
-            log_exception(
-                source=f"stop_validator/{validator.id}",
-                error=exc,
-                context={"cwd": cwd, "mode": "stop"},
-            )
+    # Parallel by default (4 workers, 30s per-validator timeout). Set
+    # VERIFIERS_PARALLEL=0 to fall back to the legacy sequential loop.
+    # Crashed/timed-out validators contribute V##-CRASHED / V##-TIMEOUT
+    # sentinel findings so the user can never get a silent false-approve.
+    all_findings = run_all(active, ctx, mode="stop")
 
     # Track findings for repeated violation detection
     tracker = FeedbackTracker()

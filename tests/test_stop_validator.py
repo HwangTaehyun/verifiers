@@ -13,6 +13,23 @@ import json
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def disable_parallel(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force the sequential fallback for these tests.
+
+    The stop_validator integration tests rely on
+    ``mock.patch("hooks.validators.base.BaseValidator.run", ...)`` to
+    inject fake findings, but mocks don't propagate into subprocess
+    workers spawned by ``ProcessPoolExecutor`` — running parallel here
+    would call the REAL validators against an empty tmp_path, producing
+    legitimate (and unwanted) findings. The parallel runner has its own
+    test file (``test_parallel_runner.py``).
+    """
+    monkeypatch.setenv("VERIFIERS_PARALLEL", "0")
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
