@@ -10,6 +10,128 @@ the original rationale.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-30
+
+Third tagged release. Closes the Phase 27 ultrathink **target-project**
+audit (the `ai-project-template` companion) by shipping five new
+validators (V22, V23, V25, V26, V27) — V24 (Hasura permission audit)
+was deliberately cut after user review — plus a V07 boost for Vite
+`import.meta.env.VITE_*` typing coverage.
+
+The target was a real OSS template the user maintains: env / config
+(Viper) / docker compose / proto / genqlient. Each new validator
+crystallizes a class of breakage that the existing V01–V21 surface
+silently allowed.
+
+Test count: 1124 → 1130 (six new TestViteEnvTyped cases on top of
+the per-validator suites added in Phases 42–47). Total: ~1130
+passing.
+
+### Added
+
+- **V22 — Multi-Environment Consistency** (Phase42, Phase27 audit
+  proposal A): three rules around APP_-prefixed env vars across
+  `.env.example`, `server/config/*.local.yaml`, and `viper.BindEnv`
+  call sites.
+  - `V22-ENV-PREFIX-DRIFT`: `.env.example` keys with no APP_ prefix
+    while a co-located `viper.SetEnvPrefix("APP")` exists.
+  - `V22-ENV-CONFIG-DRIFT`: keys present in `.env.example` but missing
+    from any `server/config/*.local.yaml` (or vice versa) — a
+    classic source of "works on dev, blank on staging" bugs.
+  - `V22-VIPER-MISSING-BIND`: a `config.GetX("foo.bar")` call with no
+    matching `viper.BindEnv("foo.bar", ...)` — the value is read but
+    will never be sourced from the environment.
+- **V23 — Buf Governance** (Phase43, Phase27 audit proposal B): three
+  rules over `buf.yaml`, `buf.lock`, `buf.gen.yaml`, and the
+  `server/proto/` tree.
+  - `V23-BUF-LOCK-DRIFT`: `buf.lock` digest mismatch versus the
+    `buf.yaml` deps list (catches stale-lock PRs before they hit CI).
+  - `V23-BUF-BREAKING`: invokes `buf breaking --against` against the
+    base ref when `breaking:` is configured; preserves Buf's own rule
+    IDs as `V23-BUF-BREAKING-<rule>`.
+  - `V23-PROTOVALIDATE-MISSING`: a request message field declared
+    `string` / `int32` / `repeated` without a `[(buf.validate.field)
+    = ...]` annotation is flagged as a hint (not an error); zero
+    annotations across the entire proto tree warns once at
+    `buf.yaml`.
+- **V25 — Go Multi-Binary Discipline** (Phase45, Phase27 audit
+  proposal D): three rules covering the `cmd/<name>/` folder layout
+  used by the target project.
+  - `V25-NO-GRACEFUL-SHUTDOWN`: a `cmd/*/main.go` that calls
+    `http.ListenAndServe` without a `signal.NotifyContext` /
+    `srv.Shutdown` pair (= `kill -TERM` drops in-flight requests).
+  - `V25-MISSING-TOOLS-GO`: any `bun run`-style invocation of a
+    Go tool whose import is missing from `tools.go` (the
+    underscore-import build tag pattern).
+  - `V25-AIR-MAPPING-DRIFT`: a `.air.toml` whose `cmd` / `bin`
+    entries don't resolve to a real `cmd/<name>/main.go`.
+- **V26 — Docker Compose Production Hardening** (Phase46): four
+  rules over `docker-compose.prod.yaml` (and any file matched by
+  `docker.production_filename_patterns`).
+  - `V26-NO-RESOURCE-LIMITS`: a service without `deploy.resources.
+    limits.{cpus, memory}` (or top-level `mem_limit` / `cpus` for
+    Compose v2 fallback).
+  - `V26-NO-HEALTHCHECK`: a service without `healthcheck:` (or
+    `healthcheck: disable: true` left in a production file).
+  - `V26-INSECURE-SECRET-MOUNT`: secret env files mounted as plain
+    `volumes:` instead of `secrets:` blocks (= file is world-readable
+    in the container).
+  - `V26-VHOST-LOCALHOST`: `VIRTUAL_HOST=localhost` (or `127.0.0.1`)
+    in a production-classified compose, which silently breaks
+    nginx-proxy SNI.
+- **V27 — Connect-RPC Handler Completeness** (Phase47): three rules
+  cross-referencing `server/proto/**/*.proto` against
+  `server/internal/**/*.go` connectrpc handlers.
+  - `V27-UNIMPLEMENTED-RPC`: an `rpc Foo(...)` declared in the proto
+    but no `func (s *FooServiceServer) Foo(...)` Go method.
+  - `V27-NO-INTERCEPTORS` / `V27-MISSING-{AUTH,LOGGING,VALIDATION}-
+    INTERCEPTOR`: a `*Connect.NewXHandler(impl, ...)` call site with
+    no `connect.WithInterceptors(...)` (or with one missing the
+    auth / logging / validation triplet — the project's documented
+    middleware set).
+  - `V27-RAW-ERROR-RETURN`: a handler that returns
+    `nil, err` or `nil, ErrSomething` instead of wrapping with
+    `connect.NewError(connect.Code…, …)` — produces an opaque
+    `unknown` gRPC code on the wire.
+  - Gated on a Connect import being present anywhere in the Go
+    tree, so projects that only ship gRPC (or don't use connectrpc
+    at all) pay zero cost.
+- **V07-VITE-ENV-TYPED** (Phase48, V07 boost from the same audit):
+  every `import.meta.env.VITE_*` reference must appear as a
+  `readonly VITE_*: string` declaration inside
+  `web/src/vite-env.d.ts` (or `env.d.ts`). Without the typed
+  declaration, TypeScript falls back to `string | undefined` /
+  `any`, hiding "set in dev but missing in prod" bugs at the
+  type level. The `.d.ts` itself is excluded from the scan loop
+  so example comments don't self-flag. Six new tests.
+- **`skills/V##-{name}/SKILL.md` for V22–V27**: every new
+  validator ships with the Rules / Why / Design / How-it-checks /
+  Could-be-more-effective / References / Examples template that
+  Phase 41a/b/c retrofitted onto V01–V21. The target-project
+  bibliography (Buf, connectrpc, Vite, Compose deploy reference)
+  is cited inline.
+
+### Changed
+
+- **V07 SKILL.md**: V07-VITE-ENV-TYPED row added to Rules; new
+  `_check_vite_env_typed` block in How-it-checks; "vite-env.d.ts
+  typing strictness" item in Could-be-more-effective replaced
+  with a follow-up about `.env.example` ↔ `vite-env.d.ts`
+  cross-check (one rung up from this release).
+- **`run_single.py` NAME_MAP**: short aliases added for the five
+  new validators (`multi-env`, `buf`, `multibinary`, `docker-prod`,
+  `connect-handler`, plus their fully-qualified equivalents).
+
+### Removed
+
+- **V24 — Hasura Permission Audit**: deliberately cut after user
+  review. The original proposal C (Phase44) covered Hasura
+  permission JSON drift, but the user determined that V20 (Hasura
+  GraphQL Enforcement) plus Hasura's own metadata-export round-trip
+  already catches the regressions V24 would have detected. The
+  V24 namespace stays reserved (no V-ID reuse) so audit references
+  in older commits remain stable.
+
 ## [0.3.0] - 2026-04-30
 
 Second tagged release. Closes the entire Phase 27 ultrathink audit

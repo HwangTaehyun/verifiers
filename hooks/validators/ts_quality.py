@@ -83,6 +83,7 @@ class TsQualityValidator(BaseValidator):
         findings.extend(self._check_eslint_full(ctx))
         findings.extend(self._check_circular_imports(ctx))
         findings.extend(self._check_unused_code(ctx))
+        findings.extend(self._check_vite_env_typed(ctx))
         return findings
 
     # ── Check 1: any type ────────────────────────────────────────────────
@@ -460,6 +461,114 @@ class TsQualityValidator(BaseValidator):
                         )
                     )
 
+        return findings
+
+    # ── Check 9: Vite env.d.ts typed enforcement (Phase48) ────────────────
+
+    def _check_vite_env_typed(self, ctx: ProjectContext) -> list[Finding]:
+        """V07-VITE-ENV-TYPED: every ``import.meta.env.VITE_*`` referenced in
+        the codebase must be declared in ``web/src/vite-env.d.ts`` (or
+        ``env.d.ts``) so TypeScript narrows the access type.
+
+        Without the typing, ``import.meta.env.VITE_FOO`` silently has type
+        ``string | undefined`` (or worse, ``any``) and the user's code can
+        cast / coerce in ways that hide undefined-at-runtime.
+
+        Phase27 audit (V07 보강): the user's project uses Vite + a single
+        ``vite-env.d.ts`` declaration; without enforcement, new VITE_*
+        env vars are added in code without the corresponding type entry.
+        """
+        if not ctx.web_dir or not ctx.web_dir.exists():
+            return []
+
+        # Locate the env.d.ts file (Vite default name first, then env.d.ts)
+        env_dts: Path | None = None
+        for candidate_name in ("vite-env.d.ts", "env.d.ts"):
+            candidate = ctx.web_dir / "src" / candidate_name
+            if candidate.is_file():
+                env_dts = candidate
+                break
+
+        # Collect every VITE_* reference across web/src
+        vite_refs: dict[str, tuple[str, int]] = {}  # name → (file, line)
+        VITE_REF = re.compile(r"\bimport\.meta\.env\.(VITE_[A-Z0-9_]+)")
+        src_root = ctx.web_dir / "src"
+        if not src_root.is_dir():
+            return []
+
+        for ts_file in list(src_root.rglob("*.ts")) + list(src_root.rglob("*.tsx")):
+            try:
+                src = ts_file.read_text(errors="replace")
+            except OSError:
+                continue
+            # Skip the env.d.ts itself
+            if env_dts and ts_file.resolve() == env_dts.resolve():
+                continue
+            for line_no, line in enumerate(src.splitlines(), 1):
+                for m in VITE_REF.finditer(line):
+                    name = m.group(1)
+                    if name not in vite_refs:
+                        vite_refs[name] = (str(ts_file), line_no)
+
+        if not vite_refs:
+            return []
+
+        findings: list[Finding] = []
+
+        # Case 1: no env.d.ts at all but VITE_* references exist
+        if env_dts is None:
+            for name, (file_path, line_no) in vite_refs.items():
+                findings.append(
+                    Finding(
+                        severity="warning",
+                        file=file_path,
+                        line=line_no,
+                        rule="V07-VITE-ENV-TYPED",
+                        message=(
+                            f"`import.meta.env.{name}` is referenced but no "
+                            "vite-env.d.ts / env.d.ts exists in web/src/. "
+                            "TypeScript can't narrow the access type."
+                        ),
+                        fix=(
+                            "Create web/src/vite-env.d.ts with an "
+                            "`interface ImportMetaEnv { readonly "
+                            f"{name}: string }}` declaration."
+                        ),
+                    )
+                )
+            return findings
+
+        # Case 2: env.d.ts exists but is missing some references
+        try:
+            env_src = env_dts.read_text(errors="replace")
+        except OSError:
+            return findings
+
+        # Collect declared keys: any line that looks like `readonly VITE_X:` or `VITE_X:`
+        DECL = re.compile(r"\b(VITE_[A-Z0-9_]+)\s*[:?]")
+        declared = {m.group(1) for m in DECL.finditer(env_src)}
+
+        for name, (file_path, line_no) in vite_refs.items():
+            if name in declared:
+                continue
+            findings.append(
+                Finding(
+                    severity="warning",
+                    file=file_path,
+                    line=line_no,
+                    rule="V07-VITE-ENV-TYPED",
+                    message=(
+                        f"`import.meta.env.{name}` is referenced but not "
+                        f"typed in {env_dts.relative_to(ctx.web_dir)}. "
+                        "TypeScript falls back to `string | undefined` / `any`."
+                    ),
+                    fix=(
+                        f"Add `readonly {name}: string` to "
+                        f"`interface ImportMetaEnv` in "
+                        f"{env_dts.relative_to(ctx.web_dir)}."
+                    ),
+                )
+            )
         return findings
 
 

@@ -410,3 +410,100 @@ class TestValidateIntegration:
         fp = _write_ts_file(tmp_project, "web/package.json", '{"name": "app"}\n')
         result = validator.run(project_ctx, file_path=fp, mode="post_tool_use")
         assert result.findings == []
+
+
+# ---------------------------------------------------------------------------
+# 8. _check_vite_env_typed — Vite env.d.ts coverage (Phase48)
+# ---------------------------------------------------------------------------
+
+
+class TestViteEnvTyped:
+    """Test _check_vite_env_typed enforces typed `import.meta.env.VITE_*`
+    coverage in `vite-env.d.ts` / `env.d.ts` (V07-VITE-ENV-TYPED)."""
+
+    def test_no_vite_refs_no_findings(
+        self, validator: TsQualityValidator, tmp_project: Path, project_ctx: ProjectContext
+    ) -> None:
+        """A web/src/ with no VITE_* references should yield no findings."""
+        _write_ts_file(tmp_project, "web/src/app.ts", "const x: string = 'hello';\n")
+        findings = validator._check_vite_env_typed(project_ctx)
+        assert findings == []
+
+    def test_vite_ref_with_no_dts_warns(
+        self, validator: TsQualityValidator, tmp_project: Path, project_ctx: ProjectContext
+    ) -> None:
+        """VITE_* references with no vite-env.d.ts → warn per unique key."""
+        content = "const url = import.meta.env.VITE_API_URL;\nconst key = import.meta.env.VITE_KEY;\n"
+        _write_ts_file(tmp_project, "web/src/app.ts", content)
+        findings = validator._check_vite_env_typed(project_ctx)
+        names = {f.message.split("`")[1].rsplit(".", 1)[1] for f in findings}
+        assert names == {"VITE_API_URL", "VITE_KEY"}
+        assert all(f.rule == "V07-VITE-ENV-TYPED" for f in findings)
+        assert all(f.severity == "warning" for f in findings)
+
+    def test_vite_ref_typed_in_dts_passes(
+        self, validator: TsQualityValidator, tmp_project: Path, project_ctx: ProjectContext
+    ) -> None:
+        """When every VITE_* is declared in vite-env.d.ts → no findings."""
+        _write_ts_file(
+            tmp_project,
+            "web/src/vite-env.d.ts",
+            "interface ImportMetaEnv {\n  readonly VITE_API_URL: string;\n  readonly VITE_KEY: string;\n}\n",
+        )
+        _write_ts_file(
+            tmp_project,
+            "web/src/app.ts",
+            "const url = import.meta.env.VITE_API_URL;\nconst key = import.meta.env.VITE_KEY;\n",
+        )
+        findings = validator._check_vite_env_typed(project_ctx)
+        assert findings == []
+
+    def test_partial_dts_coverage_flags_missing(
+        self, validator: TsQualityValidator, tmp_project: Path, project_ctx: ProjectContext
+    ) -> None:
+        """Only the missing key is flagged; declared keys pass."""
+        _write_ts_file(
+            tmp_project,
+            "web/src/vite-env.d.ts",
+            "interface ImportMetaEnv {\n  readonly VITE_API_URL: string;\n}\n",
+        )
+        _write_ts_file(
+            tmp_project,
+            "web/src/app.ts",
+            "const url = import.meta.env.VITE_API_URL;\nconst fresh = import.meta.env.VITE_NEW;\n",
+        )
+        findings = validator._check_vite_env_typed(project_ctx)
+        assert len(findings) == 1
+        assert "VITE_NEW" in findings[0].message
+        assert "VITE_API_URL" not in findings[0].message
+
+    def test_env_d_ts_alternate_name(
+        self, validator: TsQualityValidator, tmp_project: Path, project_ctx: ProjectContext
+    ) -> None:
+        """`env.d.ts` (Vite's secondary convention) is also accepted."""
+        _write_ts_file(
+            tmp_project,
+            "web/src/env.d.ts",
+            "interface ImportMetaEnv {\n  readonly VITE_TOKEN: string;\n}\n",
+        )
+        _write_ts_file(
+            tmp_project,
+            "web/src/app.ts",
+            "const t = import.meta.env.VITE_TOKEN;\n",
+        )
+        findings = validator._check_vite_env_typed(project_ctx)
+        assert findings == []
+
+    def test_dts_self_reference_does_not_loop(
+        self, validator: TsQualityValidator, tmp_project: Path, project_ctx: ProjectContext
+    ) -> None:
+        """References inside vite-env.d.ts itself (e.g. example comments)
+        must not generate findings — the dts file is excluded from scanning."""
+        _write_ts_file(
+            tmp_project,
+            "web/src/vite-env.d.ts",
+            "// Example usage: import.meta.env.VITE_FAKE\n"
+            "interface ImportMetaEnv {\n  readonly VITE_FAKE: string;\n}\n",
+        )
+        findings = validator._check_vite_env_typed(project_ctx)
+        assert findings == []

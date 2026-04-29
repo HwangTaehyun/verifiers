@@ -16,6 +16,7 @@
 | `V07-TSC-<code>` | error | `tsc --noEmit --pretty` printed `(.+)\((\d+),\d+\): error (TS\d+): (.+)`. |
 | `V07-CIRCULAR-IMPORT` | warning | `madge --circular --json src/` returned a cycle. |
 | `V07-UNUSED-CODE` | warning | `knip` reported dead exports / files / dependencies. |
+| `V07-VITE-ENV-TYPED` | warning | `import.meta.env.VITE_*` referenced in code but not declared in `web/src/vite-env.d.ts` (or `env.d.ts`). |
 
 ## Why this verifier exists
 
@@ -133,6 +134,7 @@ def validate_project(self, ctx):
     findings.extend(self._check_eslint_full(ctx))        # eslint .
     findings.extend(self._check_circular_imports(ctx))   # madge --circular
     findings.extend(self._check_unused_code(ctx))        # knip
+    findings.extend(self._check_vite_env_typed(ctx))     # vite-env.d.ts
     return findings
 ```
 
@@ -189,11 +191,50 @@ for category in ("files", "exports", "dependencies"):
         yield Finding(severity="warning", rule="V07-UNUSED-CODE", ...)
 ```
 
+#### `_check_vite_env_typed(ctx)` — V07-VITE-ENV-TYPED (Phase48)
+
+```python
+VITE_REF = re.compile(r"\bimport\.meta\.env\.(VITE_[A-Z0-9_]+)")
+DECL = re.compile(r"\b(VITE_[A-Z0-9_]+)\s*[:?]")
+
+# 1. Find env.d.ts (Vite default first, then fallback)
+env_dts = (ctx.web_dir / "src" / "vite-env.d.ts")
+if not env_dts.is_file():
+    env_dts = (ctx.web_dir / "src" / "env.d.ts")
+    if not env_dts.is_file():
+        env_dts = None
+
+# 2. Sweep web/src/**/*.{ts,tsx} (excluding env.d.ts itself)
+vite_refs: dict[str, tuple[str, int]] = {}
+for ts_file in (ctx.web_dir/"src").rglob("*.ts*"):
+    if env_dts and ts_file.resolve() == env_dts.resolve():
+        continue
+    for line_no, line in enumerate(ts_file.read_text(...).splitlines(), 1):
+        for m in VITE_REF.finditer(line):
+            vite_refs.setdefault(m.group(1), (str(ts_file), line_no))
+
+# 3a. No env.d.ts → flag every reference
+# 3b. env.d.ts present → flag only undeclared keys
+declared = {m.group(1) for m in DECL.finditer(env_dts.read_text(...))}
+for name, (file_path, line_no) in vite_refs.items():
+    if name not in declared:
+        yield Finding(severity="warning", rule="V07-VITE-ENV-TYPED", ...)
+```
+
+The two-regex split (reference vs. declaration) is intentional: declarations live as
+`readonly VITE_X: string;` (TypeScript field syntax), while references are
+property accesses `import.meta.env.VITE_X`. A unified regex would over-match
+on either side; `[:?]` in `DECL` constrains to a property declaration boundary.
+
+The `env.d.ts` file is **excluded from the scan loop** so its own example
+comments (`// import.meta.env.VITE_FOO`) don't generate self-referential
+findings.
+
 ### Could be more effective
 
 - **JSX-aware comment skip.** Current regex misses JSX block comments (`{/* ... */}`) and template-literal-embedded `console.log`. A tiny TS lexer (or `swc-cli`) would eliminate the false positives.
 - **TS strict-mode enforcement.** A `tsconfig.json` without `"strict": true` is a quality red flag. Currently V07 doesn't check the tsconfig itself; one extra rule (`V07-TSCONFIG-NOT-STRICT`) would close the gap. Trivial to add.
-- **`vite-env.d.ts` typing strictness.** The user's project uses `import.meta.env.VITE_*`; V07 doesn't enforce that every used `VITE_*` is typed in `vite-env.d.ts`. Phase 27 audit's V07-VITE-ENV-TYPED proposal directly addresses this.
+- **`.env.example` ↔ `vite-env.d.ts` cross-check.** A natural next step on top of V07-VITE-ENV-TYPED: every `VITE_*` declared in the .d.ts should also appear in `.env.example` (and vice versa). Currently V01 / V22 own the env-side, V07 owns the type-side; tying them together would catch "typed but never set" drift.
 - **Bundle size delta.** `vite build --json` output → compare against a stored baseline. Out of V07's scope but a natural next-validator.
 - **`eslint` config validation.** A `.eslintrc.*` with `"@typescript-eslint/no-unused-vars": "off"` is a self-defeating config. V16 (linter-config-guard) covers this category — V07 stays in-lane.
 
@@ -238,4 +279,35 @@ export function Component(props: any) {           // → V07-NO-ANY
 ```ts
 // foo.ts imports bar; bar imports foo → V07-CIRCULAR-IMPORT (Stop)
 // utils/legacy.ts is no longer imported anywhere → V07-UNUSED-CODE (Stop)
+```
+
+### V07-VITE-ENV-TYPED examples
+
+✓ **Pass** — every `VITE_*` reference is declared in `web/src/vite-env.d.ts`:
+
+```ts
+// web/src/vite-env.d.ts
+interface ImportMetaEnv {
+    readonly VITE_API_URL: string;
+    readonly VITE_AUTH_KEY: string;
+}
+
+// web/src/api.ts
+const url = import.meta.env.VITE_API_URL;   // typed: string
+const key = import.meta.env.VITE_AUTH_KEY;  // typed: string
+```
+
+✗ **Fail** — `VITE_NEW_FLAG` referenced in code but missing from the .d.ts:
+
+```ts
+// web/src/vite-env.d.ts
+interface ImportMetaEnv {
+    readonly VITE_API_URL: string;
+}
+
+// web/src/feature.ts
+const enabled = import.meta.env.VITE_NEW_FLAG;
+//                                ^^^^^^^^^^^^^^ → V07-VITE-ENV-TYPED
+//   "Add `readonly VITE_NEW_FLAG: string` to interface ImportMetaEnv
+//    in src/vite-env.d.ts."
 ```
