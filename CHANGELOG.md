@@ -10,6 +10,30 @@ the original rationale.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-30
+
+Second tagged release. Closes the entire Phase 27 ultrathink audit
+(Tier S — S1/S2/S3/S4 — and Tier A — A1–A8) plus the Hermes-Curator-
+inspired validator metrics layer. 1060 tests pass, all hook
+infrastructure is now per-project, and the validator base API is a
+single split (validate_file / validate_project) with no legacy
+dispatch.
+
+### BREAKING
+
+- ``BaseValidator.validate(ctx, file_path, mode)`` removed
+  (Phase32, S4 4/4). Subclasses now override only ``validate_file``
+  and/or ``validate_project``; ``run()`` dispatches based on the
+  (file_path, mode) pair. Tests previously calling
+  ``validator.validate(...)`` should switch to ``validator.run(...)``.
+- Per-validator metric logs moved from the verifiers source-tree
+  ``logs/`` to ``<project_root>/.verifiers/state/metrics/`` (Phase33b).
+  The legacy path is still used by ``log_exception()`` and as a
+  back-compat read fallback in ``scripts/validator_metrics.py``.
+- ``router-cache.json`` digest now binds the absolute path
+  (Phase37, S3). Pre-Phase37 entries simply mismatch on first
+  re-read and are replaced — no migration required.
+
 ### Added
 
 - **Validator metrics infrastructure** (Phase33 + Phase33b): per-project
@@ -40,6 +64,38 @@ the original rationale.
 - **`StopConfig` dataclass** (Phase28): new `stop:` block in
   `.verifiers/config.yaml`. Invalid values fall back to `"smart"` rather
   than silently disabling pytest.
+- **`Finding.kind` field** (Phase36, A4): distinguishes ordinary
+  findings from sentinels (V##-CRASHED, V##-TIMEOUT) so the Tier 3
+  ``_apply_exclude_filters`` can short-circuit on sentinels —
+  ``exclude.paths: ["**"]`` no longer silences a crashed worker.
+- **`ProjectContext.is_excluded(path)`** (Phase34, S1): centralized
+  gitignore-glob exclusion check. Validators' scan loops call this
+  first, the hard-coded vendor / node_modules backstops second. Closes
+  the substring-exclusion regression that ``lib/exclusion`` was
+  introduced to abolish.
+- **`ProjectContext.metrics_log_dir`** (Phase33b): per-project metric
+  output directory under ``.verifiers/state/metrics/``.
+- **`lib/validator_registry.resolve_active_validators(ctx, source=...)`**
+  (Phase35, A1): single helper for the
+  ``get_all_validators → filter_enabled → ValueError handler →
+  filter_disabled`` pipeline. router and stop_validator both call it;
+  the four-step duplication is gone.
+- **`lib/secret_regexes.py`** (Phase38, A3): zero-dep source of truth
+  for the SECRET_REGEXES table + path classification primitives. Tier 1
+  (``security_hook``) and V08 (``hooks/validators/security``) both
+  import from here, closing the drift surface where Tier 1's P2-2
+  password-regex fix had failed to land in V08.
+- **JsonLogger size rotation** (Phase33b): per-validator JSONL files
+  are renamed to ``<file>.1`` once they exceed 10 MB, single FIFO
+  backup. Caps disk usage per validator at ~20 MB.
+- **State directory permissions** (Phase37, A6): every state-writing
+  module (``router_cache``, ``json_logger`` ×2, ``feedback_tracker``)
+  now creates state dirs with mode ``0o700`` and follows up with
+  ``chmod(0o700)`` so shared CI hosts don't leak project-private state.
+- **Symlink refusal for `.verifiers/config.yaml`** (Phase37, A6):
+  ``config_loader.load_config`` now refuses symlinked configs and
+  falls back to defaults. Pre-emptive — closes a future
+  info-disclosure surface if anyone later logs raw config content.
 
 ### Changed
 
@@ -51,6 +107,35 @@ the original rationale.
 - **`docs/CONFIGURATION.md`** + **`docs/VERIFIERS-CATALOG.md`**: stop
   block documented, V21 entry added, V19 entry rewritten to drop the
   pytest claim.
+- **BaseValidator API** (Phase29 → Phase32, S4): legacy single-method
+  ``validate(ctx, file_path, mode)`` retired. All 20 validators
+  migrated to override ``validate_file`` and/or ``validate_project``.
+  ``run()`` is now the only entry point — it dispatches based on
+  (file_path, mode) and adds JSON logging around the call.
+  ABC inheritance dropped (no abstract method left). Net: ~150 LOC
+  of mode-sniffing if-ladder gone across the validator suite, and
+  ``docker_compose``'s pre-Phase31b silent project-scan-on-Tier-2
+  is structurally impossible.
+- **Tier 3 parallel runner** (Phase36, A2 + A7): ``ProcessPoolExecutor``
+  → ``ThreadPoolExecutor``. Every heavy validator releases the GIL
+  during ``subprocess.run`` (ruff / pytest / golangci / tsc / eslint),
+  so threads parallelize without paying ~200 ms / Stop hook for spawn
+  + ProjectContext pickling. ``DEFAULT_MAX_WORKERS`` raised from 4 to
+  8 — Phase28's V19 split + the rest of the long tail now actually
+  fills slots. ``pickle.PicklingError`` fallback path retired
+  (threads don't pickle); ``transport-CRASHED`` outer branch retired
+  (the inner ``_run_one_validator`` sentinel covers it).
+- **Router cache poisoning closed** (Phase37, S3): the digest in
+  ``file_content_hash`` now binds the absolute path
+  (``sha256(path + b"\\0" + content)``). A pre-recorded ``router-
+  cache.json`` entry can no longer collide with the bytes of a
+  different file.
+- **`stop.run_pytest: smart` heuristic upgraded** by ``has_uncommitted_python_changes``
+  (Phase28): pytest only runs when ``git diff --name-only HEAD`` shows
+  ``.py`` / ``pyproject.toml`` changes. Markdown/yaml-only turns skip.
+- **Hook stdin reads capped at 1 MiB** (Phase38, A5):
+  ``read_hook_input`` and ``security_hook.main`` no longer accept
+  unbounded input from the documented standalone CLI surface.
 
 ## [0.2.0] - 2026-04-29
 
