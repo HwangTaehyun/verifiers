@@ -95,6 +95,9 @@ NAME_MAP = {
     # V24 — Hasura permission audit (no-perms / wildcard cols / empty filter)
     "hasura-permission": "V24-hasura-permission",
     "hasura-perm": "V24-hasura-permission",
+    # V25 — Go multi-binary discipline (graceful shutdown + tools.go + air mapping)
+    "go-multibinary": "V25-go-multibinary",
+    "multibinary": "V25-go-multibinary",
 }
 
 

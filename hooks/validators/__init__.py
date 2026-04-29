@@ -63,6 +63,7 @@ def get_all_validators() -> list[BaseValidator]:
 
     # from .docker_prod_deploy import DockerProdDeployValidator  # TODO: not yet implemented
     from .env_config import EnvConfigValidator
+    from .go_multibinary import GoMultiBinaryValidator
     from .go_quality import GoQualityValidator
     from .go_test_runner import GoTestRunnerValidator
     from .graphql_gen import GraphqlGenValidator
@@ -105,6 +106,7 @@ def get_all_validators() -> list[BaseValidator]:
         MultiEnvConsistencyValidator(),  # V22 — APP_ prefix + root/server drift + viper key↔env
         BufGovernanceValidator(),  # V23 — buf.lock drift + breaking + protovalidate
         HasuraPermissionAuditValidator(),  # V24 — hasura table permissions audit
+        GoMultiBinaryValidator(),  # V25 — graceful shutdown + tools.go + air mapping
     ]
     _assert_registry_invariants(validators)
     return validators
