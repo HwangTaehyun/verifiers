@@ -149,6 +149,66 @@ class TestPartialOverrides:
         assert cfg.security.phi_fields == []
         assert cfg.security.required_gitignore == []
 
+    def test_docker_defaults_when_section_missing(self, tmp_path: Path) -> None:
+        _write_config(tmp_path, "")
+        cfg = load_config(tmp_path)
+        # Default vhost_check_mode is "production" (the new Phase21 default)
+        assert cfg.docker.vhost_check_mode == "production"
+        # Default reverse_proxy_networks contains nginx-proxy
+        assert cfg.docker.reverse_proxy_networks == ["nginx-proxy"]
+        # Other lists empty (validator falls back to its built-in defaults)
+        assert cfg.docker.production_filename_patterns == []
+        assert cfg.docker.dev_filename_patterns == []
+        assert cfg.docker.production_stage_names == []
+        assert cfg.docker.dev_stage_names == []
+
+    def test_docker_vhost_check_mode_override(self, tmp_path: Path) -> None:
+        _write_config(tmp_path, 'docker:\n  vhost_check_mode: "all"\n')
+        cfg = load_config(tmp_path)
+        assert cfg.docker.vhost_check_mode == "all"
+
+    def test_docker_vhost_check_mode_invalid_falls_back(self, tmp_path: Path) -> None:
+        # Unknown mode strings are ignored — default preserved.
+        _write_config(tmp_path, 'docker:\n  vhost_check_mode: "strict"\n')
+        cfg = load_config(tmp_path)
+        assert cfg.docker.vhost_check_mode == "production"
+
+    def test_docker_reverse_proxy_networks_replaces_default(self, tmp_path: Path) -> None:
+        _write_config(
+            tmp_path,
+            'docker:\n  reverse_proxy_networks:\n    - traefik\n    - "edge-router"\n',
+        )
+        cfg = load_config(tmp_path)
+        assert cfg.docker.reverse_proxy_networks == ["traefik", "edge-router"]
+
+    def test_docker_reverse_proxy_networks_empty_explicitly(self, tmp_path: Path) -> None:
+        # Explicit empty list → "no proxy network is acceptable" (corner case).
+        _write_config(tmp_path, "docker:\n  reverse_proxy_networks: []\n")
+        cfg = load_config(tmp_path)
+        assert cfg.docker.reverse_proxy_networks == []
+
+    def test_docker_filename_pattern_overrides(self, tmp_path: Path) -> None:
+        _write_config(
+            tmp_path,
+            "docker:\n"
+            '  production_filename_patterns:\n    - "*.live.*"\n    - "*-prd.*"\n'
+            '  dev_filename_patterns:\n    - "*.local.*"\n',
+        )
+        cfg = load_config(tmp_path)
+        assert cfg.docker.production_filename_patterns == ["*.live.*", "*-prd.*"]
+        assert cfg.docker.dev_filename_patterns == ["*.local.*"]
+
+    def test_docker_stage_name_overrides(self, tmp_path: Path) -> None:
+        _write_config(
+            tmp_path,
+            "docker:\n"
+            "  production_stage_names:\n    - dist\n    - serve\n"
+            "  dev_stage_names:\n    - develop\n    - local\n",
+        )
+        cfg = load_config(tmp_path)
+        assert cfg.docker.production_stage_names == ["dist", "serve"]
+        assert cfg.docker.dev_stage_names == ["develop", "local"]
+
 
 # ---------------------------------------------------------------------------
 # 3. Robustness — malformed input never crashes

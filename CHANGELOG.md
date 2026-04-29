@@ -93,6 +93,17 @@ the original rationale.
 - **2 ruff lint debts**: `E741` ambiguous `l` and `F541` f-string-
   without-placeholder in `docker_compose.py`.
 
+### Changed (BREAKING)
+
+- **V05 `vhost_check_mode` default = `"production"`** (phase21): the
+  V05-VHOST-NO-NETWORK rule now fires only on production-classified
+  compose files (matched by `dev_filename_patterns` / its built-in
+  fallback). Previously every compose file was checked, producing a
+  false positive whenever a local `docker-compose.yaml` set
+  `VIRTUAL_HOST` for production parity but had no `nginx-proxy`
+  network. Set `docker.vhost_check_mode: "all"` in
+  `.verifiers/config.yaml` to restore the strict legacy behavior.
+
 ### Added (post-deferred batch)
 
 - **V12 / V09 / V10 / V11 config wiring** (phase11, P1-3 follow-up):
@@ -123,3 +134,18 @@ the original rationale.
   `mock.patch`. Installed alongside the `verify-*` skills via
   `just install` / `just install-project`. New CONTRIBUTING.md
   subsection makes the style mandatory for this project.
+- **V05 DockerConfig** (phase21): new `docker:` config block with six
+  knobs. Beyond the BREAKING `vhost_check_mode` default change above:
+  - `reverse_proxy_networks` lets Traefik / custom proxies satisfy
+    V05-VHOST-NO-NETWORK (was hardcoded to `nginx-proxy`).
+  - `production_filename_patterns` / `dev_filename_patterns` (fnmatch
+    globs) override the built-in classification when a project uses a
+    non-standard compose filename (e.g. `*-prd.yaml`, `*.local.yaml`).
+  - `production_stage_names` / `dev_stage_names` reclassify Dockerfile
+    multi-stage names so V05-DOCKERFILE-NO-USER and
+    V05-DEV-NO-BUILD-TARGET match company conventions like `dist` /
+    `develop`.
+  - Each list follows SecurityConfig's "empty → built-in defaults,
+    non-empty → replace" semantics.
+  - 8 unit + 7 integration tests prove every knob's effect end-to-end
+    against real `.verifiers/config.yaml` files. Total tests: 1003.

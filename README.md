@@ -231,7 +231,25 @@ security:                            # V08 (Security validator) 튜닝
                                      # 채우면 그 리스트로 완전 교체 (덮어쓰기, 누적 X)
   required_gitignore: []             # 비우면 기본값 (.env, *.pem, *.key, .env.local, *.p12)
                                      # 채우면 사용자 리스트로 교체
+
+docker:                              # V05 (Docker validator) 튜닝
+  vhost_check_mode: "production"     # V05-VHOST-NO-NETWORK 발동 시점
+                                     # "production" — prod 분류 compose 만 (기본, Phase21+)
+                                     # "all"        — 모든 compose (Phase20 까지의 동작)
+                                     # "off"        — 비활성화
+  reverse_proxy_networks:            # VHOST 검사에서 인정되는 reverse-proxy 네트워크 이름
+    - nginx-proxy                    # Traefik 사용 시 ["traefik"] 등으로 교체
+  production_filename_patterns: []   # prod 로 분류할 compose 파일명 (fnmatch glob)
+                                     # 비우면 default — 회사 컨벤션 (e.g. "*-prd.*") 으로 교체 가능
+  dev_filename_patterns: []          # dev 로 분류할 compose 파일명
+                                     # 비우면 default = ["*override*", "docker-compose.yaml", "docker-compose.yml"]
+  production_stage_names: []         # USER 검사 대상 Dockerfile stage 이름
+                                     # 비우면 default = ["prod","production","release","final","runtime",""]
+  dev_stage_names: []                # V05-DEV-NO-BUILD-TARGET 가 인정하는 build.target
+                                     # 비우면 default = ["dev"]
 ```
+
+> **Phase21 BREAKING CHANGE**: 기본 `vhost_check_mode` 가 `"production"` 으로 바뀌었습니다 (이전엔 사실상 `"all"`). 로컬 dev 에서 false positive 가 사라지는 대신, 이전의 엄격한 동작을 원하면 명시적으로 `"all"` 지정 필요.
 
 ### 각 validator 가 config 의 어떤 값을 읽는가
 
@@ -245,6 +263,7 @@ security:                            # V08 (Security validator) 튜닝
 | **모든 validator** (registry 단) | `validators.disabled`                                    | 매칭 V-ID 의 validator 가 registry 에서 제외됨 — Tier 2/3 모두 적용. |
 
 | **V08** Security                 | `security.phi_check_enabled`, `security.phi_fields`, `security.required_gitignore` | PHI scanning on/off, PHI 필드 셋 교체, .gitignore 필수 항목 셋 교체. |
+| **V05** Docker                   | `docker.vhost_check_mode`, `docker.reverse_proxy_networks`, `docker.production_filename_patterns`, `docker.dev_filename_patterns`, `docker.production_stage_names`, `docker.dev_stage_names` | VHOST 검사 발동 모드 (production / all / off), Traefik 등 다른 reverse proxy 인정, 회사 컨벤션 파일명/stage 이름 매핑. |
 
 **아직 config 와 연결 안 된 항목** (의도적 유지):
 - V08 시크릿 regex (AWS/GitHub/OpenAI 패턴) / V18 mock 변수 prefix — 보안·정책 셋이라 코드에 박혀있음.

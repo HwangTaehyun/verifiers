@@ -125,11 +125,51 @@ class SecurityConfig:
 
 
 @dataclass
+class DockerConfig:
+    """V05 (Docker / docker-compose validator) overrides.
+
+    The default ``vhost_check_mode`` is ``"production"`` — V05-VHOST-NO-NETWORK
+    only fires on compose files classified as production. Local dev compose
+    files (``docker-compose.yaml``, ``*override*``) skip the check, fixing
+    the false-positive that prior versions produced when a dev setup didn't
+    use a reverse proxy.
+
+    BREAKING CHANGE relative to pre-Phase21: the previous default behavior
+    was effectively ``"all"`` (every compose file was checked). Set
+    ``vhost_check_mode: "all"`` to restore the old strictness.
+
+    Each list follows the "empty = use validator defaults, non-empty =
+    use only these" semantics from ``SecurityConfig``.
+    """
+
+    # When V05-VHOST-NO-NETWORK fires:
+    #   "production" — only on prod-classified compose files (default)
+    #   "all"        — every compose file (legacy behavior)
+    #   "off"        — never (escape hatch for projects with custom proxies)
+    vhost_check_mode: str = "production"
+
+    # Network names accepted as a reverse proxy. Any one of these on a
+    # service's ``networks:`` list satisfies the VHOST check.
+    reverse_proxy_networks: list[str] = field(default_factory=lambda: ["nginx-proxy"])
+
+    # Compose-file classification. Filename globs (lowercase, full name).
+    # Empty → use the validator's built-in built-in patterns.
+    production_filename_patterns: list[str] = field(default_factory=list)
+    dev_filename_patterns: list[str] = field(default_factory=list)
+
+    # Dockerfile multi-stage classification. Stage names declared via
+    # ``FROM ... AS <name>``. Empty → use the validator's built-in defaults.
+    production_stage_names: list[str] = field(default_factory=list)
+    dev_stage_names: list[str] = field(default_factory=list)
+
+
+@dataclass
 class VerifiersConfig:
     thresholds: Thresholds = field(default_factory=Thresholds)
     exclude: ExcludeConfig = field(default_factory=ExcludeConfig)
     validators: ValidatorsConfig = field(default_factory=ValidatorsConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
+    docker: DockerConfig = field(default_factory=DockerConfig)
 
 
 # ── Loader ──────────────────────────────────────────────────────────────
@@ -248,5 +288,21 @@ def _build_config(raw: dict[str, Any]) -> VerifiersConfig:
             cfg.security.phi_check_enabled = sec_raw["phi_check_enabled"]
         cfg.security.phi_fields = _coerce_str_list(sec_raw.get("phi_fields"))
         cfg.security.required_gitignore = _coerce_str_list(sec_raw.get("required_gitignore"))
+
+    docker_raw = raw.get("docker")
+    if isinstance(docker_raw, dict):
+        mode = docker_raw.get("vhost_check_mode")
+        if isinstance(mode, str) and mode in ("production", "all", "off"):
+            cfg.docker.vhost_check_mode = mode
+        # reverse_proxy_networks: empty list explicitly disables the
+        # default ["nginx-proxy"] sentinel so we can't use the
+        # "_coerce_str_list returns []" idiom; only override when the
+        # YAML key is present at all.
+        if "reverse_proxy_networks" in docker_raw:
+            cfg.docker.reverse_proxy_networks = _coerce_str_list(docker_raw.get("reverse_proxy_networks"))
+        cfg.docker.production_filename_patterns = _coerce_str_list(docker_raw.get("production_filename_patterns"))
+        cfg.docker.dev_filename_patterns = _coerce_str_list(docker_raw.get("dev_filename_patterns"))
+        cfg.docker.production_stage_names = _coerce_str_list(docker_raw.get("production_stage_names"))
+        cfg.docker.dev_stage_names = _coerce_str_list(docker_raw.get("dev_stage_names"))
 
     return cfg

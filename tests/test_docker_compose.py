@@ -144,6 +144,11 @@ class TestV05VirtualHostNetwork:
         tmp_project: Path,
         project_ctx: ProjectContext,
     ) -> None:
+        # Phase21: V05-VHOST-NO-NETWORK fires only on prod-classified
+        # compose files by default (``vhost_check_mode="production"``).
+        # Use a production filename so the legacy expectation still
+        # holds — this is also the realistic usage pattern: VHOST
+        # bindings live in a prod compose, not in the local dev base.
         _write_compose(
             tmp_project,
             """\
@@ -158,6 +163,7 @@ networks:
   app_network:
     driver: bridge
 """,
+            filename="docker-compose.production.yaml",
         )
         result = validator.validate(project_ctx)
 

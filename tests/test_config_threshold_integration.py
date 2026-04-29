@@ -336,3 +336,132 @@ class TestV08ConfigSecurity:
         assert "secrets.json" in no_gitignore[0].fix
         # Default '*.key' should NOT appear (user replaced the list)
         assert "*.key" not in no_gitignore[0].fix
+
+
+# ---------------------------------------------------------------------------
+# 7. V05 DockerConfig — vhost_check_mode + reverse_proxy_networks (Phase21)
+# ---------------------------------------------------------------------------
+
+
+class TestV05DockerConfig:
+    @staticmethod
+    def _write_compose(project: Path, body: str, filename: str) -> None:
+        (project / filename).write_text(body)
+
+    _VHOST_BODY = (
+        'version: "3"\n'
+        "services:\n"
+        "  app:\n"
+        "    environment:\n"
+        "      VIRTUAL_HOST: example.com\n"
+        "    networks:\n"
+        "      - app_network\n"
+        "networks:\n"
+        "  app_network:\n"
+        "    driver: bridge\n"
+    )
+
+    def test_default_mode_skips_vhost_check_in_dev_compose(self, tmp_path: Path) -> None:
+        # Phase21: with the default vhost_check_mode="production", a
+        # base docker-compose.yaml is classified as dev → V05-VHOST-NO-NETWORK
+        # must NOT fire. This is the user-reported false positive being fixed.
+        from hooks.validators.docker_compose import DockerValidator
+
+        ctx = _project_with_config(tmp_path, "")
+        self._write_compose(tmp_path, self._VHOST_BODY, "docker-compose.yaml")
+
+        result = DockerValidator().validate(ctx, file_path=None, mode="stop")
+        rules = [f.rule for f in result.findings]
+        assert "V05-VHOST-NO-NETWORK" not in rules
+
+    def test_default_mode_fires_vhost_check_in_prod_compose(self, tmp_path: Path) -> None:
+        # The same body in a prod-classified file STILL trips the check.
+        from hooks.validators.docker_compose import DockerValidator
+
+        ctx = _project_with_config(tmp_path, "")
+        self._write_compose(tmp_path, self._VHOST_BODY, "docker-compose.production.yaml")
+
+        result = DockerValidator().validate(ctx, file_path=None, mode="stop")
+        rules = [f.rule for f in result.findings]
+        assert "V05-VHOST-NO-NETWORK" in rules
+
+    def test_mode_all_restores_legacy_strictness(self, tmp_path: Path) -> None:
+        # Power user opts into the old strict behaviour: dev compose
+        # files should ALSO trip when VHOST is set without proxy.
+        from hooks.validators.docker_compose import DockerValidator
+
+        ctx = _project_with_config(tmp_path, 'docker:\n  vhost_check_mode: "all"\n')
+        self._write_compose(tmp_path, self._VHOST_BODY, "docker-compose.yaml")
+
+        result = DockerValidator().validate(ctx, file_path=None, mode="stop")
+        rules = [f.rule for f in result.findings]
+        assert "V05-VHOST-NO-NETWORK" in rules
+
+    def test_mode_off_silences_check_everywhere(self, tmp_path: Path) -> None:
+        from hooks.validators.docker_compose import DockerValidator
+
+        ctx = _project_with_config(tmp_path, 'docker:\n  vhost_check_mode: "off"\n')
+        self._write_compose(tmp_path, self._VHOST_BODY, "docker-compose.production.yaml")
+
+        result = DockerValidator().validate(ctx, file_path=None, mode="stop")
+        rules = [f.rule for f in result.findings]
+        assert "V05-VHOST-NO-NETWORK" not in rules
+
+    def test_traefik_satisfies_check_when_configured(self, tmp_path: Path) -> None:
+        # User uses Traefik instead of nginx-proxy: configure
+        # reverse_proxy_networks and the same compose passes.
+        from hooks.validators.docker_compose import DockerValidator
+
+        ctx = _project_with_config(
+            tmp_path,
+            "docker:\n  reverse_proxy_networks:\n    - traefik\n",
+        )
+        traefik_body = (
+            'version: "3"\n'
+            "services:\n"
+            "  app:\n"
+            "    environment:\n"
+            "      VIRTUAL_HOST: example.com\n"
+            "    networks:\n"
+            "      - traefik\n"  # <-- user's proxy network
+            "networks:\n"
+            "  traefik:\n"
+            "    external: true\n"
+        )
+        self._write_compose(tmp_path, traefik_body, "docker-compose.production.yaml")
+
+        result = DockerValidator().validate(ctx, file_path=None, mode="stop")
+        rules = [f.rule for f in result.findings]
+        assert "V05-VHOST-NO-NETWORK" not in rules
+
+    def test_custom_dev_filename_pattern_skips_check(self, tmp_path: Path) -> None:
+        # Company convention: docker-compose.local.yaml is dev. Default
+        # patterns wouldn't classify it as dev → check would fire under
+        # "production" mode. With override it skips.
+        from hooks.validators.docker_compose import DockerValidator
+
+        ctx = _project_with_config(
+            tmp_path,
+            'docker:\n  dev_filename_patterns:\n    - "*.local.*"\n',
+        )
+        self._write_compose(tmp_path, self._VHOST_BODY, "docker-compose.local.yaml")
+
+        result = DockerValidator().validate(ctx, file_path=None, mode="stop")
+        rules = [f.rule for f in result.findings]
+        assert "V05-VHOST-NO-NETWORK" not in rules
+
+    def test_custom_production_filename_pattern_forces_prod_mode(self, tmp_path: Path) -> None:
+        # Company convention: *-prd.yaml is prod. With config, the check
+        # fires even though the filename doesn't match the default
+        # production patterns.
+        from hooks.validators.docker_compose import DockerValidator
+
+        ctx = _project_with_config(
+            tmp_path,
+            'docker:\n  production_filename_patterns:\n    - "*-prd.*"\n',
+        )
+        self._write_compose(tmp_path, self._VHOST_BODY, "docker-compose-prd.yaml")
+
+        result = DockerValidator().validate(ctx, file_path=None, mode="stop")
+        rules = [f.rule for f in result.findings]
+        assert "V05-VHOST-NO-NETWORK" in rules

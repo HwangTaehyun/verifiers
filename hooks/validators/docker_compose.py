@@ -14,6 +14,7 @@ Checks:
 
 from __future__ import annotations
 
+import fnmatch
 import re
 import sys
 from pathlib import Path
@@ -24,8 +25,30 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from hooks.validators.base import BaseValidator, Finding, ValidationResult, read_hook_input, write_hook_output
+from lib.config_loader import DockerConfig
 from lib.json_logger import log_exception
 from lib.project_context import ProjectContext
+
+
+# ── V05 built-in defaults (used when DockerConfig field is empty) ────────────
+# Each list is the fallback when the user hasn't customized the
+# corresponding DockerConfig field. See lib/config_loader.py:DockerConfig
+# for the "empty = defaults, non-empty = replace" semantics.
+_DEFAULT_REVERSE_PROXY_NETWORKS: tuple[str, ...] = ("nginx-proxy",)
+_DEFAULT_DEV_FILENAME_PATTERNS: tuple[str, ...] = (
+    "*override*",
+    "docker-compose.yaml",
+    "docker-compose.yml",
+)
+_DEFAULT_PRODUCTION_STAGE_NAMES: tuple[str, ...] = (
+    "prod",
+    "production",
+    "release",
+    "final",
+    "runtime",
+    "",  # unnamed final stage assumed prod
+)
+_DEFAULT_DEV_STAGE_NAMES: tuple[str, ...] = ("dev",)
 
 
 class DockerValidator(BaseValidator):
@@ -77,6 +100,12 @@ class DockerValidator(BaseValidator):
         file_path: str | None = None,
         mode: str = "post_tool_use",
     ) -> ValidationResult:
+        # Resolve the project's docker config once and store on self so
+        # the helper methods (called many times during a project scan)
+        # don't have to re-read ctx. Each parallel-runner worker gets
+        # its own pickled instance, so this is safe in parallel mode.
+        self._docker_cfg: DockerConfig = ctx.config.docker
+
         findings: list[Finding] = []
 
         # Find all compose files and dockerfiles
@@ -171,8 +200,23 @@ class DockerValidator(BaseValidator):
     # ── Check 2: VIRTUAL_HOST ↔ nginx-proxy network ─────────────────────
 
     def _check_virtual_host_network(self, data: dict, compose_file: Path) -> list[Finding]:
-        """Services with VIRTUAL_HOST must be on nginx-proxy network."""
+        """Services with VIRTUAL_HOST must be on a reverse-proxy network.
+
+        Honors ``ctx.config.docker.vhost_check_mode`` ("production" /
+        "all" / "off") and ``reverse_proxy_networks`` (any one match
+        satisfies the check).
+        """
         findings: list[Finding] = []
+
+        cfg = self._docker_cfg
+        if cfg.vhost_check_mode == "off":
+            return findings
+        if cfg.vhost_check_mode == "production" and self._is_dev_intended_compose(compose_file):
+            return findings
+
+        proxy_nets = cfg.reverse_proxy_networks or list(_DEFAULT_REVERSE_PROXY_NETWORKS)
+        # Empty list (explicit) means "no proxy network is acceptable" — every
+        # VHOST-bearing service trips. That's a corner case; we still respect it.
 
         for svc_name, svc_def in (data.get("services") or {}).items():
             if not isinstance(svc_def, dict):
@@ -188,16 +232,20 @@ class DockerValidator(BaseValidator):
             if isinstance(svc_networks, dict):
                 svc_networks = list(svc_networks.keys())
 
-            on_nginx = "nginx-proxy" in svc_networks
+            on_proxy = any(n in svc_networks for n in proxy_nets)
 
-            if has_virtual_host and not on_nginx:
+            if has_virtual_host and not on_proxy:
+                primary_proxy = proxy_nets[0] if proxy_nets else "nginx-proxy"
                 findings.append(
                     Finding(
                         severity="error",
                         file=str(compose_file),
                         rule="V05-VHOST-NO-NETWORK",
-                        message=(f"Service '{svc_name}' has VIRTUAL_HOST but is not on nginx-proxy network"),
-                        fix=(f"Add 'nginx-proxy' to the networks list of service '{svc_name}' in {compose_file}"),
+                        message=(
+                            f"Service '{svc_name}' has VIRTUAL_HOST but is not on any reverse-proxy network "
+                            f"({', '.join(proxy_nets) or '<none configured>'})"
+                        ),
+                        fix=(f"Add '{primary_proxy}' to the networks list of service '{svc_name}' in {compose_file}"),
                     )
                 )
 
@@ -386,8 +434,16 @@ class DockerValidator(BaseValidator):
             if as_match:
                 stage_name = as_match.group(1).lower()
 
-            # Only flag if the stage looks like a production stage
-            if stage_name in ("prod", "production", "release", "final", "runtime", ""):
+            # Only flag if the stage looks like a production stage.
+            # Honors ctx.config.docker.production_stage_names (empty →
+            # built-in defaults that include the unnamed final stage).
+            cfg = getattr(self, "_docker_cfg", None)
+            prod_stages = (
+                tuple(cfg.production_stage_names)
+                if cfg and cfg.production_stage_names
+                else _DEFAULT_PRODUCTION_STAGE_NAMES
+            )
+            if stage_name in prod_stages:
                 findings.append(
                     Finding(
                         severity="error",
@@ -453,25 +509,35 @@ class DockerValidator(BaseValidator):
 
     # ── V17 Production Methods ──────────────────────────────────────────────
 
-    @staticmethod
-    def _is_dev_intended_compose(compose_file: Path) -> bool:
+    def _is_dev_intended_compose(self, compose_file: Path) -> bool:
         """True when this compose file is meant for local dev, not production.
 
-        Convention:
+        Default convention (when no config override):
           - docker-compose.yaml / .yml → base (dev defaults on most projects)
           - *override*.yaml             → auto-loaded dev layer
-          - docker-compose.production.yaml / .prod.yaml → explicit prod target
+          - everything else             → production
+
+        ``ctx.config.docker.dev_filename_patterns`` (fnmatch globs against
+        the lowercased filename) replaces the default list when set.
+        ``production_filename_patterns`` is honored as an explicit
+        opt-in: a file matching any prod pattern is forced to "not dev"
+        even if it would otherwise pass the dev list.
 
         Production-only checks (port exposure, resource limits, dev-mode
         flags) skip dev-intended files so local setups can bind host ports
         without spraying warnings.
         """
         fname = compose_file.name.lower()
-        if "override" in fname:
-            return True
-        if fname in ("docker-compose.yaml", "docker-compose.yml"):
-            return True
-        return False
+        cfg = getattr(self, "_docker_cfg", None)
+
+        prod_patterns = cfg.production_filename_patterns if cfg else []
+        if prod_patterns and any(fnmatch.fnmatchcase(fname, p.lower()) for p in prod_patterns):
+            return False  # explicit prod marker wins
+
+        dev_patterns = (
+            cfg.dev_filename_patterns if cfg and cfg.dev_filename_patterns else list(_DEFAULT_DEV_FILENAME_PATTERNS)
+        )
+        return any(fnmatch.fnmatchcase(fname, p.lower()) for p in dev_patterns)
 
     def _check_prod_port_exposed(self, data: dict, compose_file: Path) -> list[Finding]:
         """Production compose should not expose host ports (use reverse proxy)."""
@@ -717,17 +783,27 @@ class DockerValidator(BaseValidator):
 
             if isinstance(build, dict):
                 target = build.get("target", "")
-                if target and target.lower() != "dev":
+                # Honors ctx.config.docker.dev_stage_names — empty list
+                # falls back to the built-in default ("dev",).
+                cfg = getattr(self, "_docker_cfg", None)
+                dev_stages = (
+                    tuple(s.lower() for s in cfg.dev_stage_names)
+                    if cfg and cfg.dev_stage_names
+                    else _DEFAULT_DEV_STAGE_NAMES
+                )
+                if target and target.lower() not in dev_stages:
+                    primary_dev = dev_stages[0] if dev_stages else "dev"
                     findings.append(
                         Finding(
                             severity="warning",
                             file=str(compose_file),
                             rule="V05-DEV-NO-BUILD-TARGET",
                             message=(
-                                f"Service '{svc_name}' in dev override has build target '{target}' instead of 'dev'"
+                                f"Service '{svc_name}' in dev override has build target '{target}' "
+                                f"(expected one of: {', '.join(dev_stages) or '<none>'})"
                             ),
                             fix=(
-                                f"Set build.target to 'dev' for '{svc_name}' in "
+                                f"Set build.target to '{primary_dev}' for '{svc_name}' in "
                                 f"{compose_file.name} to use the development stage with hot reload"
                             ),
                         )
