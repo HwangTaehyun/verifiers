@@ -10,7 +10,7 @@
 | :--: | ----------- | ------ | -------------- | --------- |
 | **1** | `PostToolUse` | `hooks/security_hook.py` | `Edit \| Write \| MultiEdit` · timeout 10s · <100ms | regex 기반 시크릿(V08) 즉시 차단 — 가장 가벼운 첫 줄 방어 |
 | **2** | (hook 미등록) | `hooks/router.py` + `skills/verify-*` (20개) | Claude 가 자율 판단해 skill 호출 / 사용자가 `/verify` 실행 / `just verify-one V##` | file_path 매칭 validator 만 골라 실행 — 상황별 비용 통제 |
-| **3** | `Stop` | `hooks/stop_validator.py` | turn 종료 시도 시 단일 발동 · timeout 120s | 등록된 19개 validator (V01~V19) 일괄 실행 · circuit breaker x3 · FeedbackTracker |
+| **3** | `Stop` | `hooks/stop_validator.py` | turn 종료 시도 시 단일 발동 · timeout 120s | 등록된 19개 validator (V01~V20) 일괄 실행 · circuit breaker x3 · FeedbackTracker |
 
 ```
 PostToolUse (Edit/Write/MultiEdit)
@@ -95,7 +95,7 @@ Stop 이벤트 (Claude turn 종료 시도)
 
 | #  | Skill                  | 트리거 / 적용 파일                                          | 무엇을 검증                                                                                                  | 연결 V-ID    |
 | -- | ---------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------ |
-| 1  | `verify`               | 전체 검증 활성화 — V01~V19 중 매칭 validator 자동 실행        | router.py 통해 file_path 매칭하는 모든 validator 실행                                                          | V01~V19      |
+| 1  | `verify`               | 전체 검증 활성화 — V01~V20 중 매칭 validator 자동 실행        | router.py 통해 file_path 매칭하는 모든 validator 실행                                                          | V01~V20      |
 | 2  | `verify-cheating`      | `*_test.*` 수정 시                                          | 테스트 함수 삭제, `t.Skip*`/`@pytest.mark.skip`/`it.skip` 추가, `assert` 카운트 감소, `assertEqual→assertTrue` 약화 | V13          |
 | 3  | `verify-commit`        | Stop mode 전용 — 세션 종료 시                                 | `git status` 미커밋, `git diff --name-status` 로 구조/행동 혼합, 15+ 파일 수정, 소스 변경 vs 테스트 변경 비대칭, Conventional Commits 정규식 | V12          |
 | 4  | `verify-complexity`    | `*.go/py/ts(x)` 수정 시                                      | cyclomatic > 10/20, cognitive > 15/30, function > 80/150 line, nesting > 4, params > 5 (Python 은 AST, Go/TS 휴리스틱) | V14          |
