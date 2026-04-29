@@ -8,7 +8,27 @@ The audit IDs cited below (P0-x, P1-x, P2-x) refer to the project-improvement
 audit completed in 2026-04. They're kept here so future commits can link to
 the original rationale.
 
-## [Unreleased]
+## [0.2.0] - 2026-04-29
+
+First tagged release. Bundles Phases 1–25 (P0/P1/P2 audit triage,
+Tier 2 router auto-gateway, ProcessPoolExecutor parallel runner,
+SecurityConfig + DockerConfig per-project tuning, classical-school
+testing skill, dogfood CI, configuration documentation).
+
+The initial entries below are scoped to this release. Future
+releases will get their own dated section per Keep-a-Changelog.
+
+### BREAKING
+
+- **`docker.vhost_check_mode` default = `"production"`** (Phase21):
+  the V05-VHOST-NO-NETWORK rule now fires only on production-classified
+  compose files (matched by `dev_filename_patterns` / its built-in
+  fallback). Previously every compose file was checked, producing a
+  false positive whenever a local `docker-compose.yaml` set
+  `VIRTUAL_HOST` for production parity but had no `nginx-proxy`
+  network. Set `docker.vhost_check_mode: "all"` in
+  `.verifiers/config.yaml` to restore the strict legacy behavior.
+  See [docs/CONFIGURATION.md](docs/CONFIGURATION.md#1-풀-스키마).
 
 ### Added
 
@@ -92,17 +112,6 @@ the original rationale.
   generated 55-line bodies but the threshold was 80; bumped to 90/160.
 - **2 ruff lint debts**: `E741` ambiguous `l` and `F541` f-string-
   without-placeholder in `docker_compose.py`.
-
-### Changed (BREAKING)
-
-- **V05 `vhost_check_mode` default = `"production"`** (phase21): the
-  V05-VHOST-NO-NETWORK rule now fires only on production-classified
-  compose files (matched by `dev_filename_patterns` / its built-in
-  fallback). Previously every compose file was checked, producing a
-  false positive whenever a local `docker-compose.yaml` set
-  `VIRTUAL_HOST` for production parity but had no `nginx-proxy`
-  network. Set `docker.vhost_check_mode: "all"` in
-  `.verifiers/config.yaml` to restore the strict legacy behavior.
 
 ### Added (post-deferred batch)
 
