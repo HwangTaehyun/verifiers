@@ -98,6 +98,9 @@ NAME_MAP = {
     # V26 — Docker compose production hardening (resource limits + healthcheck + secret-mount + localhost)
     "docker-prod": "V26-docker-prod",
     "docker-prod-hardening": "V26-docker-prod",
+    # V27 — Connect-RPC handler completeness (handler ↔ proto + interceptors + connect.NewError)
+    "connect-handler": "V27-connect-handler",
+    "connect": "V27-connect-handler",
 }
 
 

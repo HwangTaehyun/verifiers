@@ -58,6 +58,7 @@ def get_all_validators() -> list[BaseValidator]:
     from .buf_governance import BufGovernanceValidator
     from .commit_discipline import CommitDisciplineValidator
     from .complexity_guard import ComplexityGuardValidator
+    from .connect_handler import ConnectHandlerValidator
     from .dependency_guard import DependencyGuardValidator
     from .docker_compose import DockerValidator as DockerComposeValidator
     from .docker_prod_hardening import DockerProdHardeningValidator
@@ -107,6 +108,7 @@ def get_all_validators() -> list[BaseValidator]:
         BufGovernanceValidator(),  # V23 — buf.lock drift + breaking + protovalidate
         GoMultiBinaryValidator(),  # V25 — graceful shutdown + tools.go + air mapping
         DockerProdHardeningValidator(),  # V26 — production compose hardening
+        ConnectHandlerValidator(),  # V27 — connect-rpc handler completeness
     ]
     _assert_registry_invariants(validators)
     return validators
