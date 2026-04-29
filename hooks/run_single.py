@@ -89,6 +89,9 @@ NAME_MAP = {
     # V22 — multi-environment consistency (APP_ prefix + drift + viper mapping)
     "multi-env": "V22-multi-env",
     "env-consistency": "V22-multi-env",
+    # V23 — buf governance (lock drift + breaking + protovalidate)
+    "buf-governance": "V23-buf-governance",
+    "buf": "V23-buf-governance",
 }
 
 

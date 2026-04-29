@@ -55,6 +55,7 @@ def _assert_registry_invariants(validators: "list[BaseValidator]") -> None:
 def get_all_validators() -> list[BaseValidator]:
     """Return instances of all registered validators."""
     from .ai_cheating_guard import AiCheatingGuardValidator
+    from .buf_governance import BufGovernanceValidator
     from .commit_discipline import CommitDisciplineValidator
     from .complexity_guard import ComplexityGuardValidator
     from .dependency_guard import DependencyGuardValidator
@@ -101,6 +102,7 @@ def get_all_validators() -> list[BaseValidator]:
         MockDataGuardValidator(),  # V18 — mock data detection in frontend hooks
         HasuraGraphQLEnforcementValidator(),  # V20 — raw SQL forbidden when Hasura present
         MultiEnvConsistencyValidator(),  # V22 — APP_ prefix + root/server drift + viper key↔env
+        BufGovernanceValidator(),  # V23 — buf.lock drift + breaking + protovalidate
     ]
     _assert_registry_invariants(validators)
     return validators
