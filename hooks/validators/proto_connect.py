@@ -26,7 +26,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output
-from lib.hash_cache import HashCache, hash_files
+from lib.codegen_staleness import is_codegen_stale
+from lib.hash_cache import HashCache
 from lib.project_context import ProjectContext
 
 
@@ -120,7 +121,11 @@ class ProtoConnectValidator(BaseValidator):
     # ── Check 2: Stale generated code ────────────────────────────────────
 
     def _check_stale_generated(self, ctx: ProjectContext) -> list[Finding]:
-        """Proto files hash vs gen/ mtime comparison."""
+        """Proto files hash vs gen/ mtime comparison.
+
+        Phase51: hash + mtime two-step algorithm extracted to
+        ``lib.codegen_staleness.is_codegen_stale`` and shared with V02.
+        """
         findings: list[Finding] = []
 
         if not ctx.server_dir:
@@ -133,40 +138,30 @@ class ProtoConnectValidator(BaseValidator):
         if buf_gen.exists():
             input_files.append(buf_gen)
 
-        if not input_files:
-            return findings
-
         # Check gen/ directory exists
         gen_dir = ctx.server_dir / "gen"
         if not gen_dir.exists():
             return findings
 
         gen_go_files = list(gen_dir.rglob("*.go"))
-        if not gen_go_files:
-            return findings
 
-        # Hash comparison
-        current_hash = hash_files(input_files)
-        has_changed = self.hash_cache.has_changed("proto", ctx.project_name or "unknown", current_hash)
-
-        if has_changed:
-            # mtime comparison as double check
-            existing_protos = [f for f in proto_files if f.exists()]
-            if existing_protos:
-                latest_proto = max(f.stat().st_mtime for f in existing_protos)
-                latest_gen = max(f.stat().st_mtime for f in gen_go_files)
-
-                if latest_proto > latest_gen:
-                    build_cmd = "just generate" if ctx.build_tool == "just" else "make generate_buf"
-                    findings.append(
-                        Finding(
-                            severity="error",
-                            file=str(ctx.proto_dir),
-                            rule="V03-STALE-GEN",
-                            message="Proto files changed but generated code not regenerated",
-                            fix=f"Run '{build_cmd}' in {ctx.server_dir} directory",
-                        )
-                    )
+        if is_codegen_stale(
+            cache=self.hash_cache,
+            category="proto",
+            project=ctx.project_name or "unknown",
+            input_files=input_files,
+            generated_files=gen_go_files,
+        ):
+            build_cmd = "just generate" if ctx.build_tool == "just" else "make generate_buf"
+            findings.append(
+                Finding(
+                    severity="error",
+                    file=str(ctx.proto_dir),
+                    rule="V03-STALE-GEN",
+                    message="Proto files changed but generated code not regenerated",
+                    fix=f"Run '{build_cmd}' in {ctx.server_dir} directory",
+                )
+            )
 
         return findings
 

@@ -10,6 +10,39 @@ the original rationale.
 
 ## [Unreleased]
 
+### Changed (Phase51 — Library extraction: codegen staleness)
+
+- **`lib/codegen_staleness.py` extracted from V02 + V03.** The two-step
+  hash-then-mtime staleness algorithm was independently reimplemented
+  in `graphql_gen.py:_check_stale_generated` (V02) and
+  `proto_connect.py:_check_stale_generated` (V03) — identical logic,
+  identical edge cases, ~28 lines of duplication. Phase51 lifts the
+  algorithm into a single `is_codegen_stale(cache, category, project,
+  input_files, generated_files) -> bool` function with extensive
+  module-level docstring documenting the two-step rationale (why hash
+  alone false-positives on `git checkout` mtime resets; why mtime alone
+  false-positives after cache wipes).
+
+- **V02 and V03 migrated** to the shared lib. Each validator keeps
+  ownership of (a) input/generated file globbing, and (b) Finding emit
+  with rule-specific message + fix string. Net delta: V02 -10 lines,
+  V03 -15 lines, lib +135 lines (shared docstring + tests).
+
+- **8 new unit tests** in `tests/test_codegen_staleness.py` pin the
+  contract: 4 skip-cases (empty inputs, no existing inputs, no
+  generated, no existing generated), 1 hash-gate (unchanged hash short-
+  circuits regardless of mtime), 1 mtime-gate (cache wipe doesn't
+  false-positive when generated is newer), 2 both-gates-trip cases
+  including independent category cache keys.
+
+- **Other extraction candidates audited and deferred.** `lib/compose_loader.py`
+  (V05 ↔ V26 — V26 already has a working local `_walk_compose`,
+  promote when 3rd consumer arrives), `lib/proto_walker.py` (V23 ↔ V27
+  — only 5-line idiom, not worth the abstraction), env-file parsing
+  (V01 ↔ V22 — V22's local `_parse_env_keys` is fine), Go pattern
+  matching (V25/V27/V08 — domain-specific patterns, no shared shape).
+  Documented in the audit; revisit if V28+ adds a third consumer.
+
 ### Changed (Phase49a — V22 drift asymmetric)
 
 - **V22-ROOT-SERVER-DRIFT direction collapsed to root→server only.**

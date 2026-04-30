@@ -23,7 +23,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output
-from lib.hash_cache import HashCache, hash_files
+from lib.codegen_staleness import is_codegen_stale
+from lib.hash_cache import HashCache
 from lib.project_context import ProjectContext
 
 # ── genqlient.yaml required fields ───────────────────────────────────────────
@@ -117,7 +118,11 @@ class GraphqlGenValidator(BaseValidator):
     # ── Check 2: Hash-based stale detection ──────────────────────────────
 
     def _check_stale_generated(self, ctx: ProjectContext) -> list[Finding]:
-        """Detect if GraphQL input files changed but genqlient.go was not regenerated."""
+        """Detect if GraphQL input files changed but genqlient.go was not regenerated.
+
+        Phase51: hash + mtime two-step algorithm extracted to
+        ``lib.codegen_staleness.is_codegen_stale`` and shared with V03.
+        """
         findings: list[Finding] = []
 
         # Collect input files
@@ -134,37 +139,25 @@ class GraphqlGenValidator(BaseValidator):
         if yaml_file.exists():
             input_files.append(yaml_file)
 
-        if not input_files:
-            return findings
-
         generated = ctx.graph_dir / "gqlclient" / "genqlient.go"
-        if not generated.exists():
-            return findings
 
-        # Calculate current hash of input files
-        current_hash = hash_files(input_files)
-
-        # Compare with cached hash
-        has_changed = self.hash_cache.has_changed("graphql", ctx.project_name or "unknown", current_hash)
-
-        if has_changed:
-            # Also do mtime comparison as a double check
-            existing_input_files = [f for f in input_files if f.exists()]
-            if existing_input_files:
-                latest_input = max(f.stat().st_mtime for f in existing_input_files)
-                gen_mtime = generated.stat().st_mtime
-
-                if latest_input > gen_mtime:
-                    server_dir = ctx.server_dir or ctx.project_root
-                    findings.append(
-                        Finding(
-                            severity="error",
-                            file=str(generated),
-                            rule="V02-STALE-GEN",
-                            message="GraphQL files changed but genqlient.go not regenerated",
-                            fix=f"Run 'cd {server_dir} && make generate_go' to regenerate",
-                        )
-                    )
+        if is_codegen_stale(
+            cache=self.hash_cache,
+            category="graphql",
+            project=ctx.project_name or "unknown",
+            input_files=input_files,
+            generated_files=[generated],
+        ):
+            server_dir = ctx.server_dir or ctx.project_root
+            findings.append(
+                Finding(
+                    severity="error",
+                    file=str(generated),
+                    rule="V02-STALE-GEN",
+                    message="GraphQL files changed but genqlient.go not regenerated",
+                    fix=f"Run 'cd {server_dir} && make generate_go' to regenerate",
+                )
+            )
 
         return findings
 
