@@ -62,6 +62,7 @@ def get_all_validators() -> list[BaseValidator]:
     from .commit_discipline import CommitDisciplineValidator
     from .complexity_guard import ComplexityGuardValidator
     from .connect_handler import ConnectHandlerValidator
+    from .dependabot_config import DependabotConfigValidator
     from .dependency_guard import DependencyGuardValidator
     from .docker_compose import DockerValidator as DockerComposeValidator
     from .docker_prod_hardening import DockerProdHardeningValidator
@@ -69,6 +70,8 @@ def get_all_validators() -> list[BaseValidator]:
     # from .docker_prod_deploy import DockerProdDeployValidator  # TODO: not yet implemented
     from .env_config import EnvConfigValidator
     from .fk_index_discipline import FkIndexDisciplineValidator
+    from .go_context_propagation import GoContextPropagationValidator
+    from .go_error_wrapping import GoErrorWrappingValidator
     from .go_http_hardening import GoHttpHardeningValidator
     from .go_multibinary import GoMultiBinaryValidator
     from .go_quality import GoQualityValidator
@@ -81,6 +84,7 @@ def get_all_validators() -> list[BaseValidator]:
     from .linter_config_guard import LinterConfigGuardValidator
     from .mock_data_guard import MockDataGuardValidator
     from .multi_env import MultiEnvConsistencyValidator
+    from .otel_instrumentation import OtelInstrumentationValidator
     from .proto_connect import ProtoConnectValidator
     from .py_pytest import PyPytestValidator
     from .py_quality import PyQualityValidator
@@ -125,6 +129,11 @@ def get_all_validators() -> list[BaseValidator]:
         GoTestRaceCoverageValidator(),  # V37 — go test -race + coverage gate
         ActionsPermissionsBlockValidator(),  # V41 — workflow permissions: block
         CiImageScanningValidator(),  # V43 — Trivy/Grype scan in CI
+        # Phase55 (Sprint 3 governance + observability + Long tail batch 1):
+        DependabotConfigValidator(),  # V42 — Dependabot/Renovate config presence
+        OtelInstrumentationValidator(),  # V49 — OpenTelemetry SDK presence + wiring
+        GoErrorWrappingValidator(),  # V34 — bare `return err` without %w
+        GoContextPropagationValidator(),  # V35 — mid-flow context.Background()
     ]
     _assert_registry_invariants(validators)
     return validators

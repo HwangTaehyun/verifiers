@@ -60,7 +60,8 @@ class TestBuiltinGroups:
     def test_security_group_membership(self) -> None:
         # Phase54 Sprint1: V40 (Actions SHA pinning).
         # Phase54 Sprint2: V41 (workflow permissions:), V43 (CI image scanning).
-        assert BUILTIN_GROUPS["security"] == ["V08", "V18", "V40", "V41", "V43"]
+        # Phase55: V42 (Dependabot config) for dep CVE PR flow.
+        assert BUILTIN_GROUPS["security"] == ["V08", "V18", "V40", "V41", "V42", "V43"]
 
     def test_no_v_id_appears_in_two_groups(self) -> None:
         # If any V-ID is in two groups, group-disable becomes ambiguous

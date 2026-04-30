@@ -122,6 +122,20 @@ NAME_MAP = {
     # V43 — CI image scanning (Trivy/Grype/Snyk)
     "ci-image-scan": "V43-ci-image-scanning",
     "image-scan": "V43-ci-image-scanning",
+    # V42 — Dependabot/Renovate config presence
+    "dependabot-config": "V42-dependabot-config",
+    "dependabot": "V42-dependabot-config",
+    "renovate": "V42-dependabot-config",
+    # V49 — OpenTelemetry SDK + wiring
+    "otel-instrumentation": "V49-otel-instrumentation",
+    "otel": "V49-otel-instrumentation",
+    # V34 — Go bare `return err` without %w
+    "go-error-wrapping": "V34-go-error-wrapping",
+    "error-wrapping": "V34-go-error-wrapping",
+    "wrapcheck": "V34-go-error-wrapping",
+    # V35 — Go mid-flow context.Background()
+    "go-context-propagation": "V35-go-context-propagation",
+    "context-propagation": "V35-go-context-propagation",
 }
 
 

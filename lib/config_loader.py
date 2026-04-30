@@ -229,16 +229,15 @@ class VerifiersConfig:
 # (the same form ``filter_disabled_validators`` accepts).
 
 BUILTIN_GROUPS: dict[str, list[str]] = {
-    # Phase54 Sprint1: V36 added (Go HTTP runtime — code-quality)
-    "code-quality": ["V06", "V07", "V14", "V19", "V36"],
-    # Phase54 Sprint2: V37 added (Go test race + coverage in CI)
+    # Phase54-55: V36 (HTTP timeouts), V34 (error wrap), V35 (ctx prop) added.
+    "code-quality": ["V06", "V07", "V14", "V19", "V34", "V35", "V36"],
     "test-execution": ["V09", "V10", "V11", "V21", "V37"],
     "env-config": ["V01", "V22"],
     "docker": ["V05", "V25", "V26"],
-    # Phase54 Sprint1: V47 + V50 added (DB schema, health endpoint contract)
-    "api-rpc-data": ["V02", "V03", "V04", "V20", "V23", "V27", "V47", "V50"],
-    # Phase54 Sprint1: V40 + Sprint2: V41, V43 (CI security)
-    "security": ["V08", "V18", "V40", "V41", "V43"],
+    # Phase54-55: V47, V50, V49 added (DB schema, health, OTel observability)
+    "api-rpc-data": ["V02", "V03", "V04", "V20", "V23", "V27", "V47", "V49", "V50"],
+    # Phase54-55: V40, V41, V43, V42 added (CI security + dep PR flow)
+    "security": ["V08", "V18", "V40", "V41", "V42", "V43"],
     "process": ["V12", "V13", "V15", "V16"],
 }
 

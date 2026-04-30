@@ -10,6 +10,71 @@ the original rationale.
 
 ## [Unreleased]
 
+### Added (Phase55 — Sprint 3 + Long tail batch 1)
+
+Four more validators from the Phase 53 audit shipped as full
+implementations on top of v0.5.0. Brings the Phase 53 backlog
+from 7/17 to 11/17 implemented.
+
+- **V42 — dependabot-config** (`hooks/validators/dependabot_config.py`,
+  ~190 LOC + 10 tests). Project-level config-presence check.
+  Accepts `.github/dependabot.{yml,yaml}` or any Renovate config
+  form (`.github/renovate.{json,json5}`, root `renovate.json`).
+  V42-NO-DEPENDABOT (warning) when neither exists. When dependabot
+  config is present, parses the `updates:` array and emits
+  V42-DEPENDABOT-MISSING-ECOSYSTEM (warning) for each required
+  ecosystem missing — `gomod` (if `server/go.mod` exists), `npm`
+  (if `web/package.json` exists), and always `github-actions`.
+
+- **V49 — otel-instrumentation** (`hooks/validators/otel_instrumentation.py`,
+  ~150 LOC + 10 tests). Two-step Go observability check:
+  V49-NO-OTEL-SDK (warning) when `go.mod` lacks
+  `go.opentelemetry.io/otel` direct dep; V49-OTEL-NOT-WIRED
+  (warning) when SDK is present but no `cmd/**/*.go` file
+  imports `otelhttp` (mux not traced). Test files and `internal/`
+  imports don't satisfy the wiring requirement.
+
+- **V34 — go-error-wrapping** (`hooks/validators/go_error_wrapping.py`,
+  ~165 LOC + 11 tests). Heuristic regex scanner over `cmd/` and
+  `internal/` Go files. Flags bare `return err` / `return foo, err`
+  whose preceding line isn't a wrapping call (`fmt.Errorf("…%w…")`,
+  `errors.New(…)`, `connect.NewError(…)`). Skips `_test.go`,
+  `gen/` directory, `*.generated.go`, and files marked
+  `// Code generated`. Severity warning (heuristic, false-positive-
+  prone — user can `//nolint:V34` known good cases).
+
+- **V35 — go-context-propagation** (`hooks/validators/go_context_propagation.py`,
+  ~125 LOC + 10 tests). Scans `internal/**/*.go` (non-test) for
+  `context.Background()` / `context.TODO()` calls. Emits
+  V35-MID-FLOW-BACKGROUND-CTX (error) per occurrence. Two
+  exemptions: (a) file containing `signal.NotifyContext(`
+  (likely a long-lived background daemon root), (b) package-scope
+  `var bgCtx = context.Background()` declarations. `cmd/` files
+  are out-of-scope (program root is the right place for Background).
+
+- **Registry wiring**: 4 new imports + 4 instances added to
+  `hooks/validators/__init__.py:get_all_validators()` under a
+  Phase55 marker.
+
+- **`run_single.py` NAME_MAP**: 11 new short aliases
+  (`dependabot-config`, `dependabot`, `renovate`,
+  `otel-instrumentation`, `otel`, `go-error-wrapping`,
+  `error-wrapping`, `wrapcheck`, `go-context-propagation`,
+  `context-propagation`).
+
+- **`BUILTIN_GROUPS` updated**: V34, V35 → code-quality;
+  V42 → security; V49 → api-rpc-data. Phase 52 invariants pass.
+
+- **Tests**: 1230 → 1271 passing (+41 across 4 new test files).
+  `test_security_group_membership` updated to expect new V42.
+
+### Sprint 3 + long tail status
+
+```
+Phase 55 (this):  V34 V35 V42 V49                 ✅ implemented
+Long tail (next): V38 V39 V44 V45 V46 V48          ⏸ specs locked, queued
+```
+
 ## [0.5.0] - 2026-04-30
 
 Fourth tagged release. Bundles Phases 49a / 50 / 51 / 52 / 53 / 54
