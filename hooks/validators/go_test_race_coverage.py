@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output  # noqa: E402
 from lib.project_context import ProjectContext  # noqa: E402
+from lib.workflow_loader import walk_workflow_paths  # noqa: E402
 
 # Step uses that satisfy the coverage gate requirement
 _COVERAGE_UPLOAD_USES = (
@@ -65,13 +66,10 @@ class GoTestRaceCoverageValidator(BaseValidator):
     # ── Workflow scanning ────────────────────────────────────────────────
 
     def _check_workflows(self, ctx: ProjectContext) -> list[Finding]:
-        workflows_dir = Path(ctx.project_root) / ".github" / "workflows"
-        if not workflows_dir.is_dir():
-            return []
+        """Phase60: dir walker via lib.workflow_loader.walk_workflow_paths."""
         findings: list[Finding] = []
-        for pattern in ("*.yml", "*.yaml"):
-            for wf_file in sorted(workflows_dir.glob(pattern)):
-                findings.extend(self._check_workflow(wf_file))
+        for wf_file in walk_workflow_paths(ctx.project_root):
+            findings.extend(self._check_workflow(wf_file))
         return findings
 
     def _check_workflow(self, file_path: Path) -> list[Finding]:

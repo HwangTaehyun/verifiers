@@ -14,7 +14,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import yaml
+from lib.workflow_loader import parse_workflow, walk_workflows
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -40,29 +40,26 @@ class ActionsPermissionsBlockValidator(BaseValidator):
         return self._check_workflow(path)
 
     def validate_project(self, ctx: ProjectContext) -> list[Finding]:
-        """Tier 3: scan all workflow files under .github/workflows/."""
-        workflows_dir = Path(ctx.project_root) / ".github" / "workflows"
-        if not workflows_dir.is_dir():
-            return []
+        """Tier 3: scan all workflow files under .github/workflows/.
 
+        Phase60: directory walk + YAML parse extracted to
+        ``lib.workflow_loader.walk_workflows``.
+        """
         findings: list[Finding] = []
-        for pattern in ("*.yml", "*.yaml"):
-            for wf_file in sorted(workflows_dir.glob(pattern)):
-                findings.extend(self._check_workflow(wf_file))
+        for wf_file, workflow in walk_workflows(ctx.project_root):
+            findings.extend(self._check_workflow_data(wf_file, workflow))
         return findings
 
     # ── Internals ──────────────────────────────────────────────────────
 
     def _check_workflow(self, file_path: Path) -> list[Finding]:
-        try:
-            content = file_path.read_text(errors="replace")
-            workflow = yaml.safe_load(content)
-        except (yaml.YAMLError, OSError):
+        """Tier 2 entrypoint — parse the single edited file then check."""
+        workflow = parse_workflow(file_path)
+        if workflow is None:
             return []
+        return self._check_workflow_data(file_path, workflow)
 
-        if not workflow or not isinstance(workflow, dict):
-            return []
-
+    def _check_workflow_data(self, file_path: Path, workflow: dict) -> list[Finding]:
         # Pass: top-level permissions key present (even if empty dict)
         if "permissions" in workflow:
             return []

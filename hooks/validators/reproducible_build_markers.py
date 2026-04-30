@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output  # noqa: E402
 from lib.project_context import ProjectContext  # noqa: E402
+from lib.workflow_loader import walk_workflow_paths  # noqa: E402
 
 # ── Dockerfile patterns ────────────────────────────────────────────────────────
 
@@ -127,13 +128,12 @@ class ReproducibleBuildMarkersValidator(BaseValidator):
         return findings
 
     def _workflow_satisfies_sde(self, root: Path) -> bool:
-        """Return True if any CI workflow passes SOURCE_DATE_EPOCH to a docker build step."""
-        workflow_dir = root / ".github" / "workflows"
-        if not workflow_dir.is_dir():
-            return False
+        """Return True if any CI workflow passes SOURCE_DATE_EPOCH to a docker build step.
 
-        for wf_path in sorted(workflow_dir.glob("*.yml")) + sorted(workflow_dir.glob("*.yaml")):
-            if wf_path.is_file() and _workflow_passes_sde(wf_path):
+        Phase60: dir walker via lib.workflow_loader.walk_workflow_paths.
+        """
+        for wf_path in walk_workflow_paths(root):
+            if _workflow_passes_sde(wf_path):
                 return True
         return False
 

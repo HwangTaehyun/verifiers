@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output  # noqa: E402
 from lib.project_context import ProjectContext  # noqa: E402
+from lib.workflow_loader import walk_workflow_paths  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -69,21 +70,23 @@ class SbomCiStepValidator(BaseValidator):
     # ── Internals ──────────────────────────────────────────────────────
 
     def _check(self, ctx: ProjectContext) -> list[Finding]:
-        """Walk all workflows; return finding if none produce an SBOM."""
+        """Walk all workflows; return finding if none produce an SBOM.
+
+        Phase60: dir walker extracted to lib.workflow_loader.walk_workflow_paths.
+        """
         workflows_dir = Path(ctx.project_root) / ".github" / "workflows"
         if not workflows_dir.is_dir():
             return []
 
-        wf_files: list[Path] = []
-        for pattern in ("*.yml", "*.yaml"):
-            wf_files.extend(sorted(workflows_dir.glob(pattern)))
-
-        if not wf_files:
-            return []
-
-        for wf_file in wf_files:
+        # Early-bail walk: stop as soon as one workflow produces SBOM.
+        any_workflow = False
+        for wf_file in walk_workflow_paths(ctx.project_root):
+            any_workflow = True
             if self._workflow_has_sbom(wf_file):
                 return []
+
+        if not any_workflow:
+            return []
 
         return [
             Finding(

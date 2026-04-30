@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output  # noqa: E402
 from lib.project_context import ProjectContext  # noqa: E402
+from lib.workflow_loader import walk_workflow_paths  # noqa: E402
 
 # Known scanner GitHub Actions (prefix-matched so any version suffix works)
 _SCANNER_ACTIONS = [
@@ -48,15 +49,13 @@ class CiImageScanningValidator(BaseValidator):
         return self._check_workflow(path)
 
     def validate_project(self, ctx: ProjectContext) -> list[Finding]:
-        """Tier 3: scan all workflow files under .github/workflows/."""
-        workflows_dir = Path(ctx.project_root) / ".github" / "workflows"
-        if not workflows_dir.is_dir():
-            return []
+        """Tier 3: scan all workflow files under .github/workflows/.
 
+        Phase60: dir walker extracted to lib.workflow_loader.walk_workflow_paths.
+        """
         findings: list[Finding] = []
-        for pattern in ("*.yml", "*.yaml"):
-            for wf_file in sorted(workflows_dir.glob(pattern)):
-                findings.extend(self._check_workflow(wf_file))
+        for wf_file in walk_workflow_paths(ctx.project_root):
+            findings.extend(self._check_workflow(wf_file))
         return findings
 
     # ── Internals ──────────────────────────────────────────────────────

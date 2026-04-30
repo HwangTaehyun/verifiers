@@ -10,6 +10,61 @@ the original rationale.
 
 ## [Unreleased]
 
+### Changed (Phase60 — Library extraction: workflow_loader)
+
+Phase 51 pattern (codegen_staleness) applied to the second-largest
+duplication site: `.github/workflows/*.yml` parsing. 6 validators
+independently reimplemented the same directory walker; Phase 60
+extracts it.
+
+- **`lib/workflow_loader.py` extracted from V37, V40, V41, V43, V57, V58.**
+  Two helpers:
+  - `walk_workflow_paths(project_root)` — generator yielding
+    workflow `Path` objects (no parse). Used by text-scan validators
+    (V40 line-by-line `uses:` matcher, V57/V58 helpers that read
+    raw text).
+  - `walk_workflows(project_root)` — generator yielding `(Path, dict)`
+    pairs with safe YAML parse. Skips unreadable files / malformed
+    YAML / non-dict roots silently. Used by V41 (and any future
+    consumer that wants parsed data).
+  - `parse_workflow(path)` — single-file safe-parse, returns
+    `dict | None`. Used by V42 (single fixed path) and as the
+    underlying parser for `walk_workflows`.
+
+- **6 validators migrated:**
+  - V37 go-test-race-coverage: `_check_workflows` → `walk_workflow_paths`
+  - V40 actions-sha-pin: `validate_project` → `walk_workflow_paths`
+  - V41 actions-permissions-block: `validate_project` → `walk_workflows`
+    (uses both the path AND the parsed dict, so this is the only
+    consumer of the higher-level helper)
+  - V43 ci-image-scanning: `validate_project` → `walk_workflow_paths`
+  - V57 sbom-ci-step: `_check` → `walk_workflow_paths` (early-bail
+    iteration as soon as any workflow satisfies SBOM)
+  - V58 reproducible-build-markers: `_workflow_satisfies_sde` →
+    `walk_workflow_paths`
+
+  ~80 lines of duplicated `workflows_dir` walker code removed
+  (12-15 lines × 6 consumers).
+
+- **13 new unit tests** in `tests/test_workflow_loader.py` pinning:
+  - `walk_workflow_paths`: dir-absent handling, .yml + .yaml both
+    enumerated, sorted order, dedup by resolved path, lazy iteration
+    (early break works).
+  - `walk_workflows`: yields (Path, dict) pairs, malformed YAML
+    skipped silently, empty file skipped, list-root skipped.
+  - `parse_workflow`: valid → dict, missing → None, malformed →
+    None, list-root → None.
+
+- **Verification**: 1418 → 1431 tests (+13). All 6 migrated
+  validator suites unchanged behavior — pre-existing tests still
+  pass without modification.
+
+- **Cumulative library extraction arc:**
+  ```
+  Phase 51  lib/codegen_staleness.py  (V02 + V03 share)
+  Phase 60  lib/workflow_loader.py    (V37 V40 V41 V43 V57 V58 share)
+  ```
+
 ### Changed (Phase59 — V05 / V44 dup cleanup)
 
 After Phase 50 cleaned the original V03 / V05 / V27 rule duplicates,
