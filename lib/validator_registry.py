@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 
 from hooks.validators import get_all_validators
 from hooks.validators.base import Finding
+from lib.config_loader import expand_disabled_groups
 from lib.exclusion import filter_disabled_validators, filter_enabled_validators
 from lib.json_logger import log_exception
 
@@ -79,5 +80,12 @@ def resolve_active_validators(ctx: "ProjectContext", *, source: str) -> tuple[li
         )
         return [], finding
 
-    active = filter_disabled_validators(active, ctx.config.validators.disabled)
+    # Phase52: union explicit ``validators.disabled`` with the V-IDs
+    # resolved from ``validators.disabled_groups``. Group expansion
+    # silently drops unknown group names (logged); doing so keeps a
+    # typo'd group name from triggering the empty-allowlist error
+    # path that's reserved for the strict allowlist semantics.
+    expanded_groups = expand_disabled_groups(ctx.config)
+    disabled_union = list(ctx.config.validators.disabled) + expanded_groups
+    active = filter_disabled_validators(active, disabled_union)
     return active, None

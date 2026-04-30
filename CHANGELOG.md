@@ -10,6 +10,61 @@ the original rationale.
 
 ## [Unreleased]
 
+### Added (Phase52 — Group-based validator disable)
+
+- **`validators.disabled_groups`** config field. The 7 categories from
+  `docs/VERIFIERS-CATEGORIES.md` (`code-quality`, `test-execution`,
+  `env-config`, `docker`, `api-rpc-data`, `security`, `process`) are now
+  operational disable scopes:
+
+  ```yaml
+  validators:
+    disabled_groups: ["process"]   # disables V12, V13, V15, V16
+  ```
+
+- **`groups:` top-level config field** for user-defined groups:
+
+  ```yaml
+  groups:
+    my-strict: [V08, V18, V14]
+  validators:
+    disabled_groups: ["my-strict"]
+  ```
+
+  User-defined groups override built-ins on key collision (lets a
+  project re-scope a category name to its own taxonomy).
+
+- **`lib/config_loader.BUILTIN_GROUPS`** constant mirroring the
+  categorization document, plus `expand_disabled_groups(cfg)` helper
+  that resolves group names to V-ID prefixes. Group expansion runs
+  before the existing per-V-ID disable filter; the two lists union.
+
+- **`resolve_active_validators` (in `lib/validator_registry.py`)**
+  now appends expanded groups to the per-V-ID disable list before
+  filtering. Backward-compatible — empty/missing `disabled_groups`
+  preserves pre-Phase52 behavior exactly.
+
+- **17 new tests in `tests/test_disabled_groups.py`** including:
+  - BUILTIN_GROUPS contract pinning (7 categories, no V-ID in two
+    groups, exact membership for `process`/`security`).
+  - `expand_disabled_groups` skip cases, override semantics, two-
+    group union, unknown-name silent drop.
+  - Round-trip via `load_config` for both `disabled_groups` and
+    user-defined `groups:`.
+  - End-to-end via `resolve_active_validators` confirming the
+    matching validators are actually dropped from the active set.
+  - **Coverage invariants:** every active V## must belong to exactly
+    one BUILTIN_GROUPS bucket (catches future drift between code and
+    `docs/VERIFIERS-CATEGORIES.md`); inverse check that no group
+    member references a non-existent V-ID (V17 deferred and V24
+    removed-in-Phase46 are explicit allowed gaps).
+
+- **`docs/VERIFIERS-CATEGORIES.md` updated** — the "Not implemented
+  yet" caveat replaced with a fully documented Phase52 implementation
+  section showing built-in group names, custom group definition,
+  override-on-collision semantics, and the union semantics with the
+  existing `disabled` list.
+
 ### Changed (Phase51 — Library extraction: codegen staleness)
 
 - **`lib/codegen_staleness.py` extracted from V02 + V03.** The two-step

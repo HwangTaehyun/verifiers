@@ -101,8 +101,25 @@ class ExcludeConfig:
 
 @dataclass
 class ValidatorsConfig:
+    """Validator activation list.
+
+    ``enabled`` is a strict allowlist (empty = "all enabled" default).
+    Non-empty + zero matches raises ``VERIFIERS-CONFIG-EMPTY-ALLOWLIST``.
+
+    ``disabled`` is a denylist by V-ID or V-ID prefix
+    (``"V14-complexity-guard"`` or just ``"V14"``).
+
+    ``disabled_groups`` (Phase52) is a denylist by group name. Each name
+    must resolve via ``BUILTIN_GROUPS`` (in this module) or
+    ``VerifiersConfig.groups`` (user-defined). Group expansion runs
+    BEFORE the per-V-ID denylist is applied; the two are unioned, so
+    ``disabled_groups: ["process"]`` plus ``disabled: ["V07"]`` disables
+    V12/V13/V15/V16 + V07 in one config.
+    """
+
     enabled: list[str] = field(default_factory=list)
     disabled: list[str] = field(default_factory=list)
+    disabled_groups: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -193,6 +210,33 @@ class VerifiersConfig:
     security: SecurityConfig = field(default_factory=SecurityConfig)
     docker: DockerConfig = field(default_factory=DockerConfig)
     stop: StopConfig = field(default_factory=StopConfig)
+    # Phase52: user-defined validator groups. Keys are group names
+    # (lowercase, kebab-case); values are lists of V-IDs or V-ID
+    # prefixes. User entries override / add to BUILTIN_GROUPS for
+    # ``validators.disabled_groups`` resolution.
+    groups: dict[str, list[str]] = field(default_factory=dict)
+
+
+# ── Built-in validator groups (Phase52) ──────────────────────────────
+#
+# Mirrors the 7-category map in docs/VERIFIERS-CATEGORIES.md so users
+# can ``disabled_groups: ["process"]`` without ever defining the
+# group themselves. User-supplied ``groups:`` in config takes
+# precedence on key collision (lets a project re-scope a category
+# name to its own preference).
+#
+# Keys are kebab-case to match the doc; values are V-ID prefixes
+# (the same form ``filter_disabled_validators`` accepts).
+
+BUILTIN_GROUPS: dict[str, list[str]] = {
+    "code-quality": ["V06", "V07", "V14", "V19"],
+    "test-execution": ["V09", "V10", "V11", "V21"],
+    "env-config": ["V01", "V22"],
+    "docker": ["V05", "V25", "V26"],
+    "api-rpc-data": ["V02", "V03", "V04", "V20", "V23", "V27"],
+    "security": ["V08", "V18"],
+    "process": ["V12", "V13", "V15", "V16"],
+}
 
 
 # ── Loader ──────────────────────────────────────────────────────────────
@@ -319,6 +363,20 @@ def _build_config(raw: dict[str, Any]) -> VerifiersConfig:
     if isinstance(val_raw, dict):
         cfg.validators.enabled = _coerce_str_list(val_raw.get("enabled"))
         cfg.validators.disabled = _coerce_str_list(val_raw.get("disabled"))
+        # Phase52: group-based disable.
+        cfg.validators.disabled_groups = _coerce_str_list(val_raw.get("disabled_groups"))
+
+    # Phase52: user-defined validator groups (top-level ``groups:``).
+    groups_raw = raw.get("groups")
+    if isinstance(groups_raw, dict):
+        groups: dict[str, list[str]] = {}
+        for name, members in groups_raw.items():
+            if not isinstance(name, str):
+                continue
+            member_list = _coerce_str_list(members)
+            if member_list:
+                groups[name] = member_list
+        cfg.groups = groups
 
     sec_raw = raw.get("security")
     if isinstance(sec_raw, dict):
@@ -350,3 +408,44 @@ def _build_config(raw: dict[str, Any]) -> VerifiersConfig:
             cfg.stop.run_pytest = run_pytest
 
     return cfg
+
+
+# ── Group expansion (Phase52) ────────────────────────────────────────
+
+
+def expand_disabled_groups(cfg: VerifiersConfig) -> list[str]:
+    """Resolve ``cfg.validators.disabled_groups`` to a flat V-ID list.
+
+    Resolution order per group name:
+      1. User-defined ``cfg.groups`` (lets users override or extend).
+      2. ``BUILTIN_GROUPS`` (the 7 categories from VERIFIERS-CATEGORIES.md).
+      3. Unknown group → silently dropped (logged for debugging).
+
+    Returns the union of all resolved members. Caller appends to
+    ``cfg.validators.disabled`` before passing to
+    ``filter_disabled_validators``.
+
+    Empty input returns an empty list — callers are unaffected when
+    the user hasn't configured ``disabled_groups``.
+    """
+    if not cfg.validators.disabled_groups:
+        return []
+
+    expanded: list[str] = []
+    seen: set[str] = set()
+
+    for group_name in cfg.validators.disabled_groups:
+        members = cfg.groups.get(group_name) or BUILTIN_GROUPS.get(group_name)
+        if not members:
+            log_exception(
+                source="config_loader/expand_disabled_groups",
+                error=ValueError(f"Unknown group '{group_name}' in validators.disabled_groups"),
+                context={"available_builtin": list(BUILTIN_GROUPS.keys()), "user_defined": list(cfg.groups.keys())},
+            )
+            continue
+        for member in members:
+            if member not in seen:
+                expanded.append(member)
+                seen.add(member)
+
+    return expanded

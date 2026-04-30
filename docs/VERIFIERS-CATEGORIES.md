@@ -154,27 +154,45 @@ Documented here so future contributors don't reintroduce the duplication.
 - **Severity** — error/warning/info is per-rule, not per-validator. V05 has all three.
 - **File patterns** — overlap is fine; multiple validators can match `**/*.go`. The router de-duplicates findings on identical `(rule, file, line, message)`.
 
-## Disabling whole categories
+## Disabling whole categories (Phase52 — implemented)
 
-Currently the disable list is per-V-ID:
+The 7 built-in groups are **operational** as of Phase52. Disable an
+entire category in one line:
 
 ```yaml
 # .verifiers/config.yaml
 validators:
-  disabled: ["V13-ai-cheating-guard", "V14-complexity-guard"]
+  disabled_groups: ["process"]    # disables V12, V13, V15, V16
+  # OR layered:
+  disabled_groups: ["security"]   # disables V08, V18
+  disabled: ["V07-ts-quality"]    # plus an individual rule
 ```
 
-A future `groups:` section could allow:
+Built-in group names: `code-quality`, `test-execution`, `env-config`,
+`docker`, `api-rpc-data`, `security`, `process` (mirrors this doc's
+7 categories exactly — `lib/config_loader.py:BUILTIN_GROUPS` is
+test-anchored against drift).
+
+Define your own groups for project-specific tiers:
 
 ```yaml
-# proposed
 groups:
-  process: [V12, V13, V15, V16]
+  my-strict-tier: [V08, V18, V14]   # security + complexity
+  ci-only-runs:   [V09, V10, V11, V21]
 validators:
-  disabled_groups: ["process"]
+  disabled_groups: ["my-strict-tier"]
 ```
 
-Not implemented yet — open to issue if useful.
+User-defined groups override built-ins on key collision. Unknown
+group names in `disabled_groups` are silently dropped (logged via
+`log_exception` for debugging) — a typo in the group name doesn't
+trigger the strict allowlist's hard-fail behavior.
+
+Internally, group expansion runs *before* `validators.disabled` is
+applied, then the two are unioned and passed to the existing
+`filter_disabled_validators` pipeline. So `disabled_groups: ["process"]`
+plus `disabled: ["V07"]` produces the same result as
+`disabled: ["V12", "V13", "V15", "V16", "V07"]`.
 
 ## Phase50 changelog
 
