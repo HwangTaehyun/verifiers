@@ -162,10 +162,8 @@ NAME_MAP = {
     "commitlint-gate": "V54-commitlint-gate",
     "commitlint": "V54-commitlint-gate",
     "conventional-commits": "V54-commitlint-gate",
-    # V55 — Error tracking SDK (Sentry / GlitchTip)
-    "error-tracking-sdk": "V55-error-tracking-sdk",
-    "error-tracking": "V55-error-tracking-sdk",
-    "sentry": "V55-error-tracking-sdk",
+    # V55 (error-tracking-sdk) removed in Phase58 wrap — user decision.
+    # Namespace reserved; aliases removed to avoid stale lookup.
     # V56 — Prometheus /metrics endpoint
     "prometheus-metrics": "V56-prometheus-metrics-endpoint",
     "prometheus": "V56-prometheus-metrics-endpoint",

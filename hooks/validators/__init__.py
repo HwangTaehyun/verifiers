@@ -73,7 +73,6 @@ def get_all_validators() -> list[BaseValidator]:
 
     # from .docker_prod_deploy import DockerProdDeployValidator  # TODO: not yet implemented
     from .env_config import EnvConfigValidator
-    from .error_tracking_sdk import ErrorTrackingSdkValidator
     from .fk_index_discipline import FkIndexDisciplineValidator
     from .go_context_propagation import GoContextPropagationValidator
     from .go_context_scoped_logger import GoContextScopedLoggerValidator
@@ -157,7 +156,11 @@ def get_all_validators() -> list[BaseValidator]:
         MigrationEnumRollbackValidator(),  # V46 — ALTER TYPE ADD VALUE rollback
         HasuraPermissionRationaleValidator(),  # V48 — select-only intent doc
         # Phase58 Sprint A (docs/observability/supply-chain audit, Sprint A):
-        ErrorTrackingSdkValidator(),  # V55 — Sentry/GlitchTip SDK presence
+        # V55 (error-tracking-sdk / Sentry) cut by user decision —
+        # too opinionated for the template; teams pick their own
+        # tracking stack (Sentry / GlitchTip / Datadog / Honeybadger /
+        # none). V55 namespace stays reserved (no V-ID reuse) so older
+        # commits + audit history references remain stable.
         GithubCommunityFilesValidator(),  # V53 — PR/ISSUE templates + CODEOWNERS
         CommitlintGateValidator(),  # V54 — Conventional Commits enforcement gate
         PrometheusMetricsEndpointValidator(),  # V56 — /metrics endpoint + SDK

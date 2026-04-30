@@ -10,6 +10,33 @@ the original rationale.
 
 ## [Unreleased]
 
+### Removed (Phase58 wrap — V55 cut)
+
+- **V55 — error-tracking-sdk** (Sentry/GlitchTip SDK presence check)
+  was implemented in Phase 58 Sprint A but removed by user decision
+  shortly after v0.7.0 tagged. Rationale: too opinionated for a
+  template — teams pick their own tracking stack (Sentry / GlitchTip /
+  Datadog / Honeybadger / none). The README incident that motivated
+  V55 (Apr 2026 `/manual-invoice/drafts` HTTP-500 visibility gap) is
+  better addressed by V49 (OTel) + V56 (Prometheus) + V50 (/livez
+  vs /readyz) which together cover the observability surface without
+  prescribing a vendor.
+
+  V55 namespace stays reserved (no V-ID reuse) so older commits +
+  audit history references remain stable. Same pattern as V24
+  (Hasura permission audit) cut in Phase 46.
+
+  Removed:
+    - `hooks/validators/error_tracking_sdk.py`
+    - `tests/test_error_tracking_sdk.py` (12 tests)
+    - `skills/V55-error-tracking-sdk/` directory
+  BUILTIN_GROUPS security: V55 dropped → 8 → 7 members.
+  test_security_group_membership invariant updated.
+  run_single.py NAME_MAP: 3 V55 aliases removed.
+
+  Net active validators: 50 → 49.
+  Test count: 1433 → 1421 (-12 V55 tests).
+
 ## [0.7.0] - 2026-04-30
 
 Sixth tagged release. Closes the Phase 58 audit completely —

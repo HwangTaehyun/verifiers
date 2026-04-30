@@ -69,8 +69,10 @@ class TestBuiltinGroups:
         ]
 
     def test_security_group_membership(self) -> None:
-        # Phase54-58: V40 (SHA pin), V41 (perms), V42 (Dependabot), V43 (image scan),
-        # V55 (Sentry), V57 (SBOM CI).
+        # Phase54-58: V40 (SHA pin), V41 (perms), V42 (Dependabot),
+        # V43 (image scan), V57 (SBOM CI).
+        # V55 (Sentry/error-tracking) was added then cut by user — too
+        # opinionated for a template; teams pick their own tracking.
         assert BUILTIN_GROUPS["security"] == [
             "V08",
             "V18",
@@ -78,7 +80,6 @@ class TestBuiltinGroups:
             "V41",
             "V42",
             "V43",
-            "V55",
             "V57",
         ]
 
