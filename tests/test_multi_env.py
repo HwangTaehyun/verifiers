@@ -105,7 +105,11 @@ class TestDrift:
         drift = [f for f in findings if f.rule == "V22-ROOT-SERVER-DRIFT"]
         assert drift == []
 
-    def test_server_only_var_flags_root(self, validator, repo, ctx):
+    def test_server_only_var_does_not_flag(self, validator, repo, ctx):
+        # Server is the canonical source for APP_* vars; an APP_* present
+        # in server/.env.example but absent from root/.env.example is
+        # legitimate (root is for compose-orchestration vars, not APP_*).
+        # The drift check is intentionally asymmetric — see V22 docstring.
         _write_env(repo / ".env.example", "APP_DATABASE_PASSWORD=x\n")
         _write_env(
             repo / "server" / ".env.example",
@@ -113,9 +117,8 @@ class TestDrift:
         )
         findings = validator.validate_project(ctx)
         drift = [f for f in findings if f.rule == "V22-ROOT-SERVER-DRIFT"]
-        assert any("APP_NEW_FEATURE" in f.message for f in drift)
-        # The finding points at the root .env.example since that's what's missing
-        assert any(".env.example" in f.file and "/server/" not in f.file for f in drift)
+        assert all("APP_NEW_FEATURE" not in f.message for f in drift)
+        assert drift == []
 
     def test_root_only_var_flags_server(self, validator, repo, ctx):
         _write_env(

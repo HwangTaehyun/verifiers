@@ -9,7 +9,7 @@
 | Rule ID | Severity | When |
 |---|---|---|
 | `V22-NON-APP-PREFIX` | warning | A var declared in `server/.env.example` doesn't start with `APP_` AND doesn't match an allowed external-tool prefix (`AIRFLOW_`, `POSTGRES_`, `HASURA_`, `SF_`, etc.) AND isn't in the allowed-bare list (`DOMAIN`, `API_DOMAIN`, ...). |
-| `V22-ROOT-SERVER-DRIFT` | warning | An `APP_*` variable is declared on one side (root or server) of the project's two `.env.example` files but missing from the other. |
+| `V22-ROOT-SERVER-DRIFT` | warning | An `APP_*` variable is declared in `root/.env.example` but missing from `server/.env.example`. **Asymmetric**: the reverse direction (server-only `APP_*` vars) is *not* flagged because server is the canonical source for the `APP_*` namespace. |
 | `V22-VIPER-KEY-NO-ENV` | warning | A YAML key in a canonical `server/config/<name>.yaml` (no `.local` / `.docker` suffix) maps via Viper convention to an `APP_*` env var that's not in `server/.env.example`. |
 
 ## Why this verifier exists
@@ -17,7 +17,7 @@
 Multi-env monorepos accumulate three kinds of silent drift, each of which only surfaces at deploy time:
 
 1. **Naming inconsistency.** A new env var lands as `JWT_SECRET` instead of `APP_JWT_SECRET` because the developer forgot the project convention. Viper's `automaticEnv` + `SetEnvPrefix("APP")` won't bind it; the app starts, the secret is empty string, login is broken in subtle ways.
-2. **Cross-file drift.** `server/.env.example` declares `APP_NEW_FEATURE` but `root/.env.example` (which the deploy script feeds into nginx-proxy compose) is missing it. Local dev works; production silently doesn't get the flag.
+2. **Cross-file drift (one direction).** `root/.env.example` declares `APP_NEW_FEATURE` but `server/.env.example` (the canonical source) doesn't — root is making up an `APP_*` key that the server doesn't recognize. The reverse case (`APP_*` only in server) is legitimate: server owns the `APP_*` namespace; root only carries compose-orchestration vars (`DOMAIN`, `*_PORT`, `AIRFLOW_*`).
 3. **Config without env binding.** `server/config/app.yaml` references `database.password` (which Viper expects as `APP_DATABASE_PASSWORD`) but `.env.example` doesn't declare it. New developer clones the repo, runs the app, gets a cryptic Postgres auth failure.
 
 V22 catches all three at hook-time so the regression dies before commit.
@@ -28,7 +28,7 @@ V22 catches all three at hook-time so the regression dies before commit.
   - External-tool prefixes are an open list (V22 ships sensible defaults; project may add).
   - Some `APP_*` variables legitimately differ between root and server scopes (e.g., a webhook-proxy var defined only at root).
   - A YAML key may be hardcoded by design (`environment: development` not env-overridable).
-- **Server is the canonical env-example source.** When root and server diverge, V22 points the finding at the file that should pick up the missing var. Root mirrors server, not the other way.
+- **Server is the canonical env-example source — drift check is asymmetric.** Server owns the `APP_*` namespace; root carries compose-orchestration vars (`DOMAIN`, `*_PORT`, `AIRFLOW_*`, `SF_*`) that legitimately don't appear in server. So V22 flags `root → server` drift only (root has `APP_*` not in server = root unilaterally introducing a key). The reverse direction (`APP_*` only in server) is normal and intentionally NOT flagged — it would generate noise on every server-private secret. The user (taehyun) requested this in 2026-04-30 after seeing every `APP_DATABASE_*` / `APP_JWT_*` flagged as drift in `ai-project-template`.
 - **Variant files (`<name>.local.yaml` / `.docker.yaml`) are skipped for Viper-mapping.** A local-override key not present in production is intentional; flagging it would generate noise.
 - **External-tool prefix list is opinionated default + project extension.** V22 ships `APP_, AIRFLOW_, _AIRFLOW_, POSTGRES_, PG_, HASURA_, SF_` which covers ~95% of real monorepo cases. Projects with proprietary prefixes add via `.verifiers/config.yaml`:
 
@@ -90,10 +90,10 @@ server_keys = _parse_env_keys(server_env)
 root_app = {k for k in root_keys if k.startswith("APP_")}
 server_app = {k for k in server_keys if k.startswith("APP_")}
 
-# Server has it, root doesn't (the more common direction)
-for missing in sorted(server_app - root_app):
-    yield Finding(rule="V22-ROOT-SERVER-DRIFT", file=str(root_env), ...)
-# Root has it, server doesn't (rare but a bug too)
+# Asymmetric: only root → server direction is flagged.
+# Server-only APP_* is legitimate (server owns the namespace).
+# Root-only APP_* is a structural mistake (root shouldn't
+# unilaterally introduce APP_* keys).
 for missing in sorted(root_app - server_app):
     yield Finding(rule="V22-ROOT-SERVER-DRIFT", file=str(server_env), ...)
 ```
@@ -179,13 +179,15 @@ database:
 # server/.env.example
 APP_DATABASE_PASSWORD=x
 JWT_SECRET=y                                # → V22-NON-APP-PREFIX (no APP_/external prefix)
-APP_NEW_FEATURE=z                           # ← root/.env.example missing this
+APP_NEW_FEATURE=z                           # OK — server-only APP_* is allowed
 ```
 
 ```env
 # root/.env.example
 APP_DATABASE_PASSWORD=x
-# APP_NEW_FEATURE missing                   → V22-ROOT-SERVER-DRIFT
+APP_LEGACY_KEY=y                            # → V22-ROOT-SERVER-DRIFT
+                                            #   (root unilaterally introduces APP_*
+                                            #    not present in server canonical)
 ```
 
 ```yaml

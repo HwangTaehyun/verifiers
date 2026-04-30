@@ -7,10 +7,15 @@ Enforces three rules over the project's env / config / docker layering:
      allowed prefix). Detects naming inconsistencies that would later
      break Viper's ``automatic env`` binding.
 
-  2. **root vs server `.env.example` drift.** When both files exist,
-     every ``APP_*`` declared on the server side must also appear in
-     the root example (or vice versa). The two examples are mirrors
-     of the same env surface; drift means deploy-time confusion.
+  2. **root vs server `.env.example` drift (asymmetric).** When both
+     files exist, every ``APP_*`` declared in the *root* example must
+     also exist in the server example. The check is **one-directional**:
+     server is the canonical source of truth for ``APP_*`` vars
+     (Viper's namespace), while root is for compose-orchestration vars
+     (``DOMAIN``, ``*_PORT``, ``AIRFLOW_*``, etc.). A server-only
+     ``APP_*`` is normal — server defines, root simply doesn't need to
+     mirror it. A root-only ``APP_*`` is a structural mistake — root
+     is not authorized to introduce ``APP_*`` keys unilaterally.
 
   3. **Viper config-key ↔ env-var mapping.** Each YAML key under
      ``server/config/*.yaml`` should have a corresponding env var
@@ -231,18 +236,16 @@ class MultiEnvConsistencyValidator(BaseValidator):
         server_app = {k for k in server_keys if k.startswith("APP_")}
 
         findings: list[Finding] = []
-        # Server has it, root doesn't
-        for missing in sorted(server_app - root_app):
-            findings.append(
-                Finding(
-                    severity="warning",
-                    file=str(root_env),
-                    rule="V22-ROOT-SERVER-DRIFT",
-                    message=(f"APP_ var '{missing}' is in server/.env.example but missing from root/.env.example."),
-                    fix=f"Add a placeholder line for {missing} to {root_env}.",
-                )
-            )
-        # Root has it, server doesn't (rarer, but a bug too)
+        # Asymmetric check: only flag root-only APP_* vars (= root
+        # introducing APP_* unilaterally, which is a structural
+        # mistake because server owns the APP_* namespace).
+        #
+        # Server-only APP_* vars are legitimate and intentionally
+        # NOT flagged — server is the canonical source for APP_*
+        # and there's no requirement that root mirror it. Root
+        # exists for compose-orchestration vars (DOMAIN, *_PORT,
+        # AIRFLOW_*) which legitimately diverge from the server
+        # example.
         for missing in sorted(root_app - server_app):
             findings.append(
                 Finding(
