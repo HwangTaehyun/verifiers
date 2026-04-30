@@ -84,8 +84,10 @@ def get_all_validators() -> list[BaseValidator]:
     from .graphql_gen import GraphqlGenValidator
     from .hasura_graphql_enforcement import HasuraGraphQLEnforcementValidator
     from .hasura_migration import HasuraMigrationValidator
+    from .hasura_permission_rationale import HasuraPermissionRationaleValidator
     from .health_endpoint_split import HealthEndpointSplitValidator
     from .linter_config_guard import LinterConfigGuardValidator
+    from .migration_enum_rollback import MigrationEnumRollbackValidator
     from .mock_data_guard import MockDataGuardValidator
     from .multi_env import MultiEnvConsistencyValidator
     from .otel_instrumentation import OtelInstrumentationValidator
@@ -143,6 +145,9 @@ def get_all_validators() -> list[BaseValidator]:
         GoContextScopedLoggerValidator(),  # V39 — zerolog.Ctx(ctx) discipline
         DockerfileBaseDigestValidator(),  # V44 — FROM lines need @sha256 digest
         DockerfileHealthcheckValidator(),  # V45 — HEALTHCHECK in HTTP-service stages
+        # Phase57 (Long tail batch 3 — final batch from Phase 53 audit):
+        MigrationEnumRollbackValidator(),  # V46 — ALTER TYPE ADD VALUE rollback
+        HasuraPermissionRationaleValidator(),  # V48 — select-only intent doc
     ]
     _assert_registry_invariants(validators)
     return validators

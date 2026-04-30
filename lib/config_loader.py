@@ -236,8 +236,8 @@ BUILTIN_GROUPS: dict[str, list[str]] = {
     "env-config": ["V01", "V22"],
     # Phase56: V44 (FROM digest), V45 (HEALTHCHECK) added.
     "docker": ["V05", "V25", "V26", "V44", "V45"],
-    # Phase54-55: V47, V49, V50 added.
-    "api-rpc-data": ["V02", "V03", "V04", "V20", "V23", "V27", "V47", "V49", "V50"],
+    # Phase54-57: V47, V49, V50, V46, V48 added.
+    "api-rpc-data": ["V02", "V03", "V04", "V20", "V23", "V27", "V46", "V47", "V48", "V49", "V50"],
     # Phase54-55: V40, V41, V42, V43 added.
     "security": ["V08", "V18", "V40", "V41", "V42", "V43"],
     "process": ["V12", "V13", "V15", "V16"],

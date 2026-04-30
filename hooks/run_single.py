@@ -148,6 +148,12 @@ NAME_MAP = {
     # V45 — Dockerfile HEALTHCHECK presence
     "dockerfile-healthcheck": "V45-dockerfile-healthcheck",
     "healthcheck": "V45-dockerfile-healthcheck",
+    # V46 — Hasura migration enum rollback (ALTER TYPE ADD VALUE)
+    "migration-enum-rollback": "V46-migration-enum-rollback",
+    "enum-rollback": "V46-migration-enum-rollback",
+    # V48 — Hasura select-only permission intent documentation
+    "hasura-permission-rationale": "V48-hasura-permission-rationale",
+    "select-only": "V48-hasura-permission-rationale",
 }
 
 

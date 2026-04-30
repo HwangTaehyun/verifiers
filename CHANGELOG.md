@@ -10,6 +10,61 @@ the original rationale.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-30
+
+Fifth tagged release. Closes the Phase 53 audit completely —
+**all 17 proposed verifiers (V34-V50) are now implemented**, on top of
+the v0.5.0 baseline (V01-V27 minus V17/V24).
+
+**Headline:**
+- 25 → **42 active validators** (+17 new — every Phase 53 audit gap closed)
+- 1230 → **1341 tests passing** (+111 in v0.6.0 release window)
+- BUILTIN_GROUPS now covers all 7 categories with cross-domain
+  membership (no orphan validators)
+- Phase 53 audit backlog: 7/17 → **17/17 complete**
+
+### Added (Phase57 — Final batch: V46 + V48)
+
+Last 2 verifiers from Phase 53 audit shipped. Backlog: 15/17 → 17/17.
+
+- **V46 — migration-enum-rollback** (`hooks/validators/migration_enum_rollback.py`,
+  ~120 LOC + 10 tests). Walks `migrations/**/up.sql` files. For each
+  containing `ALTER TYPE … ADD VALUE`, locates paired `down.sql` and
+  asserts either an `ALTER TABLE` rename-swap or
+  `-- MANUAL ROLLBACK REQUIRED` marker. PostgreSQL has no native
+  `ALTER TYPE … DROP VALUE`, so silently irreversible enum migrations
+  are a real schema drift hazard. V46-ENUM-IRREVERSIBLE (warning).
+  Missing `down.sql` also flagged.
+
+- **V48 — hasura-permission-rationale** (`hooks/validators/hasura_permission_rationale.py`,
+  ~110 LOC + 10 tests). Walks Hasura table YAML metadata. For each
+  table with `select_permissions` only (no insert/update/delete),
+  asserts intent is documented either at repo level (`AGENTS.md` /
+  `CLAUDE.md` / `docs/*.md` containing token `hasura-read-only` or
+  `mutations-via-grpc`) OR per-table (YAML comment
+  `# mutations: intentionally absent`). V48-HASURA-SELECT-ONLY-UNDOCUMENTED
+  (info). Caches repo-level lookup per `validate_project` invocation
+  for performance.
+
+- **Registry wiring**: 2 new imports + 2 instances under Phase57 marker.
+- **`run_single.py` NAME_MAP**: 4 new aliases.
+- **`BUILTIN_GROUPS` updated**: V46, V48 → api-rpc-data.
+- **Tests**: 1321 → 1341 passing (+20). Phase 52 invariants still pass —
+  every active V## belongs to exactly one BUILTIN_GROUPS bucket.
+
+### v0.6.0 release content (since v0.5.0)
+
+```
+phase54-sprint1   V36 V40 V47 V50  ★ medical/finance ship-blockers
+phase54-sprint2   V37 V41 V43      ★ CI hardening + v0.5.0 tag
+phase55           V34 V35 V42 V49  ★ Sprint 3 + Long tail batch 1
+phase56           V38 V39 V44 V45  ★ Long tail batch 2
+phase57 + v0.6.0  V46 V48          ★ Final batch + tag
+```
+
+Total: 17 new validators, ~3700 new LOC implementations, ~3000 new
+LOC tests, +217 tests (1124 → 1341).
+
 ### Added (Phase55 — Sprint 3 + Long tail batch 1)
 
 Four more validators from the Phase 53 audit shipped as full
