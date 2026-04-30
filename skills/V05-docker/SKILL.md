@@ -23,7 +23,10 @@
 | `V05-DOCKERFILE-NO-USER` | warning | A production-classified stage runs as root (no `USER` directive). |
 | `V05-DOCKERFILE-NO-EXPOSE` | warning | A production stage has no `EXPOSE`. |
 | `V05-DOCKERFILE-COPY-ALL` | warning | `COPY . .` (or `ADD . .`) in a context with no `.dockerignore` — risk of leaking `.env`, `.git/`, secrets. |
-| `V05-DOCKERFILE-LATEST-TAG` | warning | `FROM image:latest` (non-pinned). |
+<!-- V05-DOCKERFILE-LATEST-TAG removed in Phase59 — V44-FROM-NO-DIGEST is a
+strict superset (catches `:latest` AND any non-digest tag). V44 owns the
+FROM-pinning rule. -->
+
 | `V05-DOCKERIGNORE-MISSING` | warning | `.dockerignore` does not exist next to the Dockerfile. |
 
 ### Production-mode rules (filename matches `*production*` / `*prod*`)
@@ -251,7 +254,7 @@ services:
 ```
 
 ```dockerfile
-FROM node:latest          # → V05-DOCKERFILE-LATEST-TAG (warning)
+FROM node:latest          # → V44-FROM-NO-DIGEST (warning, since Phase59)
 COPY . .                  # → V05-DOCKERFILE-COPY-ALL if no .dockerignore (warning)
 # no USER directive       → V05-DOCKERFILE-NO-USER (warning)
 ```

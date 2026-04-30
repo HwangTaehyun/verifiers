@@ -10,6 +10,49 @@ the original rationale.
 
 ## [Unreleased]
 
+### Changed (Phase59 — V05 / V44 dup cleanup)
+
+After Phase 50 cleaned the original V03 / V05 / V27 rule duplicates,
+Phase 58 added V44 (`dockerfile-base-digest-pin`) which turned out to
+be a strict superset of V05's existing `BASE-IMAGE-LATEST` /
+`DOCKERFILE-LATEST-TAG` rule — both now fire on `FROM image:latest`.
+Phase 59 removes the V05 rule, V44 is canonical.
+
+- **V05-BASE-IMAGE-LATEST removed.** V44-FROM-NO-DIGEST catches the
+  same case (any `FROM image:tag` without `@sha256:` digest, including
+  `:latest` and the no-tag implicit-latest case).
+  - Deleted method `_check_base_image_latest` from
+    `hooks/validators/docker_compose.py` (~40 LOC).
+  - Removed call from `validate_project`.
+  - Deleted `TestV05BaseImageLatest` class (3 tests) from
+    `tests/test_docker_compose.py`. V44 coverage in
+    `tests/test_dockerfile_base_digest.py::TestFromTagOnly` covers the
+    same scenarios with stricter assertions.
+  - Updated `skills/V05-docker/SKILL.md` Rules table (removed the
+    `V05-DOCKERFILE-LATEST-TAG` row) + example block.
+
+- **Other potential overlaps audited and kept (intentional layering):**
+  - V05-MISSING-HEALTHCHECK ↔ V26-PROD-NO-HEALTHCHECK ↔ V45-DOCKERFILE-NO-HEALTHCHECK
+    — three different surfaces (compose `depends_on`, prod compose,
+    Dockerfile final stage). Phase 50 documented; still correct.
+  - V11 (per-edit pytest) ↔ V21 (Stop pytest) — different tiers; V11
+    docstring already documents the layering.
+  - V01 secret detection ↔ V08 secret detection — different file
+    scopes (YAML vs all sources); share `lib/secret_regexes.py` (Phase 38).
+  - V12 (commit-discipline) ↔ V54 (commitlint-gate) — different
+    enforcement points (post-commit detection vs pre-commit gate).
+
+- **Algorithm-level dup deferred (lib extraction candidate for Phase 60):**
+  - 7 validators now parse `.github/workflows/*.yml` independently
+    (V37, V40, V41, V42, V43, V57, V58). Same-shape `yaml.safe_load`
+    + per-step iteration. Strong candidate for `lib/workflow_loader.py`
+    (Phase 51 pattern). Deferred since it's refactor, not dup-removal.
+
+- **Net active validators**: 49 → 49 (same count; one rule removed
+  from a validator that has 13 other rules).
+- **Tests**: 1421 → 1418 (-3 V05 LATEST tests; equivalent coverage
+  in V44 test suite).
+
 ### Removed (Phase58 wrap — V55 cut)
 
 - **V55 — error-tracking-sdk** (Sentry/GlitchTip SDK presence check)

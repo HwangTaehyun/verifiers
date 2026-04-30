@@ -792,38 +792,12 @@ class TestV05DevBuildTarget:
 
 
 # ══════════════════════════════════════════════════════════════════
-# Best Practices: Base image latest
+# Phase59: TestV05BaseImageLatest removed.
+# V05-BASE-IMAGE-LATEST consolidated into V44-FROM-NO-DIGEST, which
+# is a strict superset (catches `:latest`, `:tag-without-digest`, AND
+# the no-tag implicit-latest case). See tests/test_dockerfile_base_digest.py
+# for the surviving coverage.
 # ══════════════════════════════════════════════════════════════════
-
-
-class TestV05BaseImageLatest:
-    def test_latest_tag_warns(
-        self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext
-    ) -> None:
-        dockerfile = docker_project / "server" / "Dockerfile"
-        dockerfile.write_text("FROM golang:latest\nRUN go build -o app .\n")
-
-        result = validator.run(docker_ctx)
-        rules = [f.rule for f in result.findings]
-        assert "V05-BASE-IMAGE-LATEST" in rules
-
-    def test_no_tag_warns(self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext) -> None:
-        dockerfile = docker_project / "server" / "Dockerfile"
-        dockerfile.write_text("FROM golang\nRUN go build -o app .\n")
-
-        result = validator.run(docker_ctx)
-        rules = [f.rule for f in result.findings]
-        assert "V05-BASE-IMAGE-LATEST" in rules
-
-    def test_specific_version_ok(
-        self, validator: DockerValidator, docker_project: Path, docker_ctx: ProjectContext
-    ) -> None:
-        dockerfile = docker_project / "server" / "Dockerfile"
-        dockerfile.write_text("FROM golang:1.25-alpine\nRUN go build -o app .\n")
-
-        result = validator.run(docker_ctx)
-        rules = [f.rule for f in result.findings]
-        assert "V05-BASE-IMAGE-LATEST" not in rules
 
 
 # ══════════════════════════════════════════════════════════════════

@@ -91,7 +91,7 @@ class DockerValidator(BaseValidator):
 
       Best Practices (3 rules):
         V05-BUILD-TARGET-MISSING: build.target doesn't exist in Dockerfile
-        V05-BASE-IMAGE-LATEST: Using latest tag (not recommended)
+        # V05-BASE-IMAGE-LATEST removed in Phase59 — duplicate of V44-FROM-NO-DIGEST.
         V05-MISSING-DOCKERIGNORE: .dockerignore missing with COPY . .
     """
 
@@ -161,7 +161,11 @@ class DockerValidator(BaseValidator):
             findings.extend(self._check_dockerfile_user(dockerfile))
             findings.extend(self._check_dockerfile_expose(dockerfile))
             findings.extend(self._check_dockerfile_copy_all(ctx, dockerfile))
-            findings.extend(self._check_base_image_latest(dockerfile))
+            # V05-BASE-IMAGE-LATEST removed in Phase59 — duplicate of
+            # V44-FROM-NO-DIGEST (V44 is strict superset; `:latest` is
+            # one of the no-digest cases V44 already catches). V44 owns
+            # the rule; same Phase50 pattern as V05-PROD-NO-RESOURCE-LIMITS
+            # → V26 / V03-UNIMPLEMENTED-RPC → V27.
             findings.extend(self._check_dockerignore_exists(dockerfile))
 
         findings.extend(self._check_build_target_exists(compose_files))
@@ -842,46 +846,11 @@ class DockerValidator(BaseValidator):
         except (yaml.YAMLError, OSError):
             return {}
 
-    def _check_base_image_latest(self, dockerfile: Path) -> list[Finding]:
-        """Warn against using :latest tags or no tags (implicit latest)."""
-        findings: list[Finding] = []
-        try:
-            content = dockerfile.read_text()
-        except OSError:
-            return findings
-
-        lines = content.split("\n")
-        for line_num, line in enumerate(lines, 1):
-            line = line.strip()
-            if not line.startswith("FROM "):
-                continue
-
-            # Check for :latest tag or no tag (implicit latest)
-            from_match = re.match(r"^FROM\s+([^\s]+)(?:\s+AS\s+\S+)?\s*$", line, re.IGNORECASE)
-            if from_match:
-                image = from_match.group(1)
-
-                # Skip scratch, ARG variables, and multi-stage references
-                if image in ("scratch",) or image.startswith("$"):
-                    continue
-
-                # Check if image has no tag (implicit latest) or explicit latest
-                if ":" not in image or image.endswith(":latest"):
-                    findings.append(
-                        Finding(
-                            severity="warning",
-                            file=str(dockerfile),
-                            rule="V05-BASE-IMAGE-LATEST",
-                            message=f"Base image '{image}' uses :latest tag (implicit or explicit)",
-                            fix=(
-                                f"Pin to specific version instead of :latest in {dockerfile.name} "
-                                f"(e.g., node:20-slim, python:3.11-alpine, ubuntu:22.04)"
-                            ),
-                            line=line_num,
-                        )
-                    )
-
-        return findings
+    # _check_base_image_latest removed in Phase59. V44-FROM-NO-DIGEST
+    # is the strict superset (any `FROM image:tag` without @sha256:
+    # digest, including `:latest`). The V05 method's `:latest`-specific
+    # detection produced duplicate findings on the same lines V44
+    # already flags. V44 owns the FROM-pinning rule.
 
     def _check_dockerignore_exists(self, dockerfile: Path) -> list[Finding]:
         """Ensure .dockerignore exists when COPY . . is used."""
