@@ -10,6 +10,71 @@ the original rationale.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-30
+
+Fourth tagged release. Bundles Phases 49a / 50 / 51 / 52 / 53 / 54
+Sprint 1+2 — the categorization → consolidation → audit-driven
+expansion arc.
+
+**Headline:**
+- 25 → 32 active validators (V01-V27 + V36, V37, V40, V41, V43, V47, V50).
+- 17 design specs locked (Phase 53) for V34-V50 — 7 already implemented,
+  10 queued for Sprint 3 + long tail.
+- New `docs/AUDITS.md` — single-source-of-truth audit history.
+- New `docs/VERIFIERS-CATEGORIES.md` — 7-category map.
+- New `lib/codegen_staleness.py` — shared by V02 + V03.
+- New `BUILTIN_GROUPS` config + `disabled_groups:` UX.
+- 1124 → 1230 tests passing (+106).
+
+### Added (Phase54 Sprint 2 — V37 / V41 / V43 implementation)
+
+CI hardening tier from the Phase 53 audit. Three more validators
+shipped as full implementations on top of Sprint 1 (V36, V40, V47,
+V50). All three target GitHub Actions workflow YAML.
+
+- **V37 — go-test-race-coverage** (`hooks/validators/go_test_race_coverage.py`,
+  ~150 LOC + 14 tests). Scans `.github/workflows/*.yml`, `Makefile`,
+  `**/justfile` for `go test` invocations. Two rules:
+  - V37-CI-NO-RACE (error) — `go test` without `-race` flag. The
+    target project has a known concurrent invoice-number test gated
+    behind `INVOICE_RACE_TEST=1` env, meaning the data race is
+    documented but never CI-checked.
+  - V37-CI-NO-COVERAGE-GATE (warning, workflow-only) — `go test`
+    with no `-coverprofile` flag and no `actions/upload-artifact` /
+    `codecov-action` step in the same job.
+
+- **V41 — actions-permissions-block** (`hooks/validators/actions_permissions_block.py`,
+  ~100 LOC + 11 tests). YAML-parses each workflow. Passes if either
+  (a) top-level `permissions:` key exists (including `{}` deny-all),
+  OR (b) every job declares its own `permissions:`. Otherwise emits
+  V41-NO-PERMISSIONS-BLOCK (warning) — `GITHUB_TOKEN` blast radius
+  undefined per least-privilege. Workflows with no jobs (composite/
+  reusable) are exempt.
+
+- **V43 — ci-image-scanning** (`hooks/validators/ci_image_scanning.py`,
+  ~150 LOC + 11 tests). Identifies build jobs (steps containing
+  `docker build` in `run:` or `docker/build-push-action` in `uses:`).
+  For each, checks the same job OR any `needs:`-dependent downstream
+  job for a recognized scanner: `aquasecurity/trivy-action`,
+  `anchore/scan-action`, `snyk/actions/docker`, `docker/scout-action`,
+  `grype` / `trivy` in `run:`. Missing scanner → V43-NO-IMAGE-SCAN
+  (error). Production CVE flow gated.
+
+- **Registry wiring**: 3 new validators added to
+  `hooks/validators/__init__.py:get_all_validators()` with Phase54
+  Sprint 2 marker.
+
+- **`run_single.py` NAME_MAP**: 6 new aliases (`go-test-race`,
+  `race-coverage`, `actions-permissions`, `permissions-block`,
+  `ci-image-scan`, `image-scan`).
+
+- **`BUILTIN_GROUPS` updated**: V37 → test-execution; V41 + V43 →
+  security. Phase 52 invariants still pass.
+
+- **Tests**: 1194 → 1230 passing (+36 across 3 test files).
+  `test_security_group_membership` updated to expect new members
+  V40, V41, V43.
+
 ### Added (Phase54 Sprint 1 — V36 / V40 / V47 / V50 implementation)
 
 Top 4 medical/finance ship-blocker verifiers from the Phase 53 audit

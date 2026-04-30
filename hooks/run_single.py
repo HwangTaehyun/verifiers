@@ -113,6 +113,15 @@ NAME_MAP = {
     # V50 — health endpoint split (/livez vs /readyz)
     "health-endpoint": "V50-health-endpoint-split",
     "health-split": "V50-health-endpoint-split",
+    # V37 — Go test -race + coverage gate
+    "go-test-race": "V37-go-test-race-coverage",
+    "race-coverage": "V37-go-test-race-coverage",
+    # V41 — Actions workflow permissions: block
+    "actions-permissions": "V41-actions-permissions-block",
+    "permissions-block": "V41-actions-permissions-block",
+    # V43 — CI image scanning (Trivy/Grype/Snyk)
+    "ci-image-scan": "V43-ci-image-scanning",
+    "image-scan": "V43-ci-image-scanning",
 }
 
 

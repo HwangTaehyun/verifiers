@@ -54,9 +54,11 @@ def _assert_registry_invariants(validators: "list[BaseValidator]") -> None:
 
 def get_all_validators() -> list[BaseValidator]:
     """Return instances of all registered validators."""
+    from .actions_permissions_block import ActionsPermissionsBlockValidator
     from .actions_sha_pin import ActionsSHAPinValidator
     from .ai_cheating_guard import AiCheatingGuardValidator
     from .buf_governance import BufGovernanceValidator
+    from .ci_image_scanning import CiImageScanningValidator
     from .commit_discipline import CommitDisciplineValidator
     from .complexity_guard import ComplexityGuardValidator
     from .connect_handler import ConnectHandlerValidator
@@ -70,6 +72,7 @@ def get_all_validators() -> list[BaseValidator]:
     from .go_http_hardening import GoHttpHardeningValidator
     from .go_multibinary import GoMultiBinaryValidator
     from .go_quality import GoQualityValidator
+    from .go_test_race_coverage import GoTestRaceCoverageValidator
     from .go_test_runner import GoTestRunnerValidator
     from .graphql_gen import GraphqlGenValidator
     from .hasura_graphql_enforcement import HasuraGraphQLEnforcementValidator
@@ -118,6 +121,10 @@ def get_all_validators() -> list[BaseValidator]:
         ActionsSHAPinValidator(),  # V40 — third-party Action SHA pinning
         FkIndexDisciplineValidator(),  # V47 — Postgres FK columns must be indexed
         HealthEndpointSplitValidator(),  # V50 — /livez vs /readyz split
+        # Phase54 Sprint 2 (CI hardening from Phase53 audit):
+        GoTestRaceCoverageValidator(),  # V37 — go test -race + coverage gate
+        ActionsPermissionsBlockValidator(),  # V41 — workflow permissions: block
+        CiImageScanningValidator(),  # V43 — Trivy/Grype scan in CI
     ]
     _assert_registry_invariants(validators)
     return validators
