@@ -27,87 +27,13 @@ def validator() -> ProtoConnectValidator:
 # ---------------------------------------------------------------------------
 
 
-class TestCheckHandlerCoverage:
-    """Tests for rpc-to-handler coverage checking."""
-
-    def test_unimplemented_rpc_produces_finding(
-        self, tmp_project: Path, project_ctx: ProjectContext, validator: ProtoConnectValidator
-    ) -> None:
-        """An rpc method declared in a proto file with no matching handler
-        should produce a V03-UNIMPLEMENTED-RPC warning."""
-        # Write a proto file with one service and one rpc
-        proto_dir = tmp_project / "server" / "proto"
-        proto_file = proto_dir / "greeter.proto"
-        proto_file.write_text(
-            'syntax = "proto3";\nservice GreeterService {\n  rpc SayHello (HelloRequest) returns (HelloReply);\n}\n'
-        )
-
-        # No handler files exist -> method is unimplemented
-        findings = validator._check_handler_coverage(project_ctx)
-
-        assert len(findings) == 1
-        assert findings[0].rule == "V03-UNIMPLEMENTED-RPC"
-        assert "SayHello" in findings[0].message
-        assert "GreeterService" in findings[0].message
-        assert findings[0].severity == "warning"
-
-    def test_all_rpcs_implemented_no_finding(
-        self, tmp_project: Path, project_ctx: ProjectContext, validator: ProtoConnectValidator
-    ) -> None:
-        """When every rpc method has a matching handler, no findings should
-        be produced."""
-        # Proto with one rpc
-        proto_dir = tmp_project / "server" / "proto"
-        proto_file = proto_dir / "greeter.proto"
-        proto_file.write_text(
-            'syntax = "proto3";\nservice GreeterService {\n  rpc SayHello (HelloRequest) returns (HelloReply);\n}\n'
-        )
-
-        # Create a handler file that implements SayHello
-        handler_dir = tmp_project / "server" / "internal" / "greeter"
-        handler_dir.mkdir(parents=True, exist_ok=True)
-        handler_file = handler_dir / "handler.go"
-        handler_file.write_text(
-            "package greeter\n\n"
-            "func (s *GreeterService) SayHello(ctx context.Context, req *connect.Request) "
-            "(*connect.Response, error) {\n"
-            "    return nil, nil\n"
-            "}\n"
-        )
-
-        findings = validator._check_handler_coverage(project_ctx)
-
-        assert len(findings) == 0
-
-    def test_multiple_rpcs_partial_implementation(
-        self, tmp_project: Path, project_ctx: ProjectContext, validator: ProtoConnectValidator
-    ) -> None:
-        """Only the unimplemented rpc methods should appear in findings."""
-        proto_dir = tmp_project / "server" / "proto"
-        proto_file = proto_dir / "greeter.proto"
-        proto_file.write_text(
-            'syntax = "proto3";\n'
-            "service GreeterService {\n"
-            "  rpc SayHello (HelloRequest) returns (HelloReply);\n"
-            "  rpc SayGoodbye (GoodbyeRequest) returns (GoodbyeReply);\n"
-            "}\n"
-        )
-
-        handler_dir = tmp_project / "server" / "internal" / "greeter"
-        handler_dir.mkdir(parents=True, exist_ok=True)
-        handler_file = handler_dir / "handler.go"
-        handler_file.write_text(
-            "package greeter\n\n"
-            "func (s *GreeterService) SayHello(ctx context.Context, req *connect.Request) "
-            "(*connect.Response, error) {\n"
-            "    return nil, nil\n"
-            "}\n"
-        )
-
-        findings = validator._check_handler_coverage(project_ctx)
-
-        assert len(findings) == 1
-        assert "SayGoodbye" in findings[0].message
+# ---------------------------------------------------------------------------
+# Phase50: TestCheckHandlerCoverage removed.
+# V03-UNIMPLEMENTED-RPC consolidated into V27-UNIMPLEMENTED-RPC, which
+# enforces the strict Connect handler signature shape (ctx +
+# *connect.Request[T] + *connect.Response[T]). See tests/test_connect_handler.py
+# class TestUnimplementedRpc for the surviving coverage.
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------

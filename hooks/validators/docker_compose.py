@@ -77,12 +77,13 @@ class DockerValidator(BaseValidator):
         V05-DOCKERFILE-COPY-ALL: COPY . . without .dockerignore may leak secrets
         V05-DOCKERFILE-NO-MULTISTAGE: Single-stage Dockerfile (no multi-stage build)
 
-      Production Safety (5 rules):
+      Production Safety (4 rules):
         V05-PROD-PORT-EXPOSED: Production compose should not expose host ports
         V05-PROD-DEV-MODE: Dev mode enabled in production config
         V05-PROD-WILDCARD-CORS: CORS set to "*" in production
         V05-PROD-TRAEFIK-LABELS: Service missing Traefik labels
-        V05-PROD-RESOURCE-LIMITS: No resource limits in production
+        (Note: Resource-limit enforcement consolidated into V26-PROD-NO-RESOURCE-LIMITS
+         (Phase50). V26 owns the rule with `warning` severity vs V05's stale `info`.)
 
       Development Setup (2 rules):
         V05-DEV-NO-VOLUME-MOUNT: Dev override should mount source code for hot reload
@@ -150,7 +151,8 @@ class DockerValidator(BaseValidator):
             findings.extend(self._check_prod_dev_mode(data, compose_file))
             findings.extend(self._check_prod_wildcard_cors(data, compose_file))
             findings.extend(self._check_prod_traefik_labels(data, compose_file))
-            findings.extend(self._check_prod_resource_limits(data, compose_file))
+            # V05-PROD-NO-RESOURCE-LIMITS deleted in Phase50 — duplicated
+            # V26-PROD-NO-RESOURCE-LIMITS (warning severity). V26 owns the rule.
             findings.extend(self._check_dev_volume_mount(data, compose_file))
             findings.extend(self._check_dev_build_target(data, compose_file))
 
@@ -754,40 +756,10 @@ class DockerValidator(BaseValidator):
 
         return findings
 
-    def _check_prod_resource_limits(self, data: dict, compose_file: Path) -> list[Finding]:
-        """Production services should have resource limits."""
-        findings: list[Finding] = []
-
-        if self._is_dev_intended_compose(compose_file):
-            return findings
-
-        for svc_name, svc_def in (data.get("services") or {}).items():
-            if not isinstance(svc_def, dict):
-                continue
-
-            # Only check application services with a build section
-            if "build" not in svc_def and "image" not in svc_def:
-                continue
-
-            deploy = svc_def.get("deploy") or {}
-            resources = deploy.get("resources") or {}
-            limits = resources.get("limits") or {}
-
-            if not limits:
-                findings.append(
-                    Finding(
-                        severity="info",
-                        file=str(compose_file),
-                        rule="V05-PROD-NO-RESOURCE-LIMITS",
-                        message=f"Service '{svc_name}' has no resource limits in production",
-                        fix=(
-                            f"Add deploy.resources.limits (cpus, memory) to "
-                            f"'{svc_name}' in {compose_file.name} to prevent resource starvation"
-                        ),
-                    )
-                )
-
-        return findings
+    # _check_prod_resource_limits removed in Phase50 — consolidated into
+    # V26-PROD-NO-RESOURCE-LIMITS (docker_prod_hardening.py). V26 owns the
+    # canonical resource-limit check at `warning` severity; V05's stale
+    # `info` duplicate caused noise without adding signal.
 
     def _check_dev_volume_mount(self, data: dict, compose_file: Path) -> list[Finding]:
         """Dev override should mount source code for hot reload."""

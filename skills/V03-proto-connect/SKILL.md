@@ -1,8 +1,12 @@
-# V03 — proto-connect
+# V03 — proto-connect (proto language)
 
 > **Owner**: `hooks/validators/proto_connect.py`
-> **Tier**: 2 (PostToolUse) — buf lint + stale-gen on every relevant edit. 3 (Stop) — adds handler-coverage + breaking-change scan.
+> **Tier**: 2 (PostToolUse) and 3 (Stop) — same buf lint + stale-gen sweep on both.
 > **File patterns**: `**/proto/**/*.proto`, `**/buf.yaml`, `**/buf.gen.yaml`, `**/gen/**/*.go`
+> **Phase50 scope**: V03 narrowed to proto-language concerns (lint + gen
+> staleness). Two former rules consolidated out:
+> - `V03-UNIMPLEMENTED-RPC` → **V27-UNIMPLEMENTED-RPC** (handler-runtime layer; V27 enforces the strict Connect signature shape).
+> - `V03-BREAKING` → **V23-BREAKING-<RULE>** (governance layer; V23 preserves Buf's per-rule code as the finding suffix for selective disabling).
 
 ## Rules
 
@@ -10,8 +14,6 @@
 |---|---|---|
 | `V03-BUF-LINT` | error | `buf lint` returned at least one finding (parsed from `file:line:col:rule` format). |
 | `V03-STALE-GEN` | warning | A `.proto` content hash is newer than the cache, OR `gen/**/*.go` mtime predates a proto's mtime. |
-| `V03-UNIMPLEMENTED-RPC` | error | A `service Foo { rpc Bar(...) returns (...); }` has no Go handler function matching it under `internal/`. |
-| `V03-BREAKING` | error | `buf breaking --against main` reports a wire-incompatible change vs the main branch. Works inside git worktrees by resolving `git rev-parse --git-common-dir`. |
 
 ## Why this verifier exists
 

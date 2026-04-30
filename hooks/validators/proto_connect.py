@@ -1,10 +1,15 @@
-"""V03: Proto/Connect-RPC validator — buf lint, stale detection, handler mapping.
+"""V03: Proto language validator — buf lint + gen-staleness only.
 
-Checks:
+Phase50 consolidation: V03 narrowed to proto-language concerns. Two
+former rules moved out:
+  - V03-UNIMPLEMENTED-RPC → V27-UNIMPLEMENTED-RPC (handler-runtime
+    layer; V27 enforces the strict Connect handler signature shape).
+  - V03-BREAKING → V23-BREAKING-<RULE> (governance layer; V23 preserves
+    Buf's per-rule code as the finding suffix for selective disabling).
+
+Checks owned by V03 now:
   V03-BUF-LINT: buf lint violations on .proto files
   V03-STALE-GEN: Proto files changed but gen/ code not regenerated
-  V03-UNIMPLEMENTED-RPC: rpc method defined in proto but no handler implementation
-  V03-BREAKING: Breaking change detected vs main branch
 """
 # /// script
 # requires-python = ">=3.11"
@@ -13,7 +18,6 @@ Checks:
 
 from __future__ import annotations
 
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -52,14 +56,15 @@ class ProtoConnectValidator(BaseValidator):
         return findings
 
     def validate_project(self, ctx: ProjectContext) -> list[Finding]:
-        """Phase29+ API: project-wide proto sweep + breaking-change scan (Tier 3)."""
+        """Phase29+ API: project-wide proto sweep (Tier 3).
+
+        Phase50: handler coverage + breaking checks moved out (V27 / V23).
+        """
         if not ctx.proto_dir or not ctx.proto_dir.exists():
             return []
         findings: list[Finding] = []
         findings.extend(self._check_buf_lint(ctx))
         findings.extend(self._check_stale_generated(ctx))
-        findings.extend(self._check_handler_coverage(ctx))
-        findings.extend(self._check_breaking(ctx))
         return findings
 
     # ── Check 1: buf lint ────────────────────────────────────────────────
@@ -165,157 +170,23 @@ class ProtoConnectValidator(BaseValidator):
 
         return findings
 
-    # ── Check 3: Handler coverage ────────────────────────────────────────
-
-    def _check_handler_coverage(self, ctx: ProjectContext) -> list[Finding]:
-        """All rpc methods in proto should have handler implementations."""
-        findings: list[Finding] = []
-
-        if not ctx.server_dir:
-            return findings
-
-        # Extract rpc methods from proto files
-        rpc_methods: dict[str, list[str]] = {}
-        for proto_file in ctx.proto_dir.rglob("*.proto"):
-            try:
-                content = proto_file.read_text()
-            except OSError:
-                continue
-
-            current_service: str | None = None
-            for line in content.split("\n"):
-                service_match = re.search(r"service\s+(\w+)\s*\{", line)
-                if service_match:
-                    current_service = service_match.group(1)
-                    rpc_methods.setdefault(current_service, [])
-
-                rpc_match = re.search(r"rpc\s+(\w+)\s*\(", line)
-                if rpc_match and current_service:
-                    rpc_methods[current_service].append(rpc_match.group(1))
-
-        if not rpc_methods:
-            return findings
-
-        # Extract implemented methods from handler files.
-        #
-        # NOTE: We scan every .go file under internal/* (except *_test.go)
-        # because Go projects use many naming conventions for handlers:
-        #   - internal/auth/handler.go                    (template convention)
-        #   - internal/finance/billing_schedule.go        (domain-split)
-        #   - internal/user/user_handler.go               (suffix convention)
-        # The previous glob `internal/*/handler*.go` only matched the first
-        # style and produced false positives (V03-UNIMPLEMENTED-RPC) whenever
-        # handlers lived in domain-named files.
-        implemented: set[str] = set()
-        for go_file in ctx.server_dir.glob("internal/*/*.go"):
-            if go_file.name.endswith("_test.go"):
-                continue
-            try:
-                content = go_file.read_text()
-            except OSError:
-                continue
-            for match in re.finditer(r"func \([^)]+\) (\w+)\(", content):
-                implemented.add(match.group(1))
-
-        # Report missing implementations
-        for service, methods in rpc_methods.items():
-            for method in methods:
-                if method not in implemented:
-                    svc_lower = service.lower().replace("service", "")
-                    findings.append(
-                        Finding(
-                            severity="warning",
-                            file=str(ctx.proto_dir),
-                            rule="V03-UNIMPLEMENTED-RPC",
-                            message=f"rpc {service}.{method} has no handler implementation",
-                            fix=(f"Create handler method {method}() in internal/{svc_lower}/handler.go"),
-                        )
-                    )
-
-        return findings
-
-    # ── Check 4: Breaking changes ────────────────────────────────────────
-
-    def _check_breaking(self, ctx: ProjectContext) -> list[Finding]:
-        """Detect breaking changes vs main branch."""
-        findings: list[Finding] = []
-
-        if not ctx.server_dir:
-            return findings
-
-        # Resolve the git *common* directory so this works inside git worktrees.
-        #
-        # In a worktree, `.git` is either missing (subdirectory) or a text
-        # pointer file instead of a real git dir, so `buf breaking --against
-        # .git#branch=main` fails with "does not appear to be a git
-        # repository". We ask git for the absolute path to the shared git
-        # directory and pass it to buf verbatim, which works in both normal
-        # clones and worktrees.
-        try:
-            git_dir_result = subprocess.run(
-                ["git", "rev-parse", "--git-common-dir"],
-                cwd=str(ctx.server_dir),
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return findings
-
-        if git_dir_result.returncode != 0:
-            return findings
-
-        git_common_dir = Path(git_dir_result.stdout.strip())
-        if not git_common_dir.is_absolute():
-            # `git rev-parse --git-common-dir` can return a relative path
-            # when run inside the main worktree — resolve it against cwd.
-            git_common_dir = (Path(ctx.server_dir) / git_common_dir).resolve()
-
-        if not git_common_dir.exists():
-            return findings
-
-        against = f"{git_common_dir}#branch=main"
-
-        try:
-            result = subprocess.run(
-                ["buf", "breaking", "--against", against],
-                cwd=str(ctx.server_dir),
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return findings
-
-        if result.returncode != 0 and result.stderr.strip():
-            stderr = result.stderr.strip()
-            # Filter out git-clone plumbing errors that are not actual proto
-            # breakages — they indicate infrastructure trouble, not an API
-            # contract change, and spamming them as 5 separate warnings is
-            # worse than useless.
-            noise = (
-                "does not appear to be a git repository",
-                "Could not read from remote repository",
-                "Please make sure you have the correct access rights",
-                "and the repository exists",
-                "could not clone",
-            )
-            if any(pattern in stderr for pattern in noise):
-                return findings
-
-            for line in stderr.split("\n"):
-                if line.strip():
-                    findings.append(
-                        Finding(
-                            severity="warning",
-                            file=str(ctx.proto_dir),
-                            rule="V03-BREAKING",
-                            message=f"Breaking change: {line.strip()}",
-                            fix="Review if this breaking change is intentional. If so, update clients.",
-                        )
-                    )
-
-        return findings
+    # ── Phase50 consolidation ────────────────────────────────────────────
+    #
+    # _check_handler_coverage and _check_breaking removed in Phase50:
+    #   - V03-UNIMPLEMENTED-RPC → V27-UNIMPLEMENTED-RPC. V27 enforces the
+    #     strict Connect handler signature shape (ctx + *connect.Request[T]
+    #     + *connect.Response[T]) which is more accurate than V03's loose
+    #     `func (recv) MethodName(` regex. Non-Connect projects no longer
+    #     get this check from V03; they should disable V27 explicitly and
+    #     rely on `buf lint` / IDE tooling for handler-level checks.
+    #
+    #   - V03-BREAKING → V23-BREAKING-<RULE>. V23 preserves the original
+    #     Buf rule code as the finding suffix (e.g. V23-BREAKING-FIELD_NO_DELETE)
+    #     enabling per-rule selective disabling via .verifiers/config.yaml
+    #     `validators.disabled: ["V23-BREAKING-FIELD_SAME_NAME"]`. V03's
+    #     coarse single-rule emit was duplicated noise.
+    #
+    # Both deletions: see Phase50 commit message + CHANGELOG entry.
 
 
 # ── Standalone execution ─────────────────────────────────────────────────────

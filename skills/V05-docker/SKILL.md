@@ -34,7 +34,18 @@
 | `V05-PROD-DEV-MODE` | error | Production compose has `develop:` / `command: dev` / hot-reload volume mounts. |
 | `V05-PROD-WILDCARD-CORS` | error | Production env has `CORS_*=*` or `Access-Control-Allow-Origin=*`. |
 | `V05-PROD-NO-TRAEFIK-LABELS` | warning | Production compose has neither nginx-proxy `VIRTUAL_HOST` nor Traefik `traefik.http.routers.*` labels. |
-| `V05-PROD-NO-RESOURCE-LIMITS` | warning | Production service has no `deploy.resources.limits.{memory,cpus}`. |
+
+> **Phase50**: `V05-PROD-NO-RESOURCE-LIMITS` was removed in favor of
+> `V26-PROD-NO-RESOURCE-LIMITS` (warning severity, prod-strict filename
+> match). V26 owns the canonical resource-limit check; the V05 duplicate
+> was emitted at `info` severity which made it noise.
+>
+> **Healthcheck layering** — `V05-MISSING-HEALTHCHECK` (warning) fires on
+> *all* compose files when a `depends_on.condition: service_healthy` lacks
+> a target healthcheck. `V26-PROD-NO-HEALTHCHECK` (error) fires *only* on
+> production-classified compose files for the same condition. Both rules
+> are kept by design: V05 is the early permissive nudge, V26 is the
+> strict prod gate.
 
 ### Dev-override rules (filename matches `*override*` / dev compose)
 

@@ -10,6 +10,68 @@ the original rationale.
 
 ## [Unreleased]
 
+### Changed (Phase49a — V22 drift asymmetric)
+
+- **V22-ROOT-SERVER-DRIFT direction collapsed to root→server only.**
+  Previously bidirectional, but server is the canonical source of truth
+  for the `APP_*` namespace — server-only `APP_*` vars are normal, not
+  drift. After the user surfaced every `APP_DATABASE_*` / `APP_JWT_*` /
+  `APP_HASURA_*` / `APP_OAUTH_*` etc. as warnings on `ai-project-template`,
+  the bidirectional check was net noise. The kept direction (root has
+  `APP_*` not in server) catches the genuine structural mistake of root
+  unilaterally introducing an `APP_*` key. Commit `c280c98`.
+
+### Changed (Phase50 — Verifier organization pass)
+
+- **Categorization document.** New `docs/VERIFIERS-CATEGORIES.md`
+  partitions the 25 active verifiers into 7 categories (code-quality /
+  test-execution / env-config / docker / api-rpc-data / security /
+  process) with explicit ownership boundary diagrams for the three
+  cross-cutting domains that previously had overlap (V05↔V26 docker,
+  V03↔V23↔V27 proto/RPC, V01↔V22 env).
+
+- **V05-PROD-NO-RESOURCE-LIMITS removed.** Duplicate of
+  `V26-PROD-NO-RESOURCE-LIMITS` with stale `info` severity. V26 owns
+  the canonical resource-limits check at `warning` severity and
+  matches the strict production filename pattern. Method
+  `_check_prod_resource_limits` deleted from `docker_compose.py`;
+  rule row removed from `skills/V05-docker/SKILL.md`.
+
+- **V03-UNIMPLEMENTED-RPC removed.** Consolidated into
+  `V27-UNIMPLEMENTED-RPC`, which enforces the strict Connect handler
+  signature shape (`ctx context.Context, req *connect.Request[T]`,
+  returns `(*connect.Response[T], error)`). V03's loose
+  `func (recv) MethodName(` regex was a coarser approximation that
+  could miss handlers with non-standard receivers and double-emit
+  on Connect projects (where V27 also fires). Method
+  `_check_handler_coverage` deleted from `proto_connect.py`; test
+  class `TestCheckHandlerCoverage` deleted from
+  `tests/test_proto_connect.py` (3 cases). Equivalent behavior lives
+  in `tests/test_connect_handler.py::TestUnimplementedRpc` with stricter
+  signature matching. Non-Connect projects no longer get this check
+  from V03; if needed, rely on `buf lint` + IDE tooling.
+
+- **V03-BREAKING removed.** Consolidated into `V23-BREAKING-<RULE>`,
+  which preserves Buf's per-rule code as the finding suffix
+  (`V23-BREAKING-FIELD_NO_DELETE`, etc.) enabling per-rule selective
+  disabling via `validators.disabled: ["V23-BREAKING-FIELD_SAME_NAME"]`.
+  V03's coarse single-rule emit was duplicated noise. Method
+  `_check_breaking` deleted from `proto_connect.py`. V23 already
+  uses identical worktree-aware `git rev-parse --git-common-dir`
+  logic, so no functional regression.
+
+- **V05↔V26 healthcheck layering documented.** V05-MISSING-HEALTHCHECK
+  (warning, all-files) and V26-PROD-NO-HEALTHCHECK (error, prod-only)
+  intentionally coexist — V05 is the early permissive nudge, V26 is
+  the strict prod gate. Documented as such in both SKILL.md files.
+
+- **V03 narrowed to proto-language scope.** `validate_project` now
+  runs lint + stale-gen only. Module docstring rewritten with explicit
+  pointers to V27 / V23 for the moved concerns.
+
+- **Test count: 1130 → 1127.** Three tests for the removed V03
+  handler-coverage rule are now redundant with the V27 test suite.
+
 ## [0.4.0] - 2026-04-30
 
 Third tagged release. Closes the Phase 27 ultrathink **target-project**
