@@ -10,6 +10,72 @@ the original rationale.
 
 ## [Unreleased]
 
+### Added (Phase54 Sprint 1 — V36 / V40 / V47 / V50 implementation)
+
+Top 4 medical/finance ship-blocker verifiers from the Phase 53 audit
+shipped as full implementations (Python + tests + registry wiring).
+The remaining 13 verifiers (V34, V35, V37, V38, V39, V41, V42, V43,
+V44, V45, V46, V48, V49) keep their SKILL.md design specs from
+Phase 53 and queue for subsequent Sprint phases.
+
+- **V36 — go-http-server-hardening** (`hooks/validators/go_http_hardening.py`,
+  162 lines + 11 tests). Detects `http.Server{...}` struct literals
+  in `cmd/*/main.go` lacking `ReadHeaderTimeout` + `WriteTimeout` fields
+  (slowloris vulnerability) and missing `signal.NotifyContext` /
+  `srv.Shutdown` graceful shutdown wiring. Severity error / warning
+  respectively.
+
+- **V40 — actions-sha-pin** (`hooks/validators/actions_sha_pin.py`,
+  ~140 lines + 13 tests). Line-by-line scan of `.github/workflows/*.yml`
+  for `uses:` entries; flags any action ref not pinned to a 40-char SHA.
+  Third-party actions (e.g. `oven-sh/setup-bun@v1`) → severity error
+  (supply-chain risk). First-party `actions/*` → severity warning.
+  Local actions, `docker://` refs, and comment lines exempt.
+
+- **V47 — fk-index-discipline** (`hooks/validators/fk_index_discipline.py`,
+  ~190 lines + 9 tests). Cross-file SQL parser walking
+  `**/migrations/**/up.sql` chronologically. Captures FK declarations
+  (inline `REFERENCES` and `ALTER TABLE … ADD CONSTRAINT FOREIGN KEY`
+  forms) and matches against `CREATE INDEX` statements + composite
+  primary key leftmost columns across all migrations. Emits
+  V47-FK-NO-INDEX (error) per uncovered FK column.
+
+- **V50 — health-endpoint-split** (`hooks/validators/health_endpoint_split.py`,
+  ~150 lines + 9 tests). Walks `cmd/**/*.go` for HTTP route
+  registrations. Aggregates routes across files; if any HTTP server
+  exists but `/livez` and/or `/readyz` is missing → V50-HEALTH-NOT-SPLIT
+  (error). Additionally, if `/readyz` is registered but the file lacks
+  a `pgx.Ping` / `Ping(` call → V50-READYZ-NO-DB-PING (warning).
+  Workers with no HTTP routes are exempt.
+
+- **Registry wiring**: 4 new validators added to
+  `hooks/validators/__init__.py:get_all_validators()`. Registry
+  invariants (V-ID prefix uniqueness etc.) preserved.
+
+- **`run_single.py` NAME_MAP**: 8 new short aliases for the 4 verifiers
+  (`go-http-hardening`, `http-hardening`, `actions-sha-pin`, `sha-pin`,
+  `fk-index`, `fk-index-discipline`, `health-endpoint`, `health-split`).
+
+- **`BUILTIN_GROUPS` updated**: V36 → code-quality; V40 → security;
+  V47 + V50 → api-rpc-data. The Phase52 invariants
+  (`test_every_active_validator_belongs_to_a_group` and
+  `test_no_group_member_is_dead`) now confirm 4 new V## are
+  registered AND grouped.
+
+- **Tests**: 1152 → 1194 passing (+42 new across 4 test files).
+  V40 fix: `test_security_group_membership` updated to expect the new
+  `["V08", "V18", "V40"]` membership.
+
+### Sprint priority queue
+
+Remaining 13 verifiers from Phase 53 audit, ranked by priority:
+
+```
+Sprint 2 (CI hardening):           V37, V41, V43
+Sprint 3 (governance + obsv):       V42, V49
+Long tail:                          V34, V35, V38, V39, V44, V45, V46, V48
+```
+
 ### Added (Phase53 — 17 verifier design specs + audit history doc)
 
 - **17 SKILL.md design specs** for V34-V50 covering best-practice gaps

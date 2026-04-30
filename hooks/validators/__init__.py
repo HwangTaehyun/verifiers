@@ -54,6 +54,7 @@ def _assert_registry_invariants(validators: "list[BaseValidator]") -> None:
 
 def get_all_validators() -> list[BaseValidator]:
     """Return instances of all registered validators."""
+    from .actions_sha_pin import ActionsSHAPinValidator
     from .ai_cheating_guard import AiCheatingGuardValidator
     from .buf_governance import BufGovernanceValidator
     from .commit_discipline import CommitDisciplineValidator
@@ -65,12 +66,15 @@ def get_all_validators() -> list[BaseValidator]:
 
     # from .docker_prod_deploy import DockerProdDeployValidator  # TODO: not yet implemented
     from .env_config import EnvConfigValidator
+    from .fk_index_discipline import FkIndexDisciplineValidator
+    from .go_http_hardening import GoHttpHardeningValidator
     from .go_multibinary import GoMultiBinaryValidator
     from .go_quality import GoQualityValidator
     from .go_test_runner import GoTestRunnerValidator
     from .graphql_gen import GraphqlGenValidator
     from .hasura_graphql_enforcement import HasuraGraphQLEnforcementValidator
     from .hasura_migration import HasuraMigrationValidator
+    from .health_endpoint_split import HealthEndpointSplitValidator
     from .linter_config_guard import LinterConfigGuardValidator
     from .mock_data_guard import MockDataGuardValidator
     from .multi_env import MultiEnvConsistencyValidator
@@ -109,6 +113,11 @@ def get_all_validators() -> list[BaseValidator]:
         GoMultiBinaryValidator(),  # V25 — graceful shutdown + tools.go + air mapping
         DockerProdHardeningValidator(),  # V26 — production compose hardening
         ConnectHandlerValidator(),  # V27 — connect-rpc handler completeness
+        # Phase54 Sprint 1 (medical/finance ship-blockers from Phase53 audit):
+        GoHttpHardeningValidator(),  # V36 — HTTP server timeouts + graceful shutdown
+        ActionsSHAPinValidator(),  # V40 — third-party Action SHA pinning
+        FkIndexDisciplineValidator(),  # V47 — Postgres FK columns must be indexed
+        HealthEndpointSplitValidator(),  # V50 — /livez vs /readyz split
     ]
     _assert_registry_invariants(validators)
     return validators

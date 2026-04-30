@@ -101,6 +101,18 @@ NAME_MAP = {
     # V27 — Connect-RPC handler completeness (handler ↔ proto + interceptors + connect.NewError)
     "connect-handler": "V27-connect-handler",
     "connect": "V27-connect-handler",
+    # V36 — Go HTTP server hardening (ReadHeaderTimeout/WriteTimeout + graceful shutdown)
+    "go-http-hardening": "V36-go-http-hardening",
+    "http-hardening": "V36-go-http-hardening",
+    # V40 — GitHub Actions SHA pinning (third-party action supply chain)
+    "actions-sha-pin": "V40-actions-sha-pin",
+    "sha-pin": "V40-actions-sha-pin",
+    # V47 — Postgres FK index discipline (FK columns must be indexed)
+    "fk-index": "V47-fk-index-discipline",
+    "fk-index-discipline": "V47-fk-index-discipline",
+    # V50 — health endpoint split (/livez vs /readyz)
+    "health-endpoint": "V50-health-endpoint-split",
+    "health-split": "V50-health-endpoint-split",
 }
 
 

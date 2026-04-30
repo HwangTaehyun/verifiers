@@ -229,12 +229,15 @@ class VerifiersConfig:
 # (the same form ``filter_disabled_validators`` accepts).
 
 BUILTIN_GROUPS: dict[str, list[str]] = {
-    "code-quality": ["V06", "V07", "V14", "V19"],
+    # Phase54: V36 added (Go HTTP runtime is code-quality concern)
+    "code-quality": ["V06", "V07", "V14", "V19", "V36"],
     "test-execution": ["V09", "V10", "V11", "V21"],
     "env-config": ["V01", "V22"],
     "docker": ["V05", "V25", "V26"],
-    "api-rpc-data": ["V02", "V03", "V04", "V20", "V23", "V27"],
-    "security": ["V08", "V18"],
+    # Phase54: V47 added (Postgres FK index discipline) + V50 added (health endpoint contract)
+    "api-rpc-data": ["V02", "V03", "V04", "V20", "V23", "V27", "V47", "V50"],
+    # Phase54: V40 added (Actions SHA pinning is supply-chain security)
+    "security": ["V08", "V18", "V40"],
     "process": ["V12", "V13", "V15", "V16"],
 }
 
