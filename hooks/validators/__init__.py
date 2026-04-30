@@ -66,17 +66,21 @@ def get_all_validators() -> list[BaseValidator]:
     from .dependency_guard import DependencyGuardValidator
     from .docker_compose import DockerValidator as DockerComposeValidator
     from .docker_prod_hardening import DockerProdHardeningValidator
+    from .dockerfile_base_digest import DockerfileBaseDigestValidator
+    from .dockerfile_healthcheck import DockerfileHealthcheckValidator
 
     # from .docker_prod_deploy import DockerProdDeployValidator  # TODO: not yet implemented
     from .env_config import EnvConfigValidator
     from .fk_index_discipline import FkIndexDisciplineValidator
     from .go_context_propagation import GoContextPropagationValidator
+    from .go_context_scoped_logger import GoContextScopedLoggerValidator
     from .go_error_wrapping import GoErrorWrappingValidator
     from .go_http_hardening import GoHttpHardeningValidator
     from .go_multibinary import GoMultiBinaryValidator
     from .go_quality import GoQualityValidator
     from .go_test_race_coverage import GoTestRaceCoverageValidator
     from .go_test_runner import GoTestRunnerValidator
+    from .golangci_strictness import GolangciStrictnessValidator
     from .graphql_gen import GraphqlGenValidator
     from .hasura_graphql_enforcement import HasuraGraphQLEnforcementValidator
     from .hasura_migration import HasuraMigrationValidator
@@ -134,6 +138,11 @@ def get_all_validators() -> list[BaseValidator]:
         OtelInstrumentationValidator(),  # V49 — OpenTelemetry SDK presence + wiring
         GoErrorWrappingValidator(),  # V34 — bare `return err` without %w
         GoContextPropagationValidator(),  # V35 — mid-flow context.Background()
+        # Phase56 (Long tail batch 2):
+        GolangciStrictnessValidator(),  # V38 — wrapcheck + nolintlint config
+        GoContextScopedLoggerValidator(),  # V39 — zerolog.Ctx(ctx) discipline
+        DockerfileBaseDigestValidator(),  # V44 — FROM lines need @sha256 digest
+        DockerfileHealthcheckValidator(),  # V45 — HEALTHCHECK in HTTP-service stages
     ]
     _assert_registry_invariants(validators)
     return validators

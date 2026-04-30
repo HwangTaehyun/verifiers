@@ -136,6 +136,18 @@ NAME_MAP = {
     # V35 — Go mid-flow context.Background()
     "go-context-propagation": "V35-go-context-propagation",
     "context-propagation": "V35-go-context-propagation",
+    # V38 — golangci-lint strictness config
+    "golangci-strictness": "V38-golangci-strictness",
+    "golangci": "V38-golangci-strictness",
+    # V39 — Go context-scoped logger discipline
+    "go-ctx-logger": "V39-go-context-scoped-logger",
+    "scoped-logger": "V39-go-context-scoped-logger",
+    # V44 — Dockerfile FROM digest pin
+    "dockerfile-digest": "V44-dockerfile-base-digest-pin",
+    "from-digest": "V44-dockerfile-base-digest-pin",
+    # V45 — Dockerfile HEALTHCHECK presence
+    "dockerfile-healthcheck": "V45-dockerfile-healthcheck",
+    "healthcheck": "V45-dockerfile-healthcheck",
 }
 
 

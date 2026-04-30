@@ -229,14 +229,16 @@ class VerifiersConfig:
 # (the same form ``filter_disabled_validators`` accepts).
 
 BUILTIN_GROUPS: dict[str, list[str]] = {
-    # Phase54-55: V36 (HTTP timeouts), V34 (error wrap), V35 (ctx prop) added.
-    "code-quality": ["V06", "V07", "V14", "V19", "V34", "V35", "V36"],
+    # Phase54-56: V34 (err wrap), V35 (ctx prop), V36 (HTTP timeouts),
+    # V38 (golangci config), V39 (ctx logger) added.
+    "code-quality": ["V06", "V07", "V14", "V19", "V34", "V35", "V36", "V38", "V39"],
     "test-execution": ["V09", "V10", "V11", "V21", "V37"],
     "env-config": ["V01", "V22"],
-    "docker": ["V05", "V25", "V26"],
-    # Phase54-55: V47, V50, V49 added (DB schema, health, OTel observability)
+    # Phase56: V44 (FROM digest), V45 (HEALTHCHECK) added.
+    "docker": ["V05", "V25", "V26", "V44", "V45"],
+    # Phase54-55: V47, V49, V50 added.
     "api-rpc-data": ["V02", "V03", "V04", "V20", "V23", "V27", "V47", "V49", "V50"],
-    # Phase54-55: V40, V41, V43, V42 added (CI security + dep PR flow)
+    # Phase54-55: V40, V41, V42, V43 added.
     "security": ["V08", "V18", "V40", "V41", "V42", "V43"],
     "process": ["V12", "V13", "V15", "V16"],
 }
