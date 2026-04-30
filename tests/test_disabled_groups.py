@@ -55,15 +55,32 @@ class TestBuiltinGroups:
         assert set(BUILTIN_GROUPS.keys()) == expected
 
     def test_process_group_membership(self) -> None:
-        # Phase58 Sprint A: V53 (GitHub community files), V54 (commitlint gate).
-        assert BUILTIN_GROUPS["process"] == ["V12", "V13", "V15", "V16", "V53", "V54"]
+        # Phase58 Sprint A: V53 (GH community files), V54 (commitlint gate).
+        # Phase58 Sprint B: V51 (ADR template), V52 (README badges).
+        assert BUILTIN_GROUPS["process"] == [
+            "V12",
+            "V13",
+            "V15",
+            "V16",
+            "V51",
+            "V52",
+            "V53",
+            "V54",
+        ]
 
     def test_security_group_membership(self) -> None:
-        # Phase54 Sprint1: V40 (Actions SHA pinning).
-        # Phase54 Sprint2: V41 (workflow permissions:), V43 (CI image scanning).
-        # Phase55: V42 (Dependabot config) for dep CVE PR flow.
-        # Phase58 Sprint A: V55 (Sentry error tracking).
-        assert BUILTIN_GROUPS["security"] == ["V08", "V18", "V40", "V41", "V42", "V43", "V55"]
+        # Phase54-58: V40 (SHA pin), V41 (perms), V42 (Dependabot), V43 (image scan),
+        # V55 (Sentry), V57 (SBOM CI).
+        assert BUILTIN_GROUPS["security"] == [
+            "V08",
+            "V18",
+            "V40",
+            "V41",
+            "V42",
+            "V43",
+            "V55",
+            "V57",
+        ]
 
     def test_no_v_id_appears_in_two_groups(self) -> None:
         # If any V-ID is in two groups, group-disable becomes ambiguous
@@ -87,8 +104,17 @@ class TestExpandDisabledGroups:
     def test_builtin_group_expands(self) -> None:
         cfg = VerifiersConfig()
         cfg.validators.disabled_groups = ["process"]
-        # Phase58 Sprint A: V53, V54 added to process group.
-        assert expand_disabled_groups(cfg) == ["V12", "V13", "V15", "V16", "V53", "V54"]
+        # Phase58: V51, V52, V53, V54 added to process group.
+        assert expand_disabled_groups(cfg) == [
+            "V12",
+            "V13",
+            "V15",
+            "V16",
+            "V51",
+            "V52",
+            "V53",
+            "V54",
+        ]
 
     def test_two_groups_concatenate_uniquely(self) -> None:
         cfg = VerifiersConfig()
@@ -104,8 +130,8 @@ class TestExpandDisabledGroups:
         cfg.validators.disabled_groups = ["nonexistent", "process"]
         # The unknown name is dropped; the known one expands.
         result = expand_disabled_groups(cfg)
-        # Phase58 Sprint A: V53, V54 added to process group.
-        assert result == ["V12", "V13", "V15", "V16", "V53", "V54"]
+        # Phase58: V51, V52, V53, V54 added to process group.
+        assert result == ["V12", "V13", "V15", "V16", "V51", "V52", "V53", "V54"]
 
     def test_user_groups_override_builtin_on_collision(self) -> None:
         cfg = VerifiersConfig()

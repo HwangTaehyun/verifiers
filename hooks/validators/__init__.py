@@ -56,6 +56,7 @@ def get_all_validators() -> list[BaseValidator]:
     """Return instances of all registered validators."""
     from .actions_permissions_block import ActionsPermissionsBlockValidator
     from .actions_sha_pin import ActionsSHAPinValidator
+    from .adr_template_compliance import AdrTemplateComplianceValidator
     from .ai_cheating_guard import AiCheatingGuardValidator
     from .buf_governance import BufGovernanceValidator
     from .ci_image_scanning import CiImageScanningValidator
@@ -99,6 +100,9 @@ def get_all_validators() -> list[BaseValidator]:
     from .py_pytest import PyPytestValidator
     from .py_quality import PyQualityValidator
     from .py_test_runner import PyTestRunnerValidator
+    from .readme_badges import ReadmeBadgesValidator
+    from .reproducible_build_markers import ReproducibleBuildMarkersValidator
+    from .sbom_ci_step import SbomCiStepValidator
     from .security import SecurityValidator
     from .ts_quality import TsQualityValidator
     from .ts_test_runner import TsTestRunnerValidator
@@ -157,6 +161,11 @@ def get_all_validators() -> list[BaseValidator]:
         GithubCommunityFilesValidator(),  # V53 — PR/ISSUE templates + CODEOWNERS
         CommitlintGateValidator(),  # V54 — Conventional Commits enforcement gate
         PrometheusMetricsEndpointValidator(),  # V56 — /metrics endpoint + SDK
+        # Phase58 Sprint B (docs + supply chain tail, completing Phase 58 audit):
+        AdrTemplateComplianceValidator(),  # V51 — ADR Nygard format compliance
+        ReadmeBadgesValidator(),  # V52 — README CI + license badges
+        SbomCiStepValidator(),  # V57 — SBOM generation in CI
+        ReproducibleBuildMarkersValidator(),  # V58 — SOURCE_DATE_EPOCH for reproducible builds
     ]
     _assert_registry_invariants(validators)
     return validators

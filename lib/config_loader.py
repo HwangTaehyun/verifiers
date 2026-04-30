@@ -229,19 +229,18 @@ class VerifiersConfig:
 # (the same form ``filter_disabled_validators`` accepts).
 
 BUILTIN_GROUPS: dict[str, list[str]] = {
-    # Phase54-56: V34 (err wrap), V35 (ctx prop), V36 (HTTP timeouts),
-    # V38 (golangci config), V39 (ctx logger) added.
+    # Phase54-56: V34, V35, V36, V38, V39 added.
     "code-quality": ["V06", "V07", "V14", "V19", "V34", "V35", "V36", "V38", "V39"],
     "test-execution": ["V09", "V10", "V11", "V21", "V37"],
     "env-config": ["V01", "V22"],
-    # Phase56: V44 (FROM digest), V45 (HEALTHCHECK) added.
-    "docker": ["V05", "V25", "V26", "V44", "V45"],
-    # Phase54-58: V47, V49, V50, V46, V48 + V56 (Prometheus metrics).
+    # Phase56-58: V44, V45 + V58 (reproducible build markers).
+    "docker": ["V05", "V25", "V26", "V44", "V45", "V58"],
+    # Phase54-58: V46, V47, V48, V49, V50, V56.
     "api-rpc-data": ["V02", "V03", "V04", "V20", "V23", "V27", "V46", "V47", "V48", "V49", "V50", "V56"],
-    # Phase54-58: V40, V41, V42, V43 + V55 (error tracking SDK).
-    "security": ["V08", "V18", "V40", "V41", "V42", "V43", "V55"],
-    # Phase58: V53 (GitHub community files), V54 (commitlint gate) added.
-    "process": ["V12", "V13", "V15", "V16", "V53", "V54"],
+    # Phase54-58: V40, V41, V42, V43, V55, V57 (SBOM CI).
+    "security": ["V08", "V18", "V40", "V41", "V42", "V43", "V55", "V57"],
+    # Phase58: V53, V54 + V51 (ADR), V52 (README badges) — all docs/governance.
+    "process": ["V12", "V13", "V15", "V16", "V51", "V52", "V53", "V54"],
 }
 
 

@@ -10,6 +10,76 @@ the original rationale.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-04-30
+
+Sixth tagged release. Closes the Phase 58 audit completely —
+**all 8 proposed verifiers (V51-V58) are now implemented**, on top
+of the v0.6.0 baseline (V01-V50).
+
+**Headline:**
+- 42 → **50 active validators** (+8 — every Phase 58 audit gap closed)
+- 1341 → **1433 tests passing** (+92 in v0.7.0 release window)
+- Phase 58 audit backlog: 0/8 → **8/8 complete**
+
+### Added (Phase58 Sprint B — V51 / V52 / V57 / V58 implementation)
+
+Final batch from Phase 58 audit. Backlog: 4/8 → 8/8.
+
+- **V51 — adr-template-compliance** (`hooks/validators/adr_template_compliance.py`,
+  ~140 LOC + 12 tests). Walks ADR directories (`docs/ADR/`,
+  `docs/adr/`, `docs/architecture/decisions/`, `docs/decisions/`)
+  and asserts each `*.md` follows Michael Nygard's canonical format
+  (Context / Decision / Consequences sections + Status). Lenient
+  Status detection (frontmatter / `## Status` / `**Status**:` bold).
+  Skips template / README / index / `0000-*.md`. V51-ADR-MISSING-SECTION
+  (info, per missing section).
+
+- **V52 — readme-badges** (`hooks/validators/readme_badges.py`,
+  ~120 LOC + 10 tests). Locates root `README.md` (case-insensitive)
+  and checks for two badge categories: V52-NO-CI-BADGE (info) when
+  no CI status badge present (GitHub Actions URL or shields.io
+  workflow/status), V52-NO-LICENSE-BADGE (info) when no license
+  badge. Codecov badges don't satisfy CI (different artifact).
+
+- **V57 — sbom-ci-step** (`hooks/validators/sbom_ci_step.py`,
+  ~140 LOC + 11 tests). Project-level scan of `.github/workflows/*.yml`
+  for SBOM generators: `anchore/sbom-action`, `cyclonedx/gh-gomod-
+  generate-sbom`, `cyclonedx-gomod`/`syft` run commands,
+  `aquasecurity/trivy-action` with `format: cyclonedx|spdx-json`,
+  `microsoft/sbom-action`. V57-NO-SBOM-CI (warning) when none found.
+  Layered with V43: V43=CVE scanning, V57=SBOM artifact generation.
+
+- **V58 — reproducible-build-markers** (`hooks/validators/reproducible_build_markers.py`,
+  ~155 LOC + 13 tests). Production Dockerfile final stage must
+  declare `ARG SOURCE_DATE_EPOCH` or `ENV SOURCE_DATE_EPOCH=` —
+  OR the workflow that builds it must pass `SOURCE_DATE_EPOCH` via
+  `build-args:`. Dev Dockerfiles (`*dev*` filename or `AS dev` final
+  stage) exempt. V58-NO-SOURCE-DATE-EPOCH (warning).
+
+- **Registry wiring**: 4 new imports + 4 instances under Phase58
+  Sprint B marker.
+
+- **`run_single.py` NAME_MAP**: 12 new aliases (3 per validator).
+
+- **`BUILTIN_GROUPS` updated**:
+  - process: + V51, V52
+  - security: + V57
+  - docker: + V58
+
+- **Tests**: 1387 → 1433 passing (+46). Phase 52 invariants tests
+  updated for new memberships (security: +V57, process: +V51, V52).
+
+### v0.7.0 release content (since v0.6.0)
+
+```
+phase57    V46 V48 + v0.6.0 release tag (Phase 53: 17/17)
+phase58-sprintA   V53 V54 V55 V56 (Phase 58 audit batch 1)
+phase58-sprintB + v0.7.0   V51 V52 V57 V58 (Phase 58 complete: 8/8)
+```
+
+Total since v0.6.0: 8 new validators, ~1100 new LOC implementations,
+~900 new LOC tests, +92 tests (1341 → 1433).
+
 ### Added (Phase58 Sprint A — Phase 58 audit, 4 new validators)
 
 After v0.6.0 closed the Phase 53 audit (V01-V50), Phase 58 audit

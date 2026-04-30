@@ -170,6 +170,22 @@ NAME_MAP = {
     "prometheus-metrics": "V56-prometheus-metrics-endpoint",
     "prometheus": "V56-prometheus-metrics-endpoint",
     "metrics-endpoint": "V56-prometheus-metrics-endpoint",
+    # V51 — ADR (Nygard) template compliance
+    "adr-template-compliance": "V51-adr-template-compliance",
+    "adr": "V51-adr-template-compliance",
+    "adr-compliance": "V51-adr-template-compliance",
+    # V52 — README CI + license badges
+    "readme-badges": "V52-readme-badges",
+    "readme": "V52-readme-badges",
+    "badges": "V52-readme-badges",
+    # V57 — SBOM generation in CI
+    "sbom-ci-step": "V57-sbom-ci-step",
+    "sbom": "V57-sbom-ci-step",
+    "sbom-ci": "V57-sbom-ci-step",
+    # V58 — Reproducible build markers (SOURCE_DATE_EPOCH)
+    "reproducible-build-markers": "V58-reproducible-build-markers",
+    "reproducible-builds": "V58-reproducible-build-markers",
+    "source-date-epoch": "V58-reproducible-build-markers",
 }
 
 
