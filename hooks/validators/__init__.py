@@ -60,6 +60,7 @@ def get_all_validators() -> list[BaseValidator]:
     from .buf_governance import BufGovernanceValidator
     from .ci_image_scanning import CiImageScanningValidator
     from .commit_discipline import CommitDisciplineValidator
+    from .commitlint_gate import CommitlintGateValidator
     from .complexity_guard import ComplexityGuardValidator
     from .connect_handler import ConnectHandlerValidator
     from .dependabot_config import DependabotConfigValidator
@@ -71,6 +72,7 @@ def get_all_validators() -> list[BaseValidator]:
 
     # from .docker_prod_deploy import DockerProdDeployValidator  # TODO: not yet implemented
     from .env_config import EnvConfigValidator
+    from .error_tracking_sdk import ErrorTrackingSdkValidator
     from .fk_index_discipline import FkIndexDisciplineValidator
     from .go_context_propagation import GoContextPropagationValidator
     from .go_context_scoped_logger import GoContextScopedLoggerValidator
@@ -79,6 +81,7 @@ def get_all_validators() -> list[BaseValidator]:
     from .go_multibinary import GoMultiBinaryValidator
     from .go_quality import GoQualityValidator
     from .go_test_race_coverage import GoTestRaceCoverageValidator
+    from .github_community_files import GithubCommunityFilesValidator
     from .go_test_runner import GoTestRunnerValidator
     from .golangci_strictness import GolangciStrictnessValidator
     from .graphql_gen import GraphqlGenValidator
@@ -91,6 +94,7 @@ def get_all_validators() -> list[BaseValidator]:
     from .mock_data_guard import MockDataGuardValidator
     from .multi_env import MultiEnvConsistencyValidator
     from .otel_instrumentation import OtelInstrumentationValidator
+    from .prometheus_metrics_endpoint import PrometheusMetricsEndpointValidator
     from .proto_connect import ProtoConnectValidator
     from .py_pytest import PyPytestValidator
     from .py_quality import PyQualityValidator
@@ -148,6 +152,11 @@ def get_all_validators() -> list[BaseValidator]:
         # Phase57 (Long tail batch 3 — final batch from Phase 53 audit):
         MigrationEnumRollbackValidator(),  # V46 — ALTER TYPE ADD VALUE rollback
         HasuraPermissionRationaleValidator(),  # V48 — select-only intent doc
+        # Phase58 Sprint A (docs/observability/supply-chain audit, Sprint A):
+        ErrorTrackingSdkValidator(),  # V55 — Sentry/GlitchTip SDK presence
+        GithubCommunityFilesValidator(),  # V53 — PR/ISSUE templates + CODEOWNERS
+        CommitlintGateValidator(),  # V54 — Conventional Commits enforcement gate
+        PrometheusMetricsEndpointValidator(),  # V56 — /metrics endpoint + SDK
     ]
     _assert_registry_invariants(validators)
     return validators

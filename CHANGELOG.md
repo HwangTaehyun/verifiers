@@ -10,6 +10,78 @@ the original rationale.
 
 ## [Unreleased]
 
+### Added (Phase58 Sprint A — Phase 58 audit, 4 new validators)
+
+After v0.6.0 closed the Phase 53 audit (V01-V50), Phase 58 audit
+identified 8 more best-practice gaps in ai-project-template across
+docs / production observability / supply-chain. Sprint A ships the
+top 4 (HIGH/MEDIUM impact); Sprint B (V51, V52, V57, V58 — LOW/
+MEDIUM tail) queues for next phase.
+
+- **V55 — error-tracking-sdk** (`hooks/validators/error_tracking_sdk.py`,
+  ~165 LOC + 12 tests). Dual-path Sentry SDK presence check:
+  V55-NO-GO-ERROR-TRACKING (error) when `server/go.mod` lacks
+  `getsentry/sentry-go` AND `server/internal/*.go` exists; V55-NO-WEB-
+  ERROR-TRACKING (error) when `web/package.json` lacks any of
+  `@sentry/react`/`@sentry/browser`/`@sentry/nextjs`/`@sentry/vue`.
+  Empty starter (no internal code yet) skipped. Triggered by README's
+  documented Apr 2026 `/manual-invoice/drafts` HTTP-500 incident
+  visibility gap.
+
+- **V53 — github-community-files** (`hooks/validators/github_community_files.py`,
+  ~150 LOC + 12 tests). Three independent presence checks:
+  V53-NO-PR-TEMPLATE, V53-NO-ISSUE-TEMPLATE, V53-NO-CODEOWNERS — all
+  warning severity. Accepts standard + lowercase + legacy filename
+  variants and CODEOWNERS at root/docs/.github. Closes the
+  bypassed-review surface on high-blast-radius paths
+  (`server/internal/auth/`, `hasura/metadata/`).
+
+- **V54 — commitlint-gate** (`hooks/validators/commitlint_gate.py`,
+  ~180 LOC + 11 tests). Conditional: only fires when project
+  *consumes* conventional commits (changelog generator in package.json
+  scripts/deps OR Keep-a-Changelog formatted CHANGELOG.md) but
+  *doesn't enforce* them. Recognizes 7 enforcement signals (commitlint
+  configs, .commitlintrc.*, .husky/commit-msg, lefthook.yml
+  `commit-msg:`, pre-commit `conventional-pre-commit`, commitlint in
+  any package.json). V54-COMMITLINT-NOT-ENFORCED (warning).
+
+- **V56 — prometheus-metrics-endpoint** (`hooks/validators/prometheus_metrics_endpoint.py`,
+  ~190 LOC + 11 tests). Two-step layered with V49 (V49=traces,
+  V56=metrics — different concerns):
+  V56-NO-PROMETHEUS-SDK (warning) when `server/go.mod` lacks
+  `prometheus/client_golang`; V56-PROMETHEUS-NOT-WIRED (warning) when
+  SDK present but no `cmd/**/*.go` registers `/metrics` route. Router-
+  agnostic detection (stdlib mux, chi, gorilla). Workers without
+  HTTP service exempt.
+
+- **Registry wiring**: 4 new imports + 4 instances in
+  `hooks/validators/__init__.py` under Phase58 Sprint A marker.
+
+- **`run_single.py` NAME_MAP**: 12 new aliases (3 per validator —
+  e.g. `error-tracking-sdk` / `error-tracking` / `sentry`).
+
+- **`BUILTIN_GROUPS` updated**:
+  - security: + V55
+  - process: + V53, V54
+  - api-rpc-data: + V56
+
+- **Tests**: 1341 → 1387 passing (+46 across 4 new test files).
+  3 Phase 52 invariant tests updated to expect new memberships:
+  `test_security_group_membership`, `test_process_group_membership`,
+  and the two `expand_disabled_groups` process-expansion tests.
+
+### Sprint B queue (next phase)
+
+```
+V51 adr-template-compliance        LOW
+V52 readme-badges                  LOW
+V57 sbom-ci-step                   MEDIUM
+V58 reproducible-build-markers     LOW
+```
+
+After Sprint B completes → v0.7.0 release tag bundling all of
+Phase 58.
+
 ## [0.6.0] - 2026-04-30
 
 Fifth tagged release. Closes the Phase 53 audit completely —

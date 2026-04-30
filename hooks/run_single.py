@@ -154,6 +154,22 @@ NAME_MAP = {
     # V48 — Hasura select-only permission intent documentation
     "hasura-permission-rationale": "V48-hasura-permission-rationale",
     "select-only": "V48-hasura-permission-rationale",
+    # V53 — GitHub community files (PR/ISSUE templates + CODEOWNERS)
+    "github-community-files": "V53-github-community-files",
+    "github-community": "V53-github-community-files",
+    "codeowners": "V53-github-community-files",
+    # V54 — Commitlint / Conventional Commits enforcement gate
+    "commitlint-gate": "V54-commitlint-gate",
+    "commitlint": "V54-commitlint-gate",
+    "conventional-commits": "V54-commitlint-gate",
+    # V55 — Error tracking SDK (Sentry / GlitchTip)
+    "error-tracking-sdk": "V55-error-tracking-sdk",
+    "error-tracking": "V55-error-tracking-sdk",
+    "sentry": "V55-error-tracking-sdk",
+    # V56 — Prometheus /metrics endpoint
+    "prometheus-metrics": "V56-prometheus-metrics-endpoint",
+    "prometheus": "V56-prometheus-metrics-endpoint",
+    "metrics-endpoint": "V56-prometheus-metrics-endpoint",
 }
 
 
