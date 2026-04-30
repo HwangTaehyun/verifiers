@@ -10,6 +10,48 @@ the original rationale.
 
 ## [Unreleased]
 
+### Added (Phase53 — 17 verifier design specs + audit history doc)
+
+- **17 SKILL.md design specs** for V34-V50 covering best-practice gaps
+  found in `ai-project-template`. These are **design phase only** —
+  Python implementation deferred to subsequent phases (Sprint 1: V36,
+  V40, V47, V50; Sprint 2: V37, V41, V43; etc.). Each SKILL.md follows
+  the V22/V27 template structure: Rules / Why / Design / How-it-checks /
+  Could-be-better / References / Examples.
+
+  **Go runtime discipline (V34-V39):**
+  - V34 go-error-wrapping (bare `return err` without `%w`)
+  - V35 go-context-propagation (mid-flow `context.Background()`)
+  - V36 go-http-server-hardening ★ (no ReadTimeout/WriteTimeout, no graceful shutdown)
+  - V37 go-test-race-coverage (CI lacks `-race`)
+  - V38 golangci-strictness (no `wrapcheck`, weak `nolintlint`)
+  - V39 go-context-scoped-logger (global zerolog instead of `zerolog.Ctx(ctx)`)
+
+  **CI/CD + container security (V40-V45):**
+  - V40 actions-sha-pin ★ (8 third-party actions on floating tags)
+  - V41 actions-permissions-block (no `permissions:` block in workflows)
+  - V42 dependabot-config (no automated dependency PRs)
+  - V43 ci-image-scanning ★ (no Trivy / Grype / Snyk in CI)
+  - V44 dockerfile-base-digest-pin (FROM lines without `@sha256:`)
+  - V45 dockerfile-healthcheck (no HEALTHCHECK in HTTP-service Dockerfiles)
+
+  **DB / Hasura / observability (V46-V50):**
+  - V46 migration-enum-rollback (`ALTER TYPE ADD VALUE` without rollback)
+  - V47 fk-index-discipline ★ (5 FK columns missing indexes — production death-trap)
+  - V48 hasura-permission-rationale (select-only YAML without intent doc)
+  - V49 otel-instrumentation (zero OpenTelemetry SDK presence)
+  - V50 health-endpoint-split ★ (single `/health` instead of `/livez` + `/readyz`)
+
+  ★ = medical/finance ship-blocker tier (Sprint 1 priority)
+
+- **`docs/AUDITS.md`** — single-source-of-truth for the audit history.
+  Documents what "audit" means in this project, lists Phase 27 / 50 /
+  51 / 52 / 53 audits with their evaluation criteria + findings +
+  outcomes, explains the parallel-research-agent pattern, and proposes
+  triggers for future audits. Lets new contributors answer "why was
+  this verifier added / why was that rule deleted" without git blame
+  archaeology.
+
 ### Added (Phase52 — Group-based validator disable)
 
 - **`validators.disabled_groups`** config field. The 7 categories from
