@@ -107,6 +107,17 @@ def main() -> None:
     # Create project context
     ctx = ProjectContext(cwd)
 
+    # ── Phase 70: eager file_index build ────────────────────────────────
+    # Phase 65 made ``ctx.file_index`` a cached_property — built lazily
+    # on first access. cProfile showed the build (~200 ms on a 21k-file
+    # monorepo) being charged to whichever validator happened to access
+    # ``ctx.file_index`` first inside the parallel runner, inflating
+    # that validator's wall metric and (more importantly) adding 200 ms
+    # to the longest-pole thread that gates the user-visible wall.
+    # Triggering the build here moves that 200 ms into the main thread
+    # BEFORE workers spawn, so the wall floor drops by ~200 ms.
+    _ = ctx.file_index
+
     # P1-3: enabled allowlist + disabled deny-list (disabled wins).
     # Phase35 (A1 audit): the four-step filter pipeline is shared with
     # ``hooks/router.py`` via ``lib/validator_registry``. The hard-fail

@@ -287,17 +287,19 @@ class TsQualityValidator(BaseValidator):
         return cache_file
 
     def _supports_incremental(self, ctx: ProjectContext) -> bool:
-        """Check if TypeScript >= 5.0 (incremental + noEmit safe)."""
+        """Check if TypeScript >= 5.0 (incremental + noEmit safe).
+
+        Phase 70: delegate to ``lib.subprocess_cache.detect_tool_version``
+        which is now lru_cached per process. cProfile measured this at
+        76 ms per Stop hook before — small but pure waste since the
+        TypeScript version doesn't change mid-process.
+        """
+        from lib.subprocess_cache import detect_tool_version
+
         web_dir = ctx.web_dir if ctx.web_dir else (Path(ctx.project_root) / "web")
         try:
-            result = subprocess.run(
-                ["bun", "run", "tsc", "--version"],
-                cwd=str(web_dir),
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            m = re.search(r"Version (\d+)\.", result.stdout)
+            version_str = detect_tool_version(["bun", "run", "tsc", "--version"], cwd=web_dir)
+            m = re.search(r"Version (\d+)\.", version_str)
             if m and int(m.group(1)) >= 5:
                 return True
         except (OSError, subprocess.TimeoutExpired):
@@ -592,15 +594,53 @@ class TsQualityValidator(BaseValidator):
     # ── Check 9: Unused code (Stop mode) ─────────────────────────────────
 
     def _check_unused_code(self, ctx: ProjectContext) -> list[Finding]:
-        """Detect unused exports/files/dependencies using knip."""
+        """Detect unused exports/files/dependencies using knip.
+
+        Phase 70: wrap with ``lib.subprocess_cache.cached_run`` (Phase 61
+        infrastructure, same pattern as Phase 68 madge). knip reads
+        every .ts/.tsx file under web/src + tsconfig.json + package.json
+        + knip.json (if present) to compute unused exports/files. Output
+        is deterministic from those inputs; caching is safe.
+
+        cProfile measured this at 722 ms warm — 20% of V07's wall.
+        """
         findings: list[Finding] = []
+        web_dir = ctx.web_dir if ctx.web_dir else (Path(ctx.project_root) / "web")
+        if not web_dir.exists():
+            return findings
+
+        ts_files = [
+            p
+            for p in ctx.file_index.find_by_pattern("*.ts", "*.tsx")
+            if str(p).startswith(str(web_dir / "src"))
+        ]
+        if not ts_files:
+            return findings
+
+        config_files = [
+            p
+            for p in (
+                web_dir / "tsconfig.json",
+                web_dir / "package.json",
+                web_dir / "knip.json",
+                web_dir / "knip.config.js",
+                web_dir / "knip.config.ts",
+            )
+            if p.is_file()
+        ]
 
         try:
-            result = subprocess.run(
-                ["bunx", "knip", "--no-progress"],
-                cwd=str(ctx.web_dir),
-                capture_output=True,
-                text=True,
+            from lib.subprocess_cache import cached_run, detect_tool_version
+
+            knip_version = detect_tool_version(["bunx", "knip", "--version"], cwd=web_dir)
+            result = cached_run(
+                project_root=ctx.project_root,
+                label="V07-knip-unused",
+                cmd=["bunx", "knip", "--no-progress"],
+                cwd=web_dir,
+                input_files=ts_files,
+                tool_version=knip_version,
+                config_files=config_files,
                 timeout=30,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired):

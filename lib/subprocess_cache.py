@@ -56,6 +56,7 @@ call goes straight to subprocess).
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
@@ -258,16 +259,21 @@ def cached_run(
     return result
 
 
-def detect_tool_version(cmd: list[str], cwd: Path | str = ".") -> str:
-    """Run ``<tool> --version`` and return its stdout (one-liner).
+@functools.lru_cache(maxsize=64)
+def _detect_tool_version_cached(cmd_tuple: tuple[str, ...], cwd_str: str) -> str:
+    """Phase 70: process-local memoization of tool version detection.
 
-    Returns ``"unknown"`` if the tool isn't on PATH or the call fails.
-    Used as a hash component so a tool upgrade invalidates the cache.
+    Tool version is stable for the lifetime of a process — the user
+    isn't installing a new node/bunx/madge mid-Stop-hook. cProfile
+    on ax-finance-project showed 590 ms / Stop spent on a single
+    ``bunx madge --version`` cold start, all of which is wasted on
+    repeat invocations within the same process. lru_cache makes the
+    second-and-onward calls O(1) hash lookup (~µs).
     """
     try:
         cp = subprocess.run(
-            cmd,
-            cwd=str(cwd),
+            list(cmd_tuple),
+            cwd=cwd_str,
             capture_output=True,
             text=True,
             timeout=5,
@@ -275,6 +281,20 @@ def detect_tool_version(cmd: list[str], cwd: Path | str = ".") -> str:
         return cp.stdout.strip().splitlines()[0] if cp.stdout else "unknown"
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError, IndexError):
         return "unknown"
+
+
+def detect_tool_version(cmd: list[str], cwd: Path | str = ".") -> str:
+    """Run ``<tool> --version`` and return its stdout (one-liner).
+
+    Returns ``"unknown"`` if the tool isn't on PATH or the call fails.
+    Used as a hash component so a tool upgrade invalidates the cache.
+
+    Phase 70: results are cached per (cmd, cwd) for the process
+    lifetime via :py:func:`_detect_tool_version_cached`. Tests that
+    need a fresh detection can call
+    ``_detect_tool_version_cached.cache_clear()``.
+    """
+    return _detect_tool_version_cached(tuple(cmd), str(cwd))
 
 
 # Standalone smoke test
