@@ -534,13 +534,20 @@ class TestCacheFlags:
     def test_eslint_lock_hash_invalidates_cache(
         self, validator: TsQualityValidator, tmp_project: Path, project_ctx: ProjectContext
     ) -> None:
-        """Changing bun.lockb causes the eslint cache dir to be wiped."""
+        """Changing bun.lockb causes the eslint cache dir to be wiped.
+
+        Phase 67: ``_invalidate_eslint_cache_if_lock_changed`` now
+        returns the cache **file** path (``.eslintcache``) instead of
+        the directory. The sentinel goes in the file's parent dir to
+        verify the wipe.
+        """
         web_dir = tmp_project / "web"
         lock_file = web_dir / "bun.lockb"
         lock_file.write_bytes(b"initial-lock-content")
 
         # First call — populates cache and stores hash
-        cache_dir = validator._invalidate_eslint_cache_if_lock_changed(project_ctx)
+        cache_file = validator._invalidate_eslint_cache_if_lock_changed(project_ctx)
+        cache_dir = cache_file.parent
         # Plant a sentinel file inside cache to verify it gets wiped
         sentinel = cache_dir / "some-cached-file.json"
         sentinel.write_text("{}")

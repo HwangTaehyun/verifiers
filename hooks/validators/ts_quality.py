@@ -217,9 +217,49 @@ class TsQualityValidator(BaseValidator):
     def _cache_disabled() -> bool:
         return os.environ.get("VERIFIERS_NO_CACHE", "0") == "1"
 
+    def _resolve_eslint_command(self, ctx: ProjectContext) -> list[str]:
+        """Phase 67: prefer the project's local ESLint binary over ``bun run eslint``.
+
+        ``bun run eslint`` invokes the project's ``package.json`` script
+        for ``eslint``, which on real-world projects (e.g. ax-finance-project)
+        already includes args like ``"src/**/*.{ts, tsx}" --fix --no-warn-ignored``.
+        Appending V07's args duplicates options (``--no-warn-ignored
+        --no-warn-ignored``) which ESLint v8 rejects with
+        ``Invalid option '--warn-ignored'``, exiting in ~150 ms before
+        any linting happens. Result: V07 was silently producing zero
+        findings on every run.
+
+        Calling ``<web>/node_modules/.bin/eslint`` directly bypasses
+        the script wrapper. The local binary is what ``bun run eslint``
+        would have invoked anyway (resolved via the same node_modules),
+        so behavior is otherwise identical.
+
+        Falls back to ``bun run eslint`` when the local binary is not
+        present (rare — implies node_modules wasn't installed yet).
+        """
+        web_dir = ctx.web_dir if ctx.web_dir else (Path(ctx.project_root) / "web")
+        local_bin = web_dir / "node_modules" / ".bin" / "eslint"
+        if local_bin.is_file():
+            return [str(local_bin)]
+        return ["bun", "run", "eslint"]
+
     def _invalidate_eslint_cache_if_lock_changed(self, ctx: ProjectContext) -> Path:
-        """Return cache dir path, deleting it first if package lockfile changed."""
+        """Return cache **file** path, deleting it first if package lockfile changed.
+
+        Phase 67: returns a FILE (``.eslintcache``) inside
+        ``.verifiers/cache/eslint/``, not a directory. ESLint v8's
+        ``--cache-location`` accepts either, but with a directory
+        target ESLint creates ``.lock-hash`` (a 0-byte sentinel) and
+        we measured the actual cache file never being written —
+        possibly an interaction with cache-strategy=content. Using
+        a plain file path avoids that path entirely.
+
+        The lockfile-hash invalidation logic (so a ``bun.lockb`` /
+        ``package-lock.json`` / ``yarn.lock`` change wipes stale
+        cache entries from a different plugin set) is preserved.
+        """
         cache_dir = Path(ctx.project_root) / ".verifiers" / "cache" / "eslint"
+        cache_file = cache_dir / ".eslintcache"
         lock_hash_file = cache_dir / ".lock-hash"
 
         web_dir = ctx.web_dir if ctx.web_dir else (Path(ctx.project_root) / "web")
@@ -238,11 +278,13 @@ class TsQualityValidator(BaseValidator):
         if cache_dir.exists() and lock_hash_file.is_file():
             stored = lock_hash_file.read_text(errors="replace").strip()
             if stored != current_hash:
+                # Wipe both the cache file and the lock-hash sentinel so
+                # the next run starts fresh.
                 shutil.rmtree(cache_dir, ignore_errors=True)
 
         cache_dir.mkdir(parents=True, exist_ok=True)
         lock_hash_file.write_text(current_hash)
-        return cache_dir
+        return cache_file
 
     def _supports_incremental(self, ctx: ProjectContext) -> bool:
         """Check if TypeScript >= 5.0 (incremental + noEmit safe)."""
@@ -268,24 +310,30 @@ class TsQualityValidator(BaseValidator):
         """Run ESLint on a single file."""
         findings: list[Finding] = []
 
-        cmd = [
-            "bun",
-            "run",
-            "eslint",
-            "--no-warn-ignored",
+        # Phase 67: bypass ``bun run eslint`` (which fold-merges with
+        # the project's package.json eslint script and creates duplicate
+        # options) by calling the local node_modules eslint binary
+        # directly.
+        # Phase 67: ``--no-warn-ignored`` was an ESLint v9+ flag — v8 (still
+        # the most common) emits ``Invalid option '--warn-ignored'`` and
+        # exits with code 2 in <200 ms, producing zero findings silently.
+        # Drop it so V07 actually runs ESLint. The ignored-file warnings
+        # the flag would have suppressed go to stderr in v8 and don't
+        # affect the JSON ``messages[]`` we parse.
+        cmd = self._resolve_eslint_command(ctx) + [
             "--max-warnings",
             "0",
             "--format",
             "json",
         ]
         if not self._cache_disabled():
-            cache_dir = self._invalidate_eslint_cache_if_lock_changed(ctx)
+            cache_file = self._invalidate_eslint_cache_if_lock_changed(ctx)
             cmd += [
                 "--cache",
                 "--cache-strategy",
                 "content",
                 "--cache-location",
-                str(cache_dir) + "/",
+                str(cache_file),
             ]
         cmd.append(file_path)
 
@@ -368,27 +416,35 @@ class TsQualityValidator(BaseValidator):
     # ── Check 7: ESLint full project (Stop mode) ────────────────────────
 
     def _check_eslint_full(self, ctx: ProjectContext) -> list[Finding]:
-        """Run ESLint on entire project."""
+        """Run ESLint on entire project (Tier 3 stop mode).
+
+        Phase 67: same fixes as ``_check_eslint_single`` — direct
+        binary call avoids ``bun run eslint`` script fold-merge,
+        and ``--cache-location`` is a file path so the cache file
+        actually gets written.
+        """
         findings: list[Finding] = []
 
-        cmd = [
-            "bun",
-            "run",
-            "eslint",
-            "--no-warn-ignored",
+        # Phase 67: ``--no-warn-ignored`` was an ESLint v9+ flag — v8 (still
+        # the most common) emits ``Invalid option '--warn-ignored'`` and
+        # exits with code 2 in <200 ms, producing zero findings silently.
+        # Drop it so V07 actually runs ESLint. The ignored-file warnings
+        # the flag would have suppressed go to stderr in v8 and don't
+        # affect the JSON ``messages[]`` we parse.
+        cmd = self._resolve_eslint_command(ctx) + [
             "--max-warnings",
             "0",
             "--format",
             "json",
         ]
         if not self._cache_disabled():
-            cache_dir = self._invalidate_eslint_cache_if_lock_changed(ctx)
+            cache_file = self._invalidate_eslint_cache_if_lock_changed(ctx)
             cmd += [
                 "--cache",
                 "--cache-strategy",
                 "content",
                 "--cache-location",
-                str(cache_dir) + "/",
+                str(cache_file),
             ]
         cmd.append("src/")
 
