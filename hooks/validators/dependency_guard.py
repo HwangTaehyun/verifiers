@@ -577,32 +577,41 @@ class DependencyGuardValidator(BaseValidator):
         before invoking the checker. Hit → cached findings; miss →
         invoke checker + record. The file content is only read on
         cache miss, saving I/O too.
+
+        Phase 65: queries ``ctx.file_index`` for matching files and
+        filters by ``directory`` prefix. Replaces the per-validator
+        ``directory.rglob(glob_pattern)`` walk that contended with V14
+        + the Dockerfile validators on the GIL.
         """
         findings: list[Finding] = []
         if not (directory and directory.exists()):
             return findings
-        for glob_pattern in globs:
-            for src_file in directory.rglob(glob_pattern):
-                fp = str(src_file)
-                if self._should_skip(fp):
-                    continue
-                try:
-                    mtime_ns = src_file.stat().st_mtime_ns
-                except OSError:
-                    continue
+        directory_resolved = directory.resolve()
+        for src_file in ctx.file_index.find_by_pattern(*globs):
+            try:
+                src_file.resolve().relative_to(directory_resolved)
+            except (ValueError, OSError):
+                continue
+            fp = str(src_file)
+            if self._should_skip(fp):
+                continue
+            try:
+                mtime_ns = src_file.stat().st_mtime_ns
+            except OSError:
+                continue
 
-                cached = cache.get(fp, mtime_ns)
-                if cached is not None:
-                    findings.extend(cached)
-                    continue
+            cached = cache.get(fp, mtime_ns)
+            if cached is not None:
+                findings.extend(cached)
+                continue
 
-                try:
-                    content = src_file.read_text(errors="replace")
-                except OSError:
-                    continue
-                file_findings = checker(fp, content, ctx, custom_layers)
-                cache.put(fp, mtime_ns, file_findings)
-                findings.extend(file_findings)
+            try:
+                content = src_file.read_text(errors="replace")
+            except OSError:
+                continue
+            file_findings = checker(fp, content, ctx, custom_layers)
+            cache.put(fp, mtime_ns, file_findings)
+            findings.extend(file_findings)
         return findings
 
     def _should_skip(self, file_path: str) -> bool:

@@ -10,6 +10,127 @@ the original rationale.
 
 ## [Unreleased]
 
+### Changed (Phase65 — single-walk project file index eliminates GIL+IO contention)
+
+Phase 64 made the verifier suite **18% faster on warm runs** (97s → 80s
+on ax-finance-project, 21k+ files). Phase 65 takes it from there to
+**93% faster** (80s → 6s) by fixing the actual bottleneck the Phase 64
+benchmark exposed.
+
+#### The bottleneck
+
+Seven Tier 3 validators (V05/V14/V15/V38/V44/V45/V58) each ran their
+own ``Path.glob("**/...")`` walk to find target files (Dockerfiles,
+docker-compose YAML, source files, .golangci.yml). On a 21k-file
+monorepo a single walk takes ~1.3 s; six concurrent walks via
+``ThreadPoolExecutor(8w)`` measured **~16 s each**:
+
+- ``Path.glob`` is a pure-Python iterator that holds the GIL during
+  most of its work. Six threads competing for one GIL serialize each
+  other.
+- macOS APFS queues concurrent ``stat()`` syscalls under load, so the
+  kernel work also serialized.
+
+Result: the actual analysis (read 7 Dockerfiles + parse) was ~50 ms
+per validator, but each validator's ``duration_ms`` measurement
+included the walk wait. The six walk-heavy validators alone ate
+~96 s of wall-clock per Stop hook.
+
+#### The fix
+
+New ``lib/file_index.py`` — ``ProjectFileIndex.build(root, exclude_globs)``
+walks the project ONCE per Stop hook with ``os.walk(followlinks=False)``
+and ``dirnames[:] = [...]`` directory-level pruning (an interface
+``Path.glob`` doesn't expose). The index has two lookup tables:
+
+- ``by_ext: dict[str, list[FileEntry]]`` — ``".go"`` → all .go files
+- ``by_name: dict[str, list[FileEntry]]`` — ``"Dockerfile"`` → ...
+
+``ProjectContext.file_index`` (a ``functools.cached_property``) lazily
+builds the index on first access, then memoizes for the lifetime of
+the ``ctx`` (one Stop hook = one fresh ``ctx``, so no stale-cache
+risk across hook invocations).
+
+#### What gets pruned
+
+1. **Hardcoded ``DEFAULT_PRUNE_NAMES``** — directory names that never
+   contain user code: ``.git``, ``.hg``, ``.svn``, ``node_modules``,
+   ``vendor``, ``__pycache__``, ``.venv``, ``.tox``, ``.mypy_cache``,
+   ``.pytest_cache``, ``.ruff_cache``, ``.next``, ``.turbo``. Pruned
+   regardless of user config.
+2. **User-configured ``exclude.paths``** — gitignore-style globs from
+   ``.verifiers/config.yaml`` get translated to directory prefixes
+   (``vendor/**`` → ``vendor``, ``web/build/**`` → ``web/build``,
+   ``**/__generated__/**`` → ``**/__generated__`` any-depth basename).
+   Path-prefix or any-depth-basename match → directory pruned mid-walk.
+
+#### What changed in each validator
+
+Each migrated validator went from running its own ``Path.glob`` to
+querying ``ctx.file_index``:
+
+| V-ID | Before | After |
+|------|--------|-------|
+| V05 | 4× ``ctx.project_root.glob("**/...")`` | ``ctx.file_index.find_by_pattern(...)`` × 2 |
+| V14 | ``directory.rglob(glob_pattern)`` per language | ``ctx.file_index.find_by_pattern(*globs)`` + relative_to filter |
+| V15 | ``directory.rglob(glob_pattern)`` per language | same as V14 |
+| V38 | ``root.rglob(".golangci.yaml")`` | ``ctx.file_index.find_by_pattern(".golangci.yaml", ".golangci.yml")`` |
+| V44 | 2× ``root.glob("**/Dockerfile*")`` | ``ctx.file_index.find_by_pattern("Dockerfile*", "*.Dockerfile")`` |
+| V45 | 2× ``ctx.project_root.glob("**/Dockerfile*")`` | same |
+| V58 | 2× ``root.glob("**/Dockerfile*")`` | same |
+
+V14/V15 preserve their language-directory scoping (``*.go`` only under
+``ctx.server_dir``, etc.) by filtering index results with
+``Path.relative_to(directory)``.
+
+#### Phase 63 cache hash also benefits
+
+``lib.tier_cache.compute_input_hash`` used to do its own walk per
+validator. Phase 65 makes it delegate to
+``ProjectFileIndex.hash_for_patterns()`` so the hash compute also
+shares the single walk. Stop validator now calls
+``ctx.file_index.hash_for_patterns(v.file_patterns)`` directly,
+eliminating 32 redundant walks per Stop hook.
+
+#### Measured impact (ax-finance-project, 102,975 entries / 91,753 in node_modules)
+
+| Scenario | Phase 64 | Phase 65 | Speedup |
+|----------|---------:|---------:|--------:|
+| COLD (caches wiped) | 96,902 ms | **6,182 ms** | **15.7×** |
+| WARM #1 | 79,531 ms | **6,186 ms** | **12.9×** |
+| WARM #2 | 79,929 ms | **5,966 ms** | **13.4×** |
+| WARM #3 | 86,354 ms | **6,112 ms** | **14.1×** |
+| EDIT 1 .go file | 79,364 ms | **5,791 ms** | **13.7×** |
+| ALL CACHES OFF | 97,429 ms | **6,288 ms** | **15.5×** |
+
+**74 seconds saved per Stop hook on this project.** Per-validator:
+
+| V-ID | Phase 64 (cold) | Phase 65 (cold) | Notes |
+|------|---------------:|---------------:|-------|
+| V14-complexity-guard | 37,893 ms | **669 ms** | Phase 64.4 + 65 combined: 56× |
+| V05-docker | 37,510 ms | ~50 ms | walk was the cost |
+| V15-dependency-guard | 33,204 ms | (skipped or ~700 ms) | |
+| V38-golangci-strictness | 23,507 ms | **7 ms** | walk was 100% of the cost |
+| V44-dockerfile-base-digest | 23,093 ms | **3 ms** | walk was 100% of the cost |
+| V45-dockerfile-healthcheck | 22,900 ms | **12 ms** | walk was 99% of the cost |
+| V58-reproducible-build-markers | 21,248 ms | **47 ms** | walk + workflow load |
+
+#### New wall floor: V06 + V07
+
+The post-Phase-65 wall is bounded by V06 (``go test -race``) and V07
+(``tsc --noEmit`` + eslint) at ~5.5 s each. These are real subprocess
+work, not walk overhead. Phase 63 can't cache them (V06 is in
+``TIER_CACHE_INELIGIBLE``; V07 has findings so PASS-state cache
+doesn't apply). This is the genuine compilation/test cost of the
+project's source — further optimization would require subprocess-level
+caching of `go test` / `tsc` output, which is out of scope.
+
+#### Files
+
+- **New**: ``lib/file_index.py`` (~280 LOC), ``tests/test_file_index.py`` (37 tests)
+- **Modified**: ``lib/project_context.py`` (cached_property), ``lib/tier_cache.py`` (delegates), ``hooks/stop_validator.py`` (uses ``ctx.file_index.hash_for_patterns``), 7 validators (replace ``Path.glob`` with ``find_by_pattern``)
+- **Test count**: 1,545 → **1,582** (+37)
+
 ### Changed (Phase64 — 5 follow-up optimizations: exclude-aware hash, ext bucketing, Tier 2 parallel, V14/V15 incremental, perf audit)
 
 After Phase 63 closed the structural Tier 2 ↔ Tier 3 dedup gap, the

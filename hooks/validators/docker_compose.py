@@ -127,13 +127,21 @@ class DockerValidator(BaseValidator):
 
         findings: list[Finding] = []
 
-        compose_files = list(ctx.project_root.glob("**/docker-compose*.yaml"))
-        compose_files.extend(ctx.project_root.glob("**/docker-compose*.yml"))
-        compose_files = self._filter_excluded_files(ctx, compose_files)
+        # Phase 65: shared file index. Replaces FOUR per-validator
+        # ``ctx.project_root.glob("**/...")`` walks that scaled with the
+        # whole project tree (102k entries on ax-finance-project, of
+        # which 91k were ``web/node_modules``). Combined with V44/V45/V58
+        # doing the same Dockerfile walks concurrently, V05 measured 21s
+        # — almost all of which was GIL-serialized iteration.
+        compose_files = self._filter_excluded_files(
+            ctx,
+            ctx.file_index.find_by_pattern("docker-compose*.yaml", "docker-compose*.yml"),
+        )
 
-        dockerfiles = list(ctx.project_root.glob("**/Dockerfile*"))
-        dockerfiles.extend(ctx.project_root.glob("**/*.Dockerfile"))
-        dockerfiles = self._filter_excluded_files(ctx, dockerfiles)
+        dockerfiles = self._filter_excluded_files(
+            ctx,
+            ctx.file_index.find_by_pattern("Dockerfile*", "*.Dockerfile"),
+        )
 
         for compose_file in compose_files:
             try:

@@ -47,16 +47,17 @@ class DockerfileBaseDigestValidator(BaseValidator):
         return self._check_dockerfile(path)
 
     def validate_project(self, ctx: ProjectContext) -> list[Finding]:
-        """Tier 3: walk all Dockerfile* and *.Dockerfile under project_root."""
-        root = Path(ctx.project_root)
-        findings: list[Finding] = []
-        seen: set[Path] = set()
+        """Tier 3: scan all Dockerfile* and *.Dockerfile in the project.
 
-        for pattern in ("**/Dockerfile*", "**/*.Dockerfile"):
-            for df in sorted(root.glob(pattern)):
-                if df.is_file() and df not in seen:
-                    seen.add(df)
-                    findings.extend(self._check_dockerfile(df))
+        Phase 65: queries ``ctx.file_index`` instead of running its own
+        ``Path.glob("**/Dockerfile*")``. The shared single-walk index
+        eliminates the GIL+IO contention that made this validator
+        measure 17s on large monorepos when 6 dockerfile-loving
+        validators ran concurrently.
+        """
+        findings: list[Finding] = []
+        for df in sorted(ctx.file_index.find_by_pattern("Dockerfile*", "*.Dockerfile")):
+            findings.extend(self._check_dockerfile(df))
         return findings
 
     # ── Internals ──────────────────────────────────────────────────────

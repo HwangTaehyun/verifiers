@@ -93,12 +93,10 @@ Per-file atomicity via os.replace.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import time
 from dataclasses import dataclass
-from fnmatch import fnmatch
 from pathlib import Path
 
 # Validators whose result is non-deterministic given file inputs.
@@ -158,65 +156,29 @@ def compute_input_hash(
       - deletions (missing file → missing entry in hash)
       - modifications (mtime/size change)
 
-    Phase64.1: ``exclude_paths`` (gitignore-style globs, typically
-    ``ctx.config.exclude.paths``) are filtered out of the hash. This
-    matters in two ways:
+    Phase 64.1 added ``exclude_paths`` filtering for both speed (skip
+    vendored trees) and correctness (excluded files shouldn't invalidate
+    the cache).
 
-      1. **Speed**: monorepos with vendored deps (``vendor/**``,
-         ``node_modules/**``) can have thousands of files matching
-         ``**/*.go`` / ``**/*.ts``. Stat-ing every one of them on every
-         Stop hook costs 100-200ms even though those files are excluded
-         from validation anyway.
-      2. **Correctness**: a file that's excluded from validation should
-         not invalidate the validator's cache when it changes. Without
-         this filter, ``git pull`` on a vendored dep would invalidate
-         every validator's cache even though the vendored code is
-         never actually checked.
+    Phase 65: this function now delegates to
+    :py:meth:`lib.file_index.ProjectFileIndex.hash_for_patterns`.
+    Building an index per-call is an O(N) walk; production callers
+    should use ``ctx.file_index.hash_for_patterns(...)`` directly to
+    share the index across all validators in a single Stop hook. This
+    legacy entry point is kept for tests and one-off callers that
+    don't have a ``ProjectContext``.
 
     Empty ``file_patterns`` → empty hash (rare; validators with no
     file_patterns run on every invocation).
     """
     if not file_patterns:
         return ""
+    # Local import keeps the dependency lazy — tests that don't touch
+    # file_index aren't burdened with the import cost.
+    from lib.file_index import ProjectFileIndex
 
-    root = Path(project_root)
-    h = hashlib.sha256()
-    seen: set[Path] = set()
-    # Pre-resolve project root once for relative-path computation in the
-    # exclusion check. ``Path.resolve()`` per-file would dominate the
-    # walk on large trees.
-    root_resolved = root.resolve()
-
-    for pattern in file_patterns:
-        try:
-            for f in root.glob(pattern):
-                if not f.is_file():
-                    continue
-                resolved = f.resolve()
-                if resolved in seen:
-                    continue
-                seen.add(resolved)
-                # Phase64.1: skip files matching exclude_paths. Compute
-                # the relative path once; if it lives outside the root
-                # (rare for hook inputs), skip exclusion check and let
-                # the file in.
-                if exclude_paths:
-                    try:
-                        rel = str(resolved.relative_to(root_resolved))
-                    except ValueError:
-                        rel = str(f)
-                    if any(fnmatch(rel, pat) for pat in exclude_paths):
-                        continue
-                try:
-                    stat = f.stat()
-                    h.update(f"{f}:{stat.st_size}:{stat.st_mtime_ns}\n".encode("utf-8"))
-                except OSError:
-                    continue
-        except (OSError, ValueError):
-            # Pattern invalid or path traversal — skip.
-            continue
-
-    return h.hexdigest()
+    index = ProjectFileIndex.build(project_root, tuple(exclude_paths))
+    return index.hash_for_patterns(tuple(file_patterns))
 
 
 def lookup_recent_pass(

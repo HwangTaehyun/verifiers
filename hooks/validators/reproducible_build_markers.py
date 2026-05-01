@@ -77,14 +77,10 @@ class ReproducibleBuildMarkersValidator(BaseValidator):
     def _check(self, ctx: ProjectContext) -> list[Finding]:
         root = Path(ctx.project_root)
 
-        # Collect all Dockerfiles
-        dockerfiles: list[Path] = []
-        seen: set[Path] = set()
-        for pattern in ("**/Dockerfile*", "**/*.Dockerfile"):
-            for df in sorted(root.glob(pattern)):
-                if df.is_file() and df not in seen:
-                    seen.add(df)
-                    dockerfiles.append(df)
+        # Phase 65: shared file index. Eliminates the per-validator
+        # ``root.glob("**/Dockerfile*")`` walk that contended for the GIL
+        # against V05/V44/V45 doing identical scans concurrently.
+        dockerfiles = sorted(ctx.file_index.find_by_pattern("Dockerfile*", "*.Dockerfile"))
 
         if not dockerfiles:
             return []

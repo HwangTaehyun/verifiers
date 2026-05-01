@@ -10,11 +10,16 @@ Supports image-query and nowclear projects by scanning for:
 
 from __future__ import annotations
 
+import functools
 import subprocess
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from lib.config_loader import VerifiersConfig, load_config
 from lib.exclusion import is_excluded as _is_excluded_glob
+
+if TYPE_CHECKING:
+    from lib.file_index import ProjectFileIndex
 
 
 class ProjectContext:
@@ -118,6 +123,41 @@ class ProjectContext:
         ``is_excluded_for_validator`` separately at registration time.
         """
         return _is_excluded_glob(file_path, self.project_root, self.config.exclude.paths)
+
+    @functools.cached_property
+    def file_index(self) -> ProjectFileIndex:
+        """Phase 65: single-walk project file index, lazily built.
+
+        Built once on first access, memoized for the lifetime of this
+        ``ctx``. The Stop hook gets a fresh ``ctx`` per invocation so
+        the index automatically refreshes between runs — no stale-cache
+        risk across hook calls.
+
+        The walk respects:
+          1. ``DEFAULT_PRUNE_NAMES`` in ``lib.file_index`` — built-in
+             noise dirs (``.git``, ``node_modules``, ``vendor``, ...)
+             pruned at directory level.
+          2. ``self.config.exclude.paths`` — user-configured project
+             exclusions (e.g. ``server/gen/**``, ``web/build/**``).
+
+        Validators that previously called ``Path.glob("**/...")`` should
+        now go through ``ctx.file_index.find_by_pattern(...)`` to share
+        the single walk and avoid the GIL+IO contention measured in
+        the Phase 65 benchmark.
+
+        Tier 2 router does NOT use this index — it operates on a
+        single edited file and the build cost would dominate. The
+        index is a Tier 3 (Stop hook) optimization.
+        """
+        # Local import — avoid module-cycle risk and keep the index
+        # code path lazy (tests that don't touch file_index don't pay
+        # for the import).
+        from lib.file_index import ProjectFileIndex
+
+        return ProjectFileIndex.build(
+            self.project_root,
+            exclude_globs=tuple(self.config.exclude.paths),
+        )
 
     @property
     def metrics_log_dir(self) -> Path:

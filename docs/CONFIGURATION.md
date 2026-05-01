@@ -229,9 +229,12 @@ VERIFIERS_PARALLEL=0 just verify
 
 - 모든 dataclass (`Thresholds`, `ExcludeConfig`, `ValidatorsConfig`, `SecurityConfig`, `DockerConfig`, `StopConfig`, `TimeoutsConfig`, `TierCacheConfig`): `lib/config_loader.py`
 - 매칭 로직: `lib/exclusion.py`
+- **Phase 65** 단일 walk 프로젝트 인덱스: `lib/file_index.py` — `ProjectFileIndex.build` (os.walk + dirnames[:] prune), `ProjectContext.file_index` cached_property 로 통합. 모든 walk-heavy validator + tier_cache hash 가 공유.
 - Tier 2 content-hash 캐시 (router): `lib/router_cache.py`
-- Tier 3 PASS-state 캐시 (Phase 63): `lib/tier_cache.py` — stat-based hash + 5-min TTL + V06/V09/V10/V11/V12/V21/V37 hard-exclusion
+- Tier 3 PASS-state 캐시 (Phase 63): `lib/tier_cache.py` — Phase 65 부터 `hash_for_patterns` 를 file_index 에 위임
+- Per-file findings 캐시 (Phase 64.4): `lib/per_file_cache.py` — V14/V15 mtime-keyed cache + config fingerprint invalidation
 - Subprocess 결과 캐시 (Phase 61): `lib/subprocess_cache.py` — sha256 keyed + 7-day FIFO + tool version gate
 - 병렬 실행 + sentinel finding + per-validator timeout: `lib/parallel_runner.py` (Phase 36 ThreadPoolExecutor + Phase 62 N2 timeout 해석)
 - Validator registry + lru_cache (Phase 62 N4): `hooks/validators/__init__.py` (`get_all_validators()`, `get_all_validators.cache_clear()` 로 reset)
+- Extension-bucketed dispatch (Phase 64.2): `hooks/validators/__init__.py` (`_build_dispatch_index`, `get_matching_validators`)
 - Pre-compiled `file_patterns` (Phase 62 N3): `hooks/validators/base.py` (`_compile_patterns`)

@@ -410,13 +410,42 @@ stop_validator (Tier 3) 는 (1)·(2)·(3) 만 순차 적용 후 모든 validator
 
 ---
 
-## 8. Tier 3 parallelism + 다층 캐시 + sentinel findings (Phase 12 / 36 / 61 / 62 / 63)
+## 8. Tier 3 parallelism + 단일 walk 인덱스 + 다층 캐시 + sentinel findings (Phase 12 / 36 / 61 / 62 / 63 / 64 / 65)
 
 `hooks/stop_validator.py` 는 49 개 validator 를 `lib/parallel_runner.run_all` 을 통해 **`ThreadPoolExecutor(max_workers=min(8, len(validators)))`** 로 병렬 실행합니다.
 
 **Phase 36 — ProcessPoolExecutor → ThreadPoolExecutor**: 모든 heavy validator 가 `subprocess.run` 으로 child process 를 띄우고 (golangci-lint, ruff, eslint, tsc, pytest 등) 그동안 GIL 을 놓기 때문에, thread 가 process 와 동등한 병렬화를 제공합니다. spawn cost (~200 ms / Stop) + ProjectContext pickling 비용을 제거. `pickle.PicklingError` fallback 분기도 함께 retire.
 
 **Phase 36 — adaptive workers**: `max_workers=min(DEFAULT_MAX_WORKERS=8, len(validators))`. 활성 validator 가 5 개 뿐인 프로젝트에서 8 개 thread 를 spawn 하지 않음.
+
+**Phase 65 — 단일 walk 프로젝트 인덱스 (`lib/file_index.py`)**: 7 개 walk-heavy validator (V05/V14/V15/V38/V44/V45/V58) 가 각자 `Path.glob("**/...")` 로 프로젝트 트리를 walk 하던 구조를 ProjectContext 의 `file_index` cached_property 로 통합. Phase 36 의 ThreadPool 가정 (subprocess 가 GIL 을 놓는다) 이 walk-heavy validator 에서는 깨졌던 문제 해결.
+
+```
+[Stop hook 시작]
+   │
+   ├─→ ctx.file_index 첫 접근 (cached_property)
+   │     ├─ os.walk(root, followlinks=False)
+   │     ├─ dirnames[:] = [...] in-place 변형 (Path.glob 에 없는 인터페이스)
+   │     │     • DEFAULT_PRUNE_NAMES (.git, node_modules, vendor, __pycache__,
+   │     │       .venv, .tox, .mypy_cache, .next, .turbo 등) → 디렉토리 진입 X
+   │     │     • exclude.paths 로 사용자 지정 prefix prune (web/build/**,
+   │     │       **/__generated__/** 등)
+   │     ├─ 통과한 파일마다 (path, size, mtime_ns) 한 번 stat → FileEntry
+   │     └─ {by_ext, by_name} dict 인덱스 빌드
+   │
+   ├─→ 49 validator 가 같은 인덱스 query (각 0.1-1 ms):
+   │     V05: ctx.file_index.find_by_pattern("docker-compose*.yaml", ...)
+   │     V14: ctx.file_index.find_by_pattern("*.go", "*.ts", "*.py")
+   │     V44: ctx.file_index.find_by_pattern("Dockerfile*", "*.Dockerfile")
+   │     ...
+   │
+   └─→ Phase 63 cache hash 도 같은 인덱스 사용:
+         ctx.file_index.hash_for_patterns(v.file_patterns)
+```
+
+**왜 Path.glob 이 아니라 os.walk 를 썼나**: `Path.glob` 은 ``**/X`` 패턴 만나면 전체 서브트리에 무조건 들어감. 사용자가 "여기 들어가지 마" 를 표현할 방법이 없음. `os.walk` 는 yield 하는 `(dirpath, dirnames, filenames)` tuple 의 `dirnames` 리스트를 in-place 변형하면 그 서브트리는 walk 에서 제외됨 — node_modules 91k 진입을 0 회로 만든다.
+
+**왜 GIL 이 walk 를 직렬화하나**: `Path.glob` 의 hot loop 는 pure Python (`os.scandir` 호출 후 Python 으로 entry 순회 + fnmatch + Path 생성). syscall 은 GIL 을 놓지만 그 사이의 Python 작업이 GIL 을 점유. 6 thread 가 동시에 glob 돌리면 GIL 한 개를 놓고 경합 → 사실상 직렬 실행. 측정: 단일 walk 1.3 s, 6 thread 동시 walk 각 16 s.
 
 ### 8.1 캐시 stack (입력 변경 없으면 일을 안 함)
 
@@ -462,7 +491,10 @@ timeouts:
 | `VERIFIERS_PARALLEL=0`        | 병렬 실행 비활성, sequential fallback                   |
 | `VERIFIERS_NO_TIER_CACHE=1`   | Phase 63 PASS-state 캐시 우회 — 모든 validator 매번 실행 |
 | `VERIFIERS_NO_CACHE=1`        | V07 eslint/tsc + V03 buf subprocess 캐시 우회          |
+| `VERIFIERS_NO_PER_FILE_CACHE=1` | Phase 64.4 V14/V15 per-file findings 캐시 우회         |
 | `VERIFIERS_DEBUG=1`           | hook 디버그 로그 활성                                   |
+
+> Phase 65 `file_index` 는 escape hatch 가 없습니다 — 캐시가 아니라 walk 통합이라 끄면 30 초+ 의 GIL/IO 경합으로 회귀하기 때문. 동작 invariant 는 `tests/test_file_index.py` 가 박제.
 
 ThreadPoolExecutor 로 전환된 후 자동 fallback (pickle / pool-setup 에러) 분기는 retire — thread 는 spawn 도 pickle 도 없음. validator 안에서 던진 예외는 `_run_one_validator` 의 inner sentinel 이 받아서 `V##-CRASHED` 로 변환.
 
@@ -488,7 +520,7 @@ ThreadPoolExecutor 로 전환된 후 자동 fallback (pickle / pool-setup 에러
 
 ---
 
-## 10. 정리 (TL;DR — Phase 63 기준)
+## 10. 정리 (TL;DR — Phase 65 기준)
 
 - **세 Tier 분업**:
   - **Tier 1** (`security_hook.py`, < 100 ms, regex only) — 시크릿 누설 즉시 차단. 항상 자동.
@@ -504,11 +536,14 @@ ThreadPoolExecutor 로 전환된 후 자동 fallback (pickle / pool-setup 에러
   - **security** (7): V08, V18, V40, V41, V42, V43, V57
   - **process** (8): V12, V13, V15, V16, V51, V52, V53, V54
   - 미사용 V-ID: V17 (UI 미구현), V24 (결번), V55 (사용자 결정으로 컷)
-- **다층 캐시 (Phase 61–63)**:
-  - **Phase 63** Tier 3 PASS-state 캐시 (`lib/tier_cache.py`) — 입력 변경 없으면 validator skip (5-min TTL). V06/V09/V10/V11/V12/V21/V37 영구 제외.
+- **단일 walk 인덱스 (Phase 65)**: `lib/file_index.py` 의 `ProjectFileIndex` 가 ProjectContext 의 cached_property 로 한 번만 walk → 모든 validator 가 공유. node_modules / vendor / .git / __pycache__ 등 unconditional prune + 사용자 `exclude.paths` prefix prune. 7 walk-heavy validator (V05/V14/V15/V38/V44/V45/V58) 가 각자 `Path.glob` 돌리던 GIL+IO 경합 (16 s × 6 = 96 s) 을 단일 walk (~280 ms + 인덱스 query 0.1-1 ms 씩) 로 압축.
+  - 측정 (ax-finance-project, 21k+ files): wall **97 s → 6 s (15.5× speedup)**.
+- **다층 캐시 (Phase 61–64.4)**:
+  - **Phase 63** Tier 3 PASS-state 캐시 (`lib/tier_cache.py`) — 입력 변경 없으면 validator skip (5-min TTL). V06/V09/V10/V11/V12/V21/V37 영구 제외. Phase 65 부터 hash 도 file_index 사용.
+  - **Phase 64.4** Per-file findings 캐시 (`lib/per_file_cache.py`) — V14/V15 의 mtime 안 바뀐 파일은 cached findings 재사용. (validator_id, file_path, mtime_ns, config_fingerprint) 키.
   - **Phase 61** Subprocess 결과 캐시 (`lib/subprocess_cache.py`) — V03 buf-lint 등 (7-day FIFO).
   - **Phase 61** Native 캐시 — V07 eslint `--cache` + tsc `--incremental` (TS 5.0+).
-  - Escape: `VERIFIERS_NO_TIER_CACHE=1`, `VERIFIERS_NO_CACHE=1`.
+  - Escape: `VERIFIERS_NO_TIER_CACHE=1`, `VERIFIERS_NO_PER_FILE_CACHE=1`, `VERIFIERS_NO_CACHE=1`.
 - **Phase 62 4-pack 최적화**: adaptive workers + per-validator timeouts (`timeouts.per_validator`) + pre-compiled `file_patterns` (`@functools.lru_cache(maxsize=128)`) + lazy validator import cache (`get_all_validators` lru_cache).
 - **Configuration**: 25+ knob via `.verifiers/config.yaml` (thresholds / exclude / validators / security / docker / stop / timeouts / tier_cache / groups). Hard-fail on `validators.enabled` typo. 자세히는 [`/docs/CONFIGURATION.md`](CONFIGURATION.md).
-- **테스트 안전망**: 1,482 tests, Tier 3 dogfood CI, PEP 723 inline-deps drift gate, classical-school test 강제 (CONTRIBUTING).
+- **테스트 안전망**: 1,582 tests, Tier 3 dogfood CI, PEP 723 inline-deps drift gate, classical-school test 강제 (CONTRIBUTING).

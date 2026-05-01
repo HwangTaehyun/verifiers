@@ -882,18 +882,31 @@ class ComplexityGuardValidator(BaseValidator):
         Phase 64.4: each file is hashed by mtime against the
         per-file cache before running the language-specific analyzer.
         Cache hit → reuse the prior findings. Miss → analyze + record.
+
+        Phase 65: queries ``ctx.file_index`` for matching files and
+        filters by ``directory`` prefix. Replaces the per-validator
+        ``directory.rglob(glob_pattern)`` walk that contended with V15
+        and the Dockerfile validators on the GIL during parallel Stop
+        execution. Behavior preserved: only files under ``directory``
+        are analyzed (so ``*.go`` stays scoped to the Go source tree).
         """
         findings: list[Finding] = []
         if not (directory and directory.exists()):
             return findings
-        for glob_pattern in globs:
-            for src_file in directory.rglob(glob_pattern):
-                fp = str(src_file)
-                if ctx.is_excluded(fp):
-                    continue
-                if self._should_skip(fp):
-                    continue
-                findings.extend(self._analyze_file_cached(fp, thresholds, cache))
+        directory_resolved = directory.resolve()
+        for src_file in ctx.file_index.find_by_pattern(*globs):
+            # Preserve language-directory scoping that the legacy
+            # ``directory.rglob(...)`` provided.
+            try:
+                src_file.resolve().relative_to(directory_resolved)
+            except (ValueError, OSError):
+                continue
+            fp = str(src_file)
+            if ctx.is_excluded(fp):
+                continue
+            if self._should_skip(fp):
+                continue
+            findings.extend(self._analyze_file_cached(fp, thresholds, cache))
         return findings
 
     def _analyze_file_cached(

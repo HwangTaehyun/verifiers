@@ -158,41 +158,78 @@ just clean-logs         # 로그 + 캐시 초기화
 - **Circuit breaker**: `stop_validator.py` 는 `<cwd>/.verifiers/state/verifier-block-count` 에 연속 차단 횟수를 기록하고, 3 회 연속 차단되면 통과시켜 무한 루프를 방지합니다.
 - **Tier 분리**: 빠른 보안 차단 (Tier 1, <100ms) / 상황별 호출 (Tier 2) / 무거운 종합 검증 (Tier 3, ≤120s) 으로 비용·블로킹 정책을 분리.
 
-### Tier 3 SLA (parallel runner + 다층 캐시)
+### Tier 3 SLA (parallel runner + 다층 캐시 + 단일 walk 인덱스)
 
-`lib/parallel_runner.py` 가 `ThreadPoolExecutor(max_workers=min(8, len(validators)))` 로 49 개 validator 를 병렬 실행합니다. Phase 36 에서 ProcessPoolExecutor → ThreadPoolExecutor 로 전환 (모든 heavy validator 가 subprocess.run 으로 GIL 을 놓기 때문에 thread 가 process 와 동등 — spawn cost + pickling 제거). `scripts/benchmark_stop.py` 합성 워크로드:
+`lib/parallel_runner.py` 가 `ThreadPoolExecutor(max_workers=min(8, len(validators)))` 로 49 개 validator 를 병렬 실행합니다. Phase 36 에서 ProcessPoolExecutor → ThreadPoolExecutor 로 전환 (subprocess 호출이 GIL 을 놓아서 thread 가 process 와 동등 — spawn cost + pickling 제거).
 
-| 모드            | 벽시계         | 비고                                                 |
-| --------------- | -------------- | ---------------------------------------------------- |
-| Sequential      | ~5.6 s         | `VERIFIERS_PARALLEL=0` 또는 fallback                 |
-| Parallel (8w)   | ~2.0 s         | 기본값 (Phase 36+)                                    |
-| **Speedup**     | **~2.8 ×**     | 큰 V06 (golangci-lint) 의 길이가 wall-clock 결정      |
+#### 실측 — ax-finance-project (102,975 entries / web/node_modules 91,753)
 
-#### Phase 61–63: 다층 캐시 (입력 변경 없으면 skip)
+| 시나리오 | Phase 64 까지 | Phase 65 적용 후 | 절감 |
+|---|---:|---:|---:|
+| COLD (모든 캐시 wipe) | 96,902 ms | **6,182 ms** | **−93.6%** |
+| WARM | 79,531 ms | **6,186 ms** | **−92.2%** |
+| EDIT 1 .go file | 79,364 ms | **5,791 ms** | **−92.7%** |
+| 캐시 모두 비활성 | 97,429 ms | **6,288 ms** | **−93.5%** |
 
-매 Stop 마다 49 개 validator 를 모두 돌리는 것조차 낭비라는 인식 하에, 3 단계 캐시가 stack 으로 쌓여있습니다:
+새 wall floor 는 V06 (`go test -race`) + V07 (`tsc --noEmit`) ≈ 5.5 s — subprocess 자체가 floor.
 
-1. **Tier 3 PASS-state 캐시** (Phase 63, `lib/tier_cache.py`) — validator 가 zero-finding 으로 통과한 입력 해시를 `.verifiers/state/tier-cache/V##.json` 에 5 분 TTL 로 기록. 다음 Stop 에서 입력 (path × size × mtime sha256) 이 같으면 validator 자체를 skip. .ts 파일만 편집한 턴에서 Go 쪽 validator 9 개 (V25/V27/V34/V35/V38/V39/V47/V49/V50) 가 skip → ~30-60s 절약. **제외 목록**: V06/V09/V10/V11/V12/V21/V37 (test runner + git-state 의존).
-2. **V07/V03 native + subprocess 캐시** (Phase 61) — eslint `--cache`, tsc `--incremental`, V03 buf-lint 결과를 `.verifiers/state/subprocess-cache/<label>.json` 에 7-day TTL FIFO 로 캐싱.
-3. **Per-validator timeout 오버라이드** (Phase 62) — `.verifiers/config.yaml` 의 `timeouts.per_validator` 로 V21 (pytest) 는 180 s, V19 (ruff) 는 5 s 등 차등 timeout.
+#### Phase 65: 단일 walk 프로젝트 인덱스 (`lib/file_index.py`)
 
-실측 명령:
+**문제**: V05 / V14 / V15 / V38 / V44 / V45 / V58 가 각자 `Path.glob("**/...")` 으로 프로젝트 트리를 walk. 21k+ 파일 monorepo 에서 단일 walk 가 ~1.3 s. 6 개가 ThreadPool(8w) 에서 동시 실행되면:
 
-```bash
-uv run python scripts/benchmark_stop.py            # 사람용
-uv run python scripts/benchmark_stop.py --json     # CI / 모니터링용
+1. **GIL 직렬화** — `Path.glob` 의 hot loop 가 pure-Python 이라 GIL 을 놓지 않음. 6 thread 가 GIL 한 개를 놓고 경합 → 한 번에 한 thread 만 진행.
+2. **macOS APFS IO 직렬화** — 6 thread 의 동시 `stat` 호출이 커널에서 큐잉.
+3. 결과: 단일 walk 1.3 s × 6 → 각 thread 가 16 s 측정. 실제 검증 작업은 1-5 s 인데 walk 가 16 s 로 묻어버림.
+
+**해결**: ProjectContext 에 `file_index` cached_property 추가. Stop hook 시작 시 ONE 번 `os.walk` 로 전체 트리 인덱싱:
+
+```
+[Stop hook]
+   │
+   ├─→ ctx.file_index 첫 접근 시 ProjectFileIndex.build() 호출:
+   │     ├─ os.walk(root, followlinks=False)
+   │     ├─ dirnames[:] = [...] in-place 변형 → 디렉토리 단위 prune
+   │     │     • DEFAULT_PRUNE_NAMES (.git, node_modules, vendor, __pycache__, .venv, ...)
+   │     │     • exclude.paths 매칭 (vendor/**, web/build/**, **/__generated__/**, ...)
+   │     ├─ 통과한 파일마다 (path, size, mtime_ns) 기록
+   │     └─ {by_ext, by_name} dict 인덱스 빌드
+   │
+   ├─→ 모든 validator 가 같은 인덱스 query (0.1-1 ms 씩):
+   │     ctx.file_index.find_by_pattern("Dockerfile*", "*.Dockerfile")
+   │     ctx.file_index.find_by_pattern("*.go", "*.py", "*.ts", "*.tsx")
+   │     ctx.file_index.find_by_pattern(".golangci.yaml", ".golangci.yml")
+   │     ctx.file_index.find_by_pattern("docker-compose*.yaml")
+   │
+   └─→ Phase 63 cache hash 도 같은 인덱스 사용:
+         ctx.file_index.hash_for_patterns(v.file_patterns)
 ```
 
-#### 캐시 escape hatch
+**핵심**: `dirnames[:] = [...]` 는 `os.walk` 만의 인터페이스 — `Path.glob` 에는 없음. 디렉토리 진입 직전에 list 를 변형하면 그 서브트리는 walk 에서 통째로 제외됨. node_modules 91k 진입을 0 회로 만든다는 뜻.
+
+**측정**: 102,975 entries → 4,244 files indexed (96% prune). Build 288 ms (한 번), find_by_pattern 0.1-1 ms (39 회). 이전엔 7 × ~1,600 ms walk = 11 s 가 6.2 s 로.
+
+#### Phase 61–64: 다층 캐시 (입력 변경 없으면 skip)
+
+매 Stop 마다 49 개 validator 를 모두 돌리는 것조차 낭비라는 인식 하에, 4 단계 캐시 stack:
+
+1. **Tier 3 PASS-state 캐시** (Phase 63, `lib/tier_cache.py`) — validator 가 zero-finding 으로 통과한 입력 해시를 `.verifiers/state/tier-cache/V##.json` 에 5 분 TTL 로 기록. 다음 Stop 에서 입력 (path × size × mtime sha256, Phase 65 부터는 file_index 가 계산) 이 같으면 validator 자체를 skip. **제외 목록**: V06/V09/V10/V11/V12/V21/V37 (test runner + git-state 의존).
+2. **V14/V15 per-file 캐시** (Phase 64.4, `lib/per_file_cache.py`) — Phase 63 가 한 validator 의 통째 skip 이라면, Phase 64.4 는 한 validator 안에서 변경 안 된 파일의 findings 재사용. (validator_id, file_path, mtime_ns, config_fingerprint) 키 → cached findings list. V14 21s → 669ms.
+3. **V07/V03 native + subprocess 캐시** (Phase 61) — eslint `--cache`, tsc `--incremental`, V03 buf-lint 결과를 `.verifiers/state/subprocess-cache/<label>.json` 에 7-day TTL FIFO 로 캐싱.
+4. **Per-validator timeout 오버라이드** (Phase 62) — `.verifiers/config.yaml` 의 `timeouts.per_validator` 로 V21 (pytest) 는 180 s, V19 (ruff) 는 5 s 등 차등 timeout.
+
+#### 캐시 + 인덱스 escape hatch
 
 | Env var                       | 효과                                                                   |
 | ----------------------------- | ---------------------------------------------------------------------- |
-| `VERIFIERS_PARALLEL=0`        | 병렬 실행 비활성, sequential fallback                                   |
+| `VERIFIERS_PARALLEL=0`        | Tier 2/3 병렬 실행 비활성, sequential fallback                          |
 | `VERIFIERS_NO_CACHE=1`        | V07 eslint/tsc + V03 buf 의 subprocess 캐시 비활성                      |
 | `VERIFIERS_NO_TIER_CACHE=1`   | Phase 63 PASS-state 캐시 비활성 — 모든 validator 매 Stop 마다 강제 실행 |
+| `VERIFIERS_NO_PER_FILE_CACHE=1` | Phase 64.4 V14/V15 per-file 캐시 비활성                                |
 | `VERIFIERS_DEBUG=1`           | hook 디버그 로그 활성                                                   |
 
-`per-validator timeout = 30 s` (기본). 한 validator 가 hang 되어도 나머지는 계속 실행되며, hang 된 항목은 `V##-TIMEOUT` sentinel finding 으로 표시됩니다 (silent false-approve 방지).
+> `file_index` 는 escape hatch 없음 — 캐시가 아니라 walk 통합이라 비활성화 시 30 초+ 의 GIL/IO 경합으로 회귀. 대신 `tests/test_file_index.py` 가 동작 invariant 를 박제.
+
+`per-validator timeout = 30 s` (기본, `.verifiers/config.yaml` 의 `timeouts.per_validator` 로 V## 별 override). 한 validator 가 hang 되어도 나머지는 계속 실행되며, hang 된 항목은 `V##-TIMEOUT` sentinel finding 으로 표시됩니다 (silent false-approve 방지).
 
 ## Per-project configuration
 

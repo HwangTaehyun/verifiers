@@ -47,26 +47,22 @@ class DockerfileHealthcheckValidator(BaseValidator):
         return self._check_healthcheck(path)
 
     def validate_project(self, ctx: ProjectContext) -> list[Finding]:
-        """Tier 3 project-wide sweep: walk all Dockerfiles."""
+        """Tier 3 project-wide sweep: scan all Dockerfiles.
+
+        Phase 65: shared file index. Replaces the per-validator
+        ``ctx.project_root.glob("**/Dockerfile*")`` walks that — when 6
+        dockerfile-touching validators ran in parallel — measured ~17s
+        each due to GIL + filesystem-IO contention on large monorepos.
+        ``find_by_pattern`` does an O(unique-basenames) lookup against
+        the pre-built index instead.
+        """
         findings: list[Finding] = []
-
-        dockerfiles = list(ctx.project_root.glob("**/Dockerfile*"))
-        dockerfiles.extend(ctx.project_root.glob("**/*.Dockerfile"))
-
-        # Deduplicate (glob may return overlapping results)
-        seen: set[Path] = set()
-        for dockerfile in dockerfiles:
-            if dockerfile in seen:
-                continue
-            seen.add(dockerfile)
-
+        for dockerfile in ctx.file_index.find_by_pattern("Dockerfile*", "*.Dockerfile"):
             if not self._is_dockerfile(dockerfile):
                 continue
             if ctx.is_excluded(str(dockerfile)):
                 continue
-
             findings.extend(self._check_healthcheck(dockerfile))
-
         return findings
 
     # ── Helpers ──────────────────────────────────────────────────────────

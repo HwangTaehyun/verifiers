@@ -140,46 +140,62 @@ def test_compute_input_hash_handles_invalid_pattern(project: Path) -> None:
 
 
 def test_compute_input_hash_excludes_vendored_files(project: Path) -> None:
-    """Files matching exclude_paths must not contribute to the hash."""
-    (project / "main.go").write_text("package main\n")
-    (project / "vendor").mkdir()
-    (project / "vendor" / "dep.go").write_text("package dep\n")
+    """Files matching exclude_paths must not contribute to the hash.
 
-    h_with_vendor = compute_input_hash(["**/*.go"], project, exclude_paths=["vendor/**"])
-    # Hash should equal the hash with vendor/ physically absent.
-    (project / "vendor" / "dep.go").unlink()
-    (project / "vendor").rmdir()
-    h_without_vendor = compute_input_hash(["**/*.go"], project, exclude_paths=())
-    assert h_with_vendor == h_without_vendor
+    Uses ``thirdparty/`` (not in Phase 65's DEFAULT_PRUNE_NAMES) to
+    isolate the user-config exclusion behavior from the always-pruned
+    default set.
+    """
+    (project / "main.go").write_text("package main\n")
+    (project / "thirdparty").mkdir()
+    (project / "thirdparty" / "dep.go").write_text("package dep\n")
+
+    h_with_excl = compute_input_hash(["**/*.go"], project, exclude_paths=["thirdparty/**"])
+    # Hash should equal the hash with thirdparty/ physically absent.
+    (project / "thirdparty" / "dep.go").unlink()
+    (project / "thirdparty").rmdir()
+    h_without_excl = compute_input_hash(["**/*.go"], project, exclude_paths=())
+    assert h_with_excl == h_without_excl
 
 
 def test_compute_input_hash_excluded_change_does_not_invalidate(project: Path) -> None:
-    """Editing an excluded file must keep the hash stable."""
+    """Editing an excluded file must keep the hash stable.
+
+    Phase 65: ``node_modules`` is also always-pruned by default, so we
+    use it WITHOUT explicit exclusion (the prune happens regardless)
+    to confirm the always-pruned behavior.
+    """
     (project / "main.go").write_text("package main\n")
     (project / "node_modules").mkdir()
     (project / "node_modules" / "dep.js").write_text("// dep")
-    excludes = ["node_modules/**"]
 
-    # Hash for .go files — node_modules .js doesn't match the pattern,
-    # but explicit exclusion exercise: also hash .js with exclude.
-    h1 = compute_input_hash(["**/*.go", "**/*.js"], project, exclude_paths=excludes)
+    # Hash for .go and .js files — node_modules is always-pruned in
+    # Phase 65 so it never contributes regardless of exclude_paths.
+    h1 = compute_input_hash(["**/*.go", "**/*.js"], project)
 
     time.sleep(0.01)
     (project / "node_modules" / "dep.js").write_text("// dep changed")
-    h2 = compute_input_hash(["**/*.go", "**/*.js"], project, exclude_paths=excludes)
+    h2 = compute_input_hash(["**/*.go", "**/*.js"], project)
     assert h1 == h2
 
 
 def test_compute_input_hash_excluded_default_off(project: Path) -> None:
-    """Default exclude_paths=() preserves prior behavior."""
-    (project / "vendor").mkdir()
-    (project / "vendor" / "dep.go").write_text("package dep\n")
+    """exclude_paths actually changes the hash for non-builtin-pruned dirs.
+
+    Phase 65 made ``DEFAULT_PRUNE_NAMES`` (``vendor``, ``node_modules``,
+    etc.) always pruned regardless of ``exclude_paths``. So we test
+    with a project-specific subdirectory (``thirdparty``) that's NOT in
+    the default-prune set; without exclusion the hash includes its
+    files, with exclusion the hash skips them.
+    """
+    (project / "thirdparty").mkdir()
+    (project / "thirdparty" / "dep.go").write_text("package dep\n")
     (project / "main.go").write_text("package main\n")
 
-    # Without exclusion: vendor/ contributes to hash.
+    # Without exclusion: thirdparty/ contributes to hash.
     h1 = compute_input_hash(["**/*.go"], project)
-    # With exclusion: vendor/ skipped.
-    h2 = compute_input_hash(["**/*.go"], project, exclude_paths=["vendor/**"])
+    # With exclusion: thirdparty/ skipped.
+    h2 = compute_input_hash(["**/*.go"], project, exclude_paths=["thirdparty/**"])
     assert h1 != h2
 
 
