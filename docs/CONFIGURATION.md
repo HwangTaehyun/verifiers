@@ -80,6 +80,20 @@ stop:                                # Tier 3 (Stop hook) 튜닝 — Phase28+
                                      #            git diff --name-only HEAD 휴리스틱
                                      # "always" — 매 Stop 마다 무조건 (Phase27 이전 V19 동작)
                                      # "never"  — Stop 에서 pytest 안 돎 (CI 에 위임)
+
+timeouts:                            # Phase 62 — per-validator timeout 오버라이드
+  default: 30                        # 기본 timeout (초). 모든 validator 의 fallback (기본 30)
+  per_validator:                     # V## prefix → 초. 키 누락 시 default 사용
+    V21: 180                         # pytest 는 3 분까지 허용
+    V19: 5                           # ruff 는 빠르게 — hang 의심 시 즉시 cut
+    V06: 240                         # go-quality (Stage 2: golangci + go test 병렬)
+
+tier_cache:                          # Phase 63 — Tier 3 PASS-state 캐시
+  enabled: true                      # master switch (기본 true). false 면 캐시 미들웨어 우회
+  max_age_seconds: 300               # PASS 엔트리 TTL (기본 5 분)
+                                     # file-state hash 가 같아도 TTL 지나면 miss → 재실행
+                                     # 의도: 시계 skew, NFS mtime 흔들림, 시스템 패키지 업데이트
+                                     # 같은 비-결정성 안전망
 ```
 
 > **Phase21 BREAKING CHANGE**: 기본 `vhost_check_mode` 가 `"production"` 으로 바뀌었습니다 (이전엔 사실상 `"all"`).
@@ -98,6 +112,8 @@ stop:                                # Tier 3 (Stop hook) 튜닝 — Phase28+
 | **V08** Security                   | `security.phi_check_enabled`, `security.phi_fields`, `security.required_gitignore`                                                                                                                                    | PHI scanning on/off, PHI 필드 셋 교체, .gitignore 필수 항목 셋 교체.                            |
 | **V05** Docker                     | `docker.vhost_check_mode`, `docker.reverse_proxy_networks`, `docker.production_filename_patterns`, `docker.dev_filename_patterns`, `docker.production_stage_names`, `docker.dev_stage_names`                          | VHOST 검사 발동 모드 (production / all / off), Traefik 등 다른 reverse proxy 인정, 회사 컨벤션 파일명/stage 이름 매핑. |
 | **V21** Pytest Runner              | `stop.run_pytest`                                                                                                                                                                                                     | always / never / smart 모드. smart 는 `git diff --name-only HEAD` 로 .py 변경 감지 후만 pytest 실행. |
+| **모든 validator** (parallel runner) | `timeouts.default`, `timeouts.per_validator[V##]`                                                                                                                                                                       | per-validator timeout 오버라이드 (Phase 62). 값 누락 시 default → 모듈 상수 30 s 순으로 fallback. |
+| **모든 cacheable validator** (Tier 3) | `tier_cache.enabled`, `tier_cache.max_age_seconds`                                                                                                                                                                    | PASS-state 캐시 (Phase 63). enabled=false 또는 환경변수 `VERIFIERS_NO_TIER_CACHE=1` 시 우회. V06/V09/V10/V11/V12/V21/V37 은 비-결정성으로 인해 영구 제외. |
 
 **아직 config 와 연결 안 된 항목** (의도적 유지):
 
@@ -188,6 +204,15 @@ VERIFIERS_DEBUG=1 just verify
 
 # 4. 단일 validator 만 실행해 결과 비교
 just verify-one V14
+
+# 5. 캐시 우회 — "분명히 고쳤는데 stop 에서 같은 PASS 가 뜬다" 의심 시 (Phase 63)
+VERIFIERS_NO_TIER_CACHE=1 just verify          # Tier 3 PASS-state 캐시 우회
+VERIFIERS_NO_CACHE=1 just verify               # V07 eslint/tsc + V03 buf subprocess 캐시 우회
+rm -rf .verifiers/state/tier-cache             # 영구 캐시 wipe (Phase 63)
+rm -rf .verifiers/state/subprocess-cache       # subprocess 결과 캐시 wipe (Phase 61)
+
+# 6. 병렬 실행 비활성 — 특정 validator 가 의심될 때 sequential 로 격리
+VERIFIERS_PARALLEL=0 just verify
 ```
 
 ## 6. Hard-fail 케이스
@@ -202,7 +227,11 @@ just verify-one V14
 
 ## 7. 스키마 정의 위치
 
-- 모든 dataclass: `lib/config_loader.py`
+- 모든 dataclass (`Thresholds`, `ExcludeConfig`, `ValidatorsConfig`, `SecurityConfig`, `DockerConfig`, `StopConfig`, `TimeoutsConfig`, `TierCacheConfig`): `lib/config_loader.py`
 - 매칭 로직: `lib/exclusion.py`
-- Content-hash 캐시: `lib/router_cache.py`
-- 병렬 실행 + sentinel finding: `lib/parallel_runner.py`
+- Tier 2 content-hash 캐시 (router): `lib/router_cache.py`
+- Tier 3 PASS-state 캐시 (Phase 63): `lib/tier_cache.py` — stat-based hash + 5-min TTL + V06/V09/V10/V11/V12/V21/V37 hard-exclusion
+- Subprocess 결과 캐시 (Phase 61): `lib/subprocess_cache.py` — sha256 keyed + 7-day FIFO + tool version gate
+- 병렬 실행 + sentinel finding + per-validator timeout: `lib/parallel_runner.py` (Phase 36 ThreadPoolExecutor + Phase 62 N2 timeout 해석)
+- Validator registry + lru_cache (Phase 62 N4): `hooks/validators/__init__.py` (`get_all_validators()`, `get_all_validators.cache_clear()` 로 reset)
+- Pre-compiled `file_patterns` (Phase 62 N3): `hooks/validators/base.py` (`_compile_patterns`)

@@ -1,6 +1,6 @@
 # Verifiers — Hook · Validator 종합 카탈로그
 
-> 본 문서는 verifiers 의 **세 단계(Tier 1/2/3) hook 시스템** 과 **19 개 등록 validator + 20 개 Tier 2 skill** 의 동작·목적을 한 곳에 정리합니다. 모든 단정 (validator id, file pattern, 검사 내용, 모드 차이) 은 `hooks/`, `skills/` 소스에서 직접 추출한 것입니다.
+> 본 문서는 verifiers 의 **세 단계(Tier 1/2/3) hook 시스템** 과 **49 개 등록 validator (V01~V58, V17/V24/V55 미사용) + 20+ Tier 2 skill** 의 동작·목적을 한 곳에 정리합니다. 모든 단정 (validator id, file pattern, 검사 내용, 모드 차이) 은 `hooks/`, `skills/` 소스에서 직접 추출한 것입니다.
 
 ---
 
@@ -10,7 +10,7 @@
 | :--: | ----------- | ------ | -------------- | --------- |
 | **1** | `PostToolUse` | `hooks/security_hook.py` | `Edit \| Write \| MultiEdit` · timeout 10s · <100ms | regex 기반 시크릿(V08) 즉시 차단 — 가장 가벼운 첫 줄 방어 |
 | **2** | (hook 미등록) | `hooks/router.py` + `skills/verify-*` (20개) | Claude 가 자율 판단해 skill 호출 / 사용자가 `/verify` 실행 / `just verify-one V##` | file_path 매칭 validator 만 골라 실행 — 상황별 비용 통제 |
-| **3** | `Stop` | `hooks/stop_validator.py` | turn 종료 시도 시 단일 발동 · timeout 120s | 등록된 20개 validator (V01~V21, V17 미구현) 일괄 실행 · circuit breaker x3 · FeedbackTracker |
+| **3** | `Stop` | `hooks/stop_validator.py` | turn 종료 시도 시 단일 발동 · timeout 120s | 등록된 49개 validator (V01~V58, V17/V24/V55 미사용) 일괄 실행 · Phase 63 PASS-state 캐시 · circuit breaker x3 · FeedbackTracker |
 
 ```
 PostToolUse (Edit/Write/MultiEdit)
@@ -26,8 +26,11 @@ PostToolUse (Edit/Write/MultiEdit)
 
 Stop 이벤트 (Claude turn 종료 시도)
    └─> Tier 3: stop_validator.py
-         · get_all_validators() 19개 일괄 실행 (mode="stop")
+         · get_all_validators() 49개 일괄 실행 (mode="stop", Phase 62 lru_cache)
+         · Phase 63 PASS-state 캐시 lookup → 입력 변경 없는 cacheable validator skip
+         · ThreadPoolExecutor(max_workers=min(8, len(validators))) 로 병렬 실행 (Phase 36)
          · errors 있음 → block + reason → Claude 다시 수정
+         · zero-finding 인 cacheable validator → record_pass (5-min TTL)
          · stop_hook_active && block 누적 ≥ 3 → 강제 approve (deadlock 방지)
          · FeedbackTracker 가 같은 rule+file 반복 시 메시지 추가
 ```
@@ -95,7 +98,7 @@ Stop 이벤트 (Claude turn 종료 시도)
 
 | #  | Skill                  | 트리거 / 적용 파일                                          | 무엇을 검증                                                                                                  | 연결 V-ID    |
 | -- | ---------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------ |
-| 1  | `verify`               | 전체 검증 활성화 — V01~V20 중 매칭 validator 자동 실행        | router.py 통해 file_path 매칭하는 모든 validator 실행                                                          | V01~V20      |
+| 1  | `verify`               | 전체 검증 활성화 — 49 개 active validator 중 file_path 매칭만 실행 | router.py 통해 file_path 매칭하는 모든 validator 실행                                                          | V01~V58 (V17/V24/V55 미사용) |
 | 2  | `verify-cheating`      | `*_test.*` 수정 시                                          | 테스트 함수 삭제, `t.Skip*`/`@pytest.mark.skip`/`it.skip` 추가, `assert` 카운트 감소, `assertEqual→assertTrue` 약화 | V13          |
 | 3  | `verify-commit`        | Stop mode 전용 — 세션 종료 시                                 | `git status` 미커밋, `git diff --name-status` 로 구조/행동 혼합, 15+ 파일 수정, 소스 변경 vs 테스트 변경 비대칭, Conventional Commits 정규식 | V12          |
 | 4  | `verify-complexity`    | `*.go/py/ts(x)` 수정 시                                      | cyclomatic > 10/20, cognitive > 15/30, function > 80/150 line, nesting > 4, params > 5 (Python 은 AST, Go/TS 휴리스틱) | V14          |
@@ -132,7 +135,7 @@ Stop 이벤트 (Claude turn 종료 시도)
 | matcher             | 없음 (Stop 은 단일 이벤트)                                                                            |
 | 타임아웃            | 120 s                                                                                                 |
 | 의존성              | `pyyaml>=6.0`                                                                                         |
-| 동작                | `get_all_validators()` 가 등록한 19 개 validator 의 `validate(ctx, file_path=None, mode="stop")` 호출 |
+| 동작                | `get_all_validators()` 가 등록한 49 개 validator 의 `run(ctx, file_path=None, mode="stop")` 호출 (Phase 32 에서 `validate()` retire). Phase 62 lru_cache 로 49 개 모듈 import 가 한 번만 발생. |
 | 출력                | `{"decision":"approve"}` 또는 `{"decision":"block","reason":...,"additionalContext":...}`             |
 | 등록 위치           | `scripts/merge_settings.py:42-50` — `TIER3_HOOK`                                                      |
 
@@ -151,9 +154,18 @@ Stop 이벤트 (Claude turn 종료 시도)
 - 같은 rule + 같은 file 이 N 회 반복되면 `format_feedback_message()` 가 "이 패턴이 반복된다 — 근본 원인 점검" 메시지를 추가.
 - `tracker.save_session()` 으로 세션 간 전수 분석 가능.
 
-### 등록된 19 개 validator (validators/__init__.py:33-53 순서대로)
+### 등록된 validator 상세 (`hooks/validators/__init__.py:get_all_validators()` 순서)
 
 > 형식: **V-ID** · 모듈 · file_patterns → 검사 항목 · stop vs post_tool_use 차이 · 목적
+>
+> **범위 안내**: 아래 상세 카탈로그는 Phase 22 (V01~V21) 시점에 작성된 핵심 validator 들입니다. Phase 53–58 에서 추가된 V22~V58 (28 개 추가) 의 자세한 동작은 다음 소스를 직접 참조하세요:
+>
+> - **목록 + 그룹 분류**: `lib/config_loader.py` 의 `BUILTIN_GROUPS` (7 카테고리) + 본 문서 §10 TL;DR.
+> - **각 validator 동작**: `hooks/validators/<module>.py` 의 모듈 docstring + `validate_*` 메서드 docstring.
+> - **추가된 phase 의 의도**: `CHANGELOG.md` 의 Phase 53/54/55/56/57/58 항목 (각 V-ID 의 ship-blocker 근거 + 검사 룰 요약).
+> - **테스트로 본 행동 명세**: `tests/test_<module>.py` (각 V-ID 마다 30+ 단위 테스트로 동작 박제).
+>
+> Phase 60–63 의 변경은 validator 신설이 아니라 인프라 개선 (workflow_loader 추출, parallel_runner 캐시 + timeout 오버라이드, tier_cache PASS-state) — §8 참조.
 
 #### V08 · `security.py` · 모든 파일 (file_patterns 비어있음)
 - **검사**: `V08-HARDCODED-SECRET` (Tier 1 과 동일 패턴 + 폭넓은 추가 셋), `V08-CORS-WILDCARD` (`AllowAllOrigins: true`, `Access-Control-Allow-Origin: *`, `cors.Config{AllowOrigins:["*"]}`), `V08-PHI-LOGGING` (Go `log.Info().Str("email",..)`, JS `console.log(email)` — HIPAA), `V08-NO-GITIGNORE` / `V08-GITIGNORE-MISSING` (`.env`, `*.pem`, `*.key`, `.env.local`, `*.p12` 누락).
@@ -315,10 +327,12 @@ Claude: 다음 도구 호출 또는 답변 작성
 Claude: turn 종료 시도 (Stop 이벤트)
    │
    ├──> [Tier 3] stop_validator.py    (timeout 120s)
-   │       ├─ 19 개 validator 모두 mode=stop 으로 호출
+   │       ├─ Phase 63 tier_cache.lookup_recent_pass → 입력 변경 없으면 skip
+   │       ├─ 49 개 (cacheable 미스 + ineligible) validator 를 ThreadPoolExecutor(8w) 로 병렬 호출 (mode=stop)
+   │       ├─ Phase 63 record_pass — zero-finding cacheable validator 만 5-min TTL 로 박제
    │       ├─ FeedbackTracker.record_all → 반복 위반 검출
    │       ├─ stop_hook_active=true && block?
-   │       │    └─ .verifier-block-count++  (>= 3 이면 강제 approve)
+   │       │    └─ .verifiers/state/verifier-block-count++  (>= 3 이면 강제 approve)
    │       └─ findings + circuit-breaker → approve 또는 block
    │
    ├─ block: turn 안 끝나고 Claude 가 수정 → 다시 Stop 이벤트 → 카운터 +1
@@ -396,24 +410,61 @@ stop_validator (Tier 3) 는 (1)·(2)·(3) 만 순차 적용 후 모든 validator
 
 ---
 
-## 8. Tier 3 parallelism + sentinel findings (Phase 12)
+## 8. Tier 3 parallelism + 다층 캐시 + sentinel findings (Phase 12 / 36 / 61 / 62 / 63)
 
-`hooks/stop_validator.py` 는 19 개 validator 를 `lib/parallel_runner.run_all` 을 통해 **`ProcessPoolExecutor(max_workers=4)`** 로 병렬 실행합니다. 합성 워크로드 측정에서 **2.47× speedup** (`scripts/benchmark_stop.py`).
+`hooks/stop_validator.py` 는 49 개 validator 를 `lib/parallel_runner.run_all` 을 통해 **`ThreadPoolExecutor(max_workers=min(8, len(validators)))`** 로 병렬 실행합니다.
 
-### 8.1 안전망 — Sentinel findings
+**Phase 36 — ProcessPoolExecutor → ThreadPoolExecutor**: 모든 heavy validator 가 `subprocess.run` 으로 child process 를 띄우고 (golangci-lint, ruff, eslint, tsc, pytest 등) 그동안 GIL 을 놓기 때문에, thread 가 process 와 동등한 병렬화를 제공합니다. spawn cost (~200 ms / Stop) + ProjectContext pickling 비용을 제거. `pickle.PicklingError` fallback 분기도 함께 retire.
+
+**Phase 36 — adaptive workers**: `max_workers=min(DEFAULT_MAX_WORKERS=8, len(validators))`. 활성 validator 가 5 개 뿐인 프로젝트에서 8 개 thread 를 spawn 하지 않음.
+
+### 8.1 캐시 stack (입력 변경 없으면 일을 안 함)
+
+세 단계의 캐시가 stack 으로 쌓여 매 Stop 의 비용을 점진적으로 절감합니다:
+
+| Phase | 위치 | 키 | TTL | Storage |
+| ----- | ---- | -- | --- | ------- |
+| **63** Tier 3 PASS-state 캐시 | `lib/tier_cache.py` | `validator.file_patterns` 매칭 파일들의 `sha256(path:size:mtime_ns)` | 5 분 (configurable) | `<cwd>/.verifiers/state/tier-cache/V##.json` |
+| **61** Subprocess 결과 캐시 | `lib/subprocess_cache.py` | sha256 (input files + tool version + cmd args + config files) | 7 일 FIFO (max 32 entries) | `<cwd>/.verifiers/state/subprocess-cache/<label>.json` |
+| **61** V07 native 캐시 | `eslint --cache`, `tsc --incremental` | tool 자체 관리 (eslint: file-level content hash, tsc: tsbuildinfo) | tool 자체 관리 + lockfile gate | `<cwd>/.verifiers/cache/eslint/`, `<cwd>/.verifiers/cache/tsc.tsbuildinfo` |
+
+**중요**: PASS-state 캐시는 **zero-finding** 일 때만 기록. finding 이 있으면 다음 Stop 에서 다시 surface 되어 사용자가 고치기 전까진 캐시되지 않음. Sentinel finding (`V##-CRASHED`, `V##-TIMEOUT`) 도 캐시 제외.
+
+**hard-exclusion 목록** (`TIER_CACHE_INELIGIBLE` in `lib/tier_cache.py`): V06/V09/V10/V11/V12/V21/V37 — test runner + git-state-dependent. 파일 입력만으로 결과가 결정되지 않으므로 영구 제외.
+
+### 8.2 Phase 62 — per-validator timeout 오버라이드
+
+`.verifiers/config.yaml` 의 `timeouts.per_validator[V##]` 로 default 30 s 를 덮어쓸 수 있습니다. `lib/parallel_runner._resolve_timeout` 이 ctx.config.timeouts 에서 V## prefix 매핑을 조회하고 min-1s 로 클램프.
+
+```yaml
+timeouts:
+  default: 30
+  per_validator:
+    V21: 180   # pytest 는 3 분까지
+    V19: 5     # ruff 는 hang 의심 시 즉시 cut
+    V06: 240   # go-quality (Stage 2 = golangci + go test 병렬) 4 분
+```
+
+### 8.3 안전망 — Sentinel findings
 
 | Rule                           | 발생 조건                                            | severity  |
 | ------------------------------ | ---------------------------------------------------- | --------- |
 | `V##-CRASHED`                  | validator 가 던진 예외                                | warning   |
-| `V##-TIMEOUT`                  | per-validator 30 s timeout 초과                       | warning   |
+| `V##-TIMEOUT`                  | per-validator timeout (config 또는 default 30 s) 초과 | warning   |
 | `VERIFIERS-CONFIG-EMPTY-ALLOWLIST` | `validators.enabled` 가 0 개 매칭 (typo, Phase 22) | error     |
 
-핵심 invariant: **silent false-approve 금지**. 어떤 형태의 실패든 finding 으로 surface 되어 사용자가 "검사가 통과했다" 라고 착각할 수 없게 함.
+핵심 invariant: **silent false-approve 금지**. 어떤 형태의 실패든 finding 으로 surface 되어 사용자가 "검사가 통과했다" 라고 착각할 수 없게 함. Phase 36 에서 sentinel 에 `kind="sentinel"` 마킹 → `_apply_exclude_filters` 가 sentinel 은 절대 silence 하지 않음 (`exclude.paths: ["**"]` 같은 설정으로도 우회 불가).
 
-### 8.2 Opt-out
+### 8.4 Opt-out
 
-- `VERIFIERS_PARALLEL=0` env var: sequential fallback. CI 디버깅용.
-- 자동 fallback: `pickle.PicklingError` 또는 pool setup `OSError` 시 sequential 로 자동 전환 (사용자 turn 차단 방지).
+| Env var                       | 효과                                                   |
+| ----------------------------- | ------------------------------------------------------ |
+| `VERIFIERS_PARALLEL=0`        | 병렬 실행 비활성, sequential fallback                   |
+| `VERIFIERS_NO_TIER_CACHE=1`   | Phase 63 PASS-state 캐시 우회 — 모든 validator 매번 실행 |
+| `VERIFIERS_NO_CACHE=1`        | V07 eslint/tsc + V03 buf subprocess 캐시 우회          |
+| `VERIFIERS_DEBUG=1`           | hook 디버그 로그 활성                                   |
+
+ThreadPoolExecutor 로 전환된 후 자동 fallback (pickle / pool-setup 에러) 분기는 retire — thread 는 spawn 도 pickle 도 없음. validator 안에서 던진 예외는 `_run_one_validator` 의 inner sentinel 이 받아서 `V##-CRASHED` 로 변환.
 
 ---
 
@@ -437,18 +488,27 @@ stop_validator (Tier 3) 는 (1)·(2)·(3) 만 순차 적용 후 모든 validator
 
 ---
 
-## 10. 정리 (TL;DR — Phase 22 기준)
+## 10. 정리 (TL;DR — Phase 63 기준)
 
 - **세 Tier 분업**:
   - **Tier 1** (`security_hook.py`, < 100 ms, regex only) — 시크릿 누설 즉시 차단. 항상 자동.
-  - **Tier 2** (`router.py` + 20 개 skill, ≤ 60 s, content-cache + 확장자 prefilter) — 상황별 validator 자동. **Phase 13 부터 hook 자동등록**.
-  - **Tier 3** (`stop_validator.py`, ≤ 120 s, 19 개 validator, ProcessPoolExecutor 4w) — turn 종료 게이트. circuit breaker (3 회 연속 block 시 통과) + FeedbackTracker + sentinel findings.
+  - **Tier 2** (`router.py` + 20+ 개 skill, ≤ 60 s, content-hash 캐시 + 확장자 prefilter) — 상황별 validator 자동. **Phase 13 부터 hook 자동등록**.
+  - **Tier 3** (`stop_validator.py`, ≤ 120 s, 49 개 validator, ThreadPoolExecutor max_workers=8 + Phase 63 PASS-state 캐시) — turn 종료 게이트. circuit breaker (3 회 연속 block 시 통과) + FeedbackTracker + sentinel findings.
 - **3 hook 등록 위치**: `scripts/merge_settings.py` 가 글로벌/프로젝트 양쪽의 `settings.json` 에 Tier 1+2+3 모두 등록.
-- **검사 분류** (V01–V20, V17 미구현):
-  - 보안: V01 (config 시크릿), V08 (전체 시크릿/CORS/PHI/.gitignore) — Tier 1 도 같은 라인.
-  - 코드 품질: V06 (Go), V07 (TS), V19 (Python), V14 (복잡도), V15 (의존 방향), V16 (린터 설정).
-  - 테스트 무결성: V09/V10/V11 (언어별 테스트 러너), V13 (AI 치팅 방지).
-  - 인프라/스키마: V05 (Docker), V04 (Hasura migration), V02 (genqlient), V03 (proto/Connect), V20 (Hasura GraphQL enforcement).
-  - 운영 위생: V12 (commit), V18 (mock data).
-- **Configuration**: 21+ knob via `.verifiers/config.yaml`. Hard-fail on `validators.enabled` typo. 자세히는 [`/docs/CONFIGURATION.md`](CONFIGURATION.md).
-- **테스트 안전망**: 1005+ tests, Tier 3 dogfood CI, PEP 723 inline-deps drift gate, classical-school test 강제 (CONTRIBUTING).
+- **검사 분류** (49 active validators, 7 BUILTIN_GROUPS — `disabled_groups` 로 그룹 단위 disable):
+  - **code-quality** (9): V06 Go, V07 TS, V14 복잡도, V19 Python ruff, V34 Go err 래핑, V35 ctx 전파, V36 HTTP 하드닝, V38 golangci 엄격, V39 컨텍스트 로거
+  - **test-execution** (5): V09 Go test, V10 TS test, V11 Python test, V21 pytest, V37 race + coverage
+  - **env-config** (2): V01 env 시크릿, V22 multi-env 일관성
+  - **docker** (6): V05, V25, V26, V44, V45, V58
+  - **api-rpc-data** (12): V02, V03, V04, V20, V23, V27, V46, V47, V48, V49, V50, V56
+  - **security** (7): V08, V18, V40, V41, V42, V43, V57
+  - **process** (8): V12, V13, V15, V16, V51, V52, V53, V54
+  - 미사용 V-ID: V17 (UI 미구현), V24 (결번), V55 (사용자 결정으로 컷)
+- **다층 캐시 (Phase 61–63)**:
+  - **Phase 63** Tier 3 PASS-state 캐시 (`lib/tier_cache.py`) — 입력 변경 없으면 validator skip (5-min TTL). V06/V09/V10/V11/V12/V21/V37 영구 제외.
+  - **Phase 61** Subprocess 결과 캐시 (`lib/subprocess_cache.py`) — V03 buf-lint 등 (7-day FIFO).
+  - **Phase 61** Native 캐시 — V07 eslint `--cache` + tsc `--incremental` (TS 5.0+).
+  - Escape: `VERIFIERS_NO_TIER_CACHE=1`, `VERIFIERS_NO_CACHE=1`.
+- **Phase 62 4-pack 최적화**: adaptive workers + per-validator timeouts (`timeouts.per_validator`) + pre-compiled `file_patterns` (`@functools.lru_cache(maxsize=128)`) + lazy validator import cache (`get_all_validators` lru_cache).
+- **Configuration**: 25+ knob via `.verifiers/config.yaml` (thresholds / exclude / validators / security / docker / stop / timeouts / tier_cache / groups). Hard-fail on `validators.enabled` typo. 자세히는 [`/docs/CONFIGURATION.md`](CONFIGURATION.md).
+- **테스트 안전망**: 1,482 tests, Tier 3 dogfood CI, PEP 723 inline-deps drift gate, classical-school test 강제 (CONTRIBUTING).
