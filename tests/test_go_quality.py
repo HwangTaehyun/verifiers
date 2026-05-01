@@ -521,19 +521,40 @@ class TestValidateIntegration:
         assert ["gofmt", "-l", "main.go"] in called_cmds
         assert ["go", "build", "./..."] in called_cmds
 
-    def test_stop_mode_runs_all_checks(
+    def test_stop_mode_runs_all_checks_with_golangci(
         self, validator: GoQualityValidator, tmp_project: Path, project_ctx: ProjectContext
     ) -> None:
-        """stop mode should also call golangci-lint and go test."""
+        """stop mode with golangci-lint present: build (solo) + lint + test in parallel = 3 calls."""
         mock_result = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-        with patch("subprocess.run", return_value=mock_result) as mock_run:
+        with (
+            patch("subprocess.run", return_value=mock_result) as mock_run,
+            patch.object(validator, "_has_golangci_lint", return_value=True),
+        ):
             result = validator.run(project_ctx, file_path="main.go", mode="stop")
 
         assert isinstance(result, ValidationResult)
-        # Phase29+: stop mode dispatches to validate_project only — the
-        # file-specific gofmt is skipped because Tier 3 is project-wide.
-        # validate_project calls: go vet, go build, golangci-lint, go test (4 calls).
-        assert mock_run.call_count == 4
+        # Option C: go build (Stage 1) + golangci-lint + go test (Stage 2 parallel) = 3 calls.
+        assert mock_run.call_count == 3
+        called_cmds = [call[0][0] for call in mock_run.call_args_list]
+        assert ["go", "build", "./..."] in called_cmds
+
+    def test_stop_mode_runs_all_checks_without_golangci(
+        self, validator: GoQualityValidator, tmp_project: Path, project_ctx: ProjectContext
+    ) -> None:
+        """stop mode without golangci-lint: legacy sequential go vet + build + test = 3 calls."""
+        mock_result = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        with (
+            patch("subprocess.run", return_value=mock_result) as mock_run,
+            patch.object(validator, "_has_golangci_lint", return_value=False),
+        ):
+            result = validator.run(project_ctx, file_path="main.go", mode="stop")
+
+        assert isinstance(result, ValidationResult)
+        # Fallback: go vet + go build + go test = 3 calls (golangci-lint skipped).
+        assert mock_run.call_count == 3
+        called_cmds = [call[0][0] for call in mock_run.call_args_list]
+        assert ["go", "vet", "./..."] in called_cmds
+        assert ["go", "build", "./..."] in called_cmds
 
     def test_non_go_file_skips_gofmt(
         self, validator: GoQualityValidator, tmp_project: Path, project_ctx: ProjectContext

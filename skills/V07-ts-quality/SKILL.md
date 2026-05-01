@@ -31,6 +31,36 @@ V07 packages all four into hook checks so the user doesn't have to remember whic
 
 ## Design rationale
 
+### Cache strategy
+
+V07 uses two tool-native cache mechanisms to speed up repeated runs:
+
+**ESLint — `--cache --cache-strategy content --cache-location .verifiers/cache/eslint/`**
+
+Applied in both `_check_eslint_single` (Tier 2) and `_check_eslint_full` (Tier 3). ESLint writes per-file cache entries inside `.verifiers/cache/eslint/`. `--cache-strategy content` uses SHA-based invalidation instead of mtime, which is more reliable on CI and across checkouts.
+
+A lock-file gate (`_invalidate_eslint_cache_if_lock_changed`) computes a SHA-256 of `web/bun.lockb` (falling back to `package-lock.json` / `yarn.lock`) and stores it in `.verifiers/cache/eslint/.lock-hash`. If the lock hash changes (e.g. after `bun add`), the entire cache directory is deleted before ESLint runs, guarding against "plugin upgraded but cache still says PASS".
+
+**TypeScript — `--incremental --tsBuildInfoFile .verifiers/cache/tsc.tsbuildinfo`**
+
+Applied in `_check_tsc` (Tier 3 only). TypeScript writes a single `.tsbuildinfo` JSON file that tracks per-file type state. Only enabled when TypeScript ≥ 5.0 is detected (`_supports_incremental`), because TS 4.x had known bugs with `noEmit + incremental` combined.
+
+**Cache paths**
+
+| Tool | Path |
+|---|---|
+| ESLint cache dir | `<project_root>/.verifiers/cache/eslint/` |
+| ESLint lock hash | `<project_root>/.verifiers/cache/eslint/.lock-hash` |
+| TypeScript build info | `<project_root>/.verifiers/cache/tsc.tsbuildinfo` |
+
+**Escape hatch — `VERIFIERS_NO_CACHE=1`**
+
+Set this env var to disable all cache flags for both ESLint and tsc. Useful for CI jobs that must verify from a clean state or when debugging stale-cache issues:
+
+```bash
+VERIFIERS_NO_CACHE=1 python hooks/validators/ts_quality.py
+```
+
 - **`any` warning, not error.** Sometimes `any` is the right escape hatch (e.g. third-party lib without types). The warning surfaces it for review without blocking.
 - **Hardcoded color regex is style-attribute-only.** A regex that flagged `const RED = "#f00"` would explode with false positives. V07 only flags when the literal is in a `style={{...}}` JSX prop or `style.color =` assignment.
 - **`console.log` exempt for test / Storybook.** Files matching `*.test.ts(x)`, `*.spec.ts(x)`, `*.stories.tsx`, `__tests__/` are skipped — those are the legitimate use cases.

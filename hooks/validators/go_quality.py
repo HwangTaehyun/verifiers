@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output
+from lib.json_logger import log_exception
 from lib.project_context import ProjectContext
 
 
@@ -52,15 +54,50 @@ class GoQualityValidator(BaseValidator):
         return findings
 
     def validate_project(self, ctx: ProjectContext) -> list[Finding]:
-        """Phase29+ API: project-wide Go vet + build + golangci-lint + tests (Tier 3)."""
+        """Phase29+ API: project-wide Go build + golangci-lint + tests (Tier 3).
+
+        Option C parallelization: when golangci-lint is available it subsumes
+        go vet + gofmt, so Stage 1 runs go build alone (sequential, writes
+        $GOCACHE), then Stage 2 runs golangci-lint and go test in parallel via
+        ThreadPoolExecutor(max_workers=2).
+
+        Fallback: when golangci-lint is absent the legacy sequential path runs
+        go vet → go build → go test.
+        """
         if not self._has_go_project(ctx):
             return []
+
         findings: list[Finding] = []
-        findings.extend(self._check_go_vet(ctx))
-        findings.extend(self._check_go_build(ctx))
-        findings.extend(self._check_golangci_lint(ctx))
-        findings.extend(self._check_go_test(ctx))
+        has_golangci = self._has_golangci_lint()
+
+        if has_golangci:
+            # Stage 1: build (sequential — writes $GOCACHE, must finish first)
+            findings.extend(self._check_go_build(ctx))
+
+            # Stage 2: golangci-lint + go test in parallel
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            with ThreadPoolExecutor(max_workers=2) as ex:
+                futures = {
+                    ex.submit(self._check_golangci_lint, ctx): "golangci-lint",
+                    ex.submit(self._check_go_test, ctx): "go test",
+                }
+                for future in as_completed(futures):
+                    try:
+                        findings.extend(future.result())
+                    except Exception as exc:  # noqa: BLE001
+                        log_exception(source=f"V06/{futures[future]}", error=exc, context={})
+        else:
+            # Fallback: legacy sequential (govet + build + test; gofmt is per-file in Tier 2)
+            findings.extend(self._check_go_vet(ctx))
+            findings.extend(self._check_go_build(ctx))
+            findings.extend(self._check_go_test(ctx))
+
         return findings
+
+    def _has_golangci_lint(self) -> bool:
+        """Return True when golangci-lint is available on PATH."""
+        return shutil.which("golangci-lint") is not None
 
     def _has_go_project(self, ctx: ProjectContext) -> bool:
         if not ctx.server_dir or not ctx.server_dir.exists():

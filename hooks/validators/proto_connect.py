@@ -71,18 +71,35 @@ class ProtoConnectValidator(BaseValidator):
     # ── Check 1: buf lint ────────────────────────────────────────────────
 
     def _check_buf_lint(self, ctx: ProjectContext) -> list[Finding]:
-        """Run buf lint on proto files."""
+        """Run buf lint on proto files.
+
+        Phase61.C: wrapped with lib.subprocess_cache.cached_run since
+        ``buf`` has no native cache. Hash key = .proto contents +
+        buf.yaml + buf version. 7-day mtime FIFO cleanup.
+        """
         findings: list[Finding] = []
 
-        if not ctx.server_dir:
+        if not ctx.server_dir or not ctx.proto_dir:
             return findings
 
+        # Collect input files for cache key.
+        proto_files = list(ctx.proto_dir.rglob("*.proto"))
+        if not proto_files:
+            return findings
+        config_files = [p for p in (ctx.server_dir / "buf.yaml", ctx.server_dir / "buf.gen.yaml") if p.is_file()]
+
         try:
-            result = subprocess.run(
-                ["buf", "lint"],
-                cwd=str(ctx.server_dir),
-                capture_output=True,
-                text=True,
+            from lib.subprocess_cache import cached_run, detect_tool_version
+
+            buf_version = detect_tool_version(["buf", "--version"], cwd=ctx.server_dir)
+            result = cached_run(
+                project_root=ctx.project_root,
+                label="V03-buf-lint",
+                cmd=["buf", "lint"],
+                cwd=ctx.server_dir,
+                input_files=proto_files,
+                tool_version=buf_version,
+                config_files=config_files,
                 timeout=30,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired):

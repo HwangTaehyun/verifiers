@@ -33,6 +33,28 @@ V06's two-tier split is essential — running golangci-lint on every Edit would 
 - **`golangci-lint` rule name preserved (`V06-LINT-errcheck`).** This way users can disable specific noisy linters via `validators.disabled: ["V06-LINT-godox"]` without disabling all of V06.
 - **`go test -race -count=1`** explicitly. `-race` catches concurrent-access bugs (which Go's runtime hides without it). `-count=1` defeats Go's test cache so results are reproducible. Without these, the test gate is theater.
 
+## Performance (Option C parallelization)
+
+`validate_project` (Tier 3) uses a 2-stage execution model when `golangci-lint` is available on PATH:
+
+```
+Stage 1 (sequential)          Stage 2 (parallel, max_workers=2)
+─────────────────────         ──────────────────────────────────
+go build ./...        ──────► golangci-lint run --out-format json
+                              go test -race -count=1 ./...
+```
+
+- **Stage 1 is sequential** because `go build` writes to `$GOCACHE`; running lint and test before the cache is warm wastes CPU and can cause flaky race conditions.
+- **Stage 2 is parallel** because `golangci-lint` and `go test` are read-only and independent; running them concurrently reduces wall-clock time from ~(lint_time + test_time) to ~max(lint_time, test_time).
+- **`go vet` and `gofmt` are skipped in Tier 3 when golangci-lint is present** — golangci-lint integrates `govet` and `gofmt` by default, so calling them separately produces redundant work and duplicate findings. When golangci-lint is present, vet/fmt findings appear as `V06-LINT-govet` / `V06-LINT-gofmt` instead of `V06-GO-VET` / `V06-GOFMT`.
+- **Fallback (golangci-lint absent)**: legacy sequential path — `go vet` → `go build` → `go test` (3 calls, no parallelism). Same behavior as pre-Option-C.
+
+Detection: `shutil.which("golangci-lint")` at runtime. No config required.
+
+Worst-case timing improvement (60 s lint + 120 s test):
+- Before: ~370 s (vet 30 + fmt 10 + build 60 + lint 90 + test 180)
+- After: ~240 s (build 60 + max(lint 90, test 180))
+
 ## How it checks (implementation)
 
 Lives in `hooks/validators/go_quality.py`. Tier 2 entry runs `_has_go_project` short-circuit (no `.go` / `go.mod` → bail) then 3 cheap checks; Tier 3 runs the same plus 2 expensive ones.

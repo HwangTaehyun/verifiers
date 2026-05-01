@@ -20,8 +20,11 @@ Stop checks (slow, comprehensive):
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -208,25 +211,87 @@ class TsQualityValidator(BaseValidator):
 
         return findings
 
+    # ── Cache helpers ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _cache_disabled() -> bool:
+        return os.environ.get("VERIFIERS_NO_CACHE", "0") == "1"
+
+    def _invalidate_eslint_cache_if_lock_changed(self, ctx: ProjectContext) -> Path:
+        """Return cache dir path, deleting it first if package lockfile changed."""
+        cache_dir = Path(ctx.project_root) / ".verifiers" / "cache" / "eslint"
+        lock_hash_file = cache_dir / ".lock-hash"
+
+        web_dir = ctx.web_dir if ctx.web_dir else (Path(ctx.project_root) / "web")
+        lock_candidates = [
+            web_dir / "bun.lockb",
+            web_dir / "package-lock.json",
+            web_dir / "yarn.lock",
+        ]
+
+        current_hash = ""
+        for lock in lock_candidates:
+            if lock.is_file():
+                current_hash = hashlib.sha256(lock.read_bytes()).hexdigest()
+                break
+
+        if cache_dir.exists() and lock_hash_file.is_file():
+            stored = lock_hash_file.read_text(errors="replace").strip()
+            if stored != current_hash:
+                shutil.rmtree(cache_dir, ignore_errors=True)
+
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        lock_hash_file.write_text(current_hash)
+        return cache_dir
+
+    def _supports_incremental(self, ctx: ProjectContext) -> bool:
+        """Check if TypeScript >= 5.0 (incremental + noEmit safe)."""
+        web_dir = ctx.web_dir if ctx.web_dir else (Path(ctx.project_root) / "web")
+        try:
+            result = subprocess.run(
+                ["bun", "run", "tsc", "--version"],
+                cwd=str(web_dir),
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            m = re.search(r"Version (\d+)\.", result.stdout)
+            if m and int(m.group(1)) >= 5:
+                return True
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        return False
+
     # ── Check 5: ESLint single file ──────────────────────────────────────
 
     def _check_eslint_single(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
         """Run ESLint on a single file."""
         findings: list[Finding] = []
 
+        cmd = [
+            "bun",
+            "run",
+            "eslint",
+            "--no-warn-ignored",
+            "--max-warnings",
+            "0",
+            "--format",
+            "json",
+        ]
+        if not self._cache_disabled():
+            cache_dir = self._invalidate_eslint_cache_if_lock_changed(ctx)
+            cmd += [
+                "--cache",
+                "--cache-strategy",
+                "content",
+                "--cache-location",
+                str(cache_dir) + "/",
+            ]
+        cmd.append(file_path)
+
         try:
             result = subprocess.run(
-                [
-                    "bun",
-                    "run",
-                    "eslint",
-                    "--no-warn-ignored",
-                    "--max-warnings",
-                    "0",
-                    "--format",
-                    "json",
-                    file_path,
-                ],
+                cmd,
                 cwd=str(ctx.web_dir),
                 capture_output=True,
                 text=True,
@@ -266,9 +331,15 @@ class TsQualityValidator(BaseValidator):
         """Full TypeScript type checking."""
         findings: list[Finding] = []
 
+        cmd = ["bun", "run", "tsc", "--noEmit", "--pretty"]
+        if not self._cache_disabled() and self._supports_incremental(ctx):
+            buildinfo = Path(ctx.project_root) / ".verifiers" / "cache" / "tsc.tsbuildinfo"
+            buildinfo.parent.mkdir(parents=True, exist_ok=True)
+            cmd += ["--incremental", "--tsBuildInfoFile", str(buildinfo)]
+
         try:
             result = subprocess.run(
-                ["bun", "run", "tsc", "--noEmit", "--pretty"],
+                cmd,
                 cwd=str(ctx.web_dir),
                 capture_output=True,
                 text=True,
@@ -300,19 +371,30 @@ class TsQualityValidator(BaseValidator):
         """Run ESLint on entire project."""
         findings: list[Finding] = []
 
+        cmd = [
+            "bun",
+            "run",
+            "eslint",
+            "--no-warn-ignored",
+            "--max-warnings",
+            "0",
+            "--format",
+            "json",
+        ]
+        if not self._cache_disabled():
+            cache_dir = self._invalidate_eslint_cache_if_lock_changed(ctx)
+            cmd += [
+                "--cache",
+                "--cache-strategy",
+                "content",
+                "--cache-location",
+                str(cache_dir) + "/",
+            ]
+        cmd.append("src/")
+
         try:
             result = subprocess.run(
-                [
-                    "bun",
-                    "run",
-                    "eslint",
-                    "--no-warn-ignored",
-                    "--max-warnings",
-                    "0",
-                    "--format",
-                    "json",
-                    "src/",
-                ],
+                cmd,
                 cwd=str(ctx.web_dir),
                 capture_output=True,
                 text=True,

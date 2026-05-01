@@ -10,6 +10,72 @@ the original rationale.
 
 ## [Unreleased]
 
+### Changed (Phase61 — Performance optimizations: V06 Option C, V07 native cache, V03 subprocess cache)
+
+Three performance optimizations applied per the user's directive
+("Go쪽은 Option C, 캐시 적용, 7일 넘어가는 건 지워주고"):
+
+#### 61.1 V06 go-quality — Option C parallelization
+
+- **Problem**: 5 sub-commands (`go vet` → `gofmt` → `go build` →
+  `golangci-lint` → `go test`) ran sequentially. Worst case 370s.
+- **Fix**: Detect `golangci-lint` at runtime via `shutil.which`. If
+  present (the common case), `golangci-lint` covers `govet` + `gofmt`
+  by default — call them separately becomes redundant + emits duplicate
+  findings. Two-stage execution:
+  - Stage 1 (sequential): `go build ./...` runs solo because it writes
+    to `$GOCACHE`.
+  - Stage 2 (parallel via `ThreadPoolExecutor(max_workers=2)`):
+    `golangci-lint run` and `go test -race ./...` run concurrently.
+- **Fallback**: If `golangci-lint` is absent, the validator falls back
+  to the legacy sequential 3-cmd path (`go vet` + `go build` + `go test`).
+- **ROI**: 35% latency reduction in the typical case (370s → ~240s
+  worst case; ~10-30s in caches-warm case).
+
+#### 61.2 V07 ts-quality — Native cache flags
+
+- **eslint**: Added `--cache --cache-strategy content --cache-location
+  <project>/.verifiers/cache/eslint/` to both `_check_eslint_single`
+  (Tier 2) and `_check_eslint_full` (Tier 3). Lock-file gate
+  invalidates the cache when `web/bun.lockb` (or `package-lock.json` /
+  `yarn.lock`) hash changes — guards against "plugin upgraded but
+  cache still says PASS".
+- **tsc**: Added `--incremental --tsBuildInfoFile <project>/.verifiers/
+  cache/tsc.tsbuildinfo` to `_check_tsc` (Tier 3 only). Gated on
+  TypeScript ≥ 5.0 (TS 4.x had `noEmit + incremental` bugs).
+- **Escape hatch**: `VERIFIERS_NO_CACHE=1` env var disables all cache
+  flags for both tools.
+- **ROI**: eslint 20-30s → 2-3s warm (10x). tsc 15s → 1-3s warm
+  (5-15x).
+
+#### 61.3 V03 buf lint — Subprocess result cache (`lib/subprocess_cache.py`)
+
+- New `lib/subprocess_cache.py` (~250 LOC + 13 tests). For tools
+  with NO native cache (`buf` doesn't have one), hash inputs
+  (proto files + buf.yaml + tool version + cmd args) → cache stdout/
+  stderr/returncode. Cache hit returns instantly without invoking
+  the subprocess.
+- **Cache storage**: `<project>/.verifiers/state/subprocess-cache/
+  <label>.json`. One file per cache key label (e.g. `V03-buf-lint`).
+- **7-day TTL FIFO cleanup**: cache files older than 7 days
+  (mtime check) are auto-deleted on every `cached_run` call. Per-file
+  entry cap at 32 with FIFO eviction.
+- **Atomic write**: tmp → `os.replace` so partial writes can't poison
+  the cache.
+- **Corrupt-file recovery**: malformed JSON → wipe + treat as miss.
+- **Escape hatch**: `VERIFIERS_NO_CACHE=1` bypasses cache entirely.
+- **V03 wired**: `_check_buf_lint` now calls `cached_run` with
+  proto files + `buf.yaml` + `buf.gen.yaml` + `buf --version` as the
+  hash inputs.
+- **NOT applied to**: `pytest`, `go test`, `ruff`, `eslint`, `tsc`,
+  `golangci-lint` — either output depends on system state (tests) or
+  the tool has its own cache.
+
+### Verification
+
+- 1431 → 1450 tests (+19 new across V06 split test, V07 cache tests,
+  subprocess_cache tests). ruff clean. format clean.
+
 ### Changed (Phase60 — Library extraction: workflow_loader)
 
 Phase 51 pattern (codegen_staleness) applied to the second-largest

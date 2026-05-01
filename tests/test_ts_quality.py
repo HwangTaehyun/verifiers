@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -507,3 +509,126 @@ class TestViteEnvTyped:
         )
         findings = validator._check_vite_env_typed(project_ctx)
         assert findings == []
+
+
+# ---------------------------------------------------------------------------
+# 9. Cache flags — ESLint cache dir, lock invalidation, tsc incremental
+# ---------------------------------------------------------------------------
+
+
+class TestCacheFlags:
+    """Test tool-native cache flags for eslint and tsc."""
+
+    def test_eslint_cache_dir_created(
+        self, validator: TsQualityValidator, tmp_project: Path, project_ctx: ProjectContext
+    ) -> None:
+        """After Tier 2 eslint invocation, the cache dir should exist."""
+        cache_dir = tmp_project / ".verifiers" / "cache" / "eslint"
+        assert not cache_dir.exists()
+
+        with patch("subprocess.run", side_effect=FileNotFoundError):
+            validator._check_eslint_single(project_ctx, str(tmp_project / "web/src/app.ts"))
+
+        assert cache_dir.exists()
+
+    def test_eslint_lock_hash_invalidates_cache(
+        self, validator: TsQualityValidator, tmp_project: Path, project_ctx: ProjectContext
+    ) -> None:
+        """Changing bun.lockb causes the eslint cache dir to be wiped."""
+        web_dir = tmp_project / "web"
+        lock_file = web_dir / "bun.lockb"
+        lock_file.write_bytes(b"initial-lock-content")
+
+        # First call — populates cache and stores hash
+        cache_dir = validator._invalidate_eslint_cache_if_lock_changed(project_ctx)
+        # Plant a sentinel file inside cache to verify it gets wiped
+        sentinel = cache_dir / "some-cached-file.json"
+        sentinel.write_text("{}")
+        assert sentinel.exists()
+
+        # Mutate the lockfile
+        lock_file.write_bytes(b"updated-lock-content")
+
+        # Second call — hash differs, cache should be wiped
+        validator._invalidate_eslint_cache_if_lock_changed(project_ctx)
+        assert not sentinel.exists()
+        assert cache_dir.exists()  # re-created after wipe
+
+    def test_tsc_incremental_flag_present_when_ts5(
+        self, validator: TsQualityValidator, tmp_project: Path, project_ctx: ProjectContext
+    ) -> None:
+        """When TypeScript >= 5 is detected, --incremental and --tsBuildInfoFile are added."""
+        ts5_version_output = MagicMock()
+        ts5_version_output.stdout = "Version 5.5.3\n"
+        ts5_version_output.returncode = 0
+
+        tsc_result = MagicMock()
+        tsc_result.returncode = 0
+        tsc_result.stdout = ""
+
+        call_args_list: list = []
+
+        def fake_run(cmd, **kwargs):
+            call_args_list.append(cmd)
+            if "--version" in cmd:
+                return ts5_version_output
+            return tsc_result
+
+        with patch("subprocess.run", side_effect=fake_run):
+            validator._check_tsc(project_ctx)
+
+        tsc_calls = [c for c in call_args_list if "tsc" in c and "--version" not in c]
+        assert tsc_calls, "Expected a tsc --noEmit call"
+        tsc_cmd = tsc_calls[0]
+        assert "--incremental" in tsc_cmd
+        assert "--tsBuildInfoFile" in tsc_cmd
+
+    def test_tsc_incremental_skipped_when_ts4(
+        self, validator: TsQualityValidator, tmp_project: Path, project_ctx: ProjectContext
+    ) -> None:
+        """When TypeScript < 5 is detected, --incremental is NOT added."""
+        ts4_version_output = MagicMock()
+        ts4_version_output.stdout = "Version 4.9.5\n"
+        ts4_version_output.returncode = 0
+
+        tsc_result = MagicMock()
+        tsc_result.returncode = 0
+        tsc_result.stdout = ""
+
+        call_args_list: list = []
+
+        def fake_run(cmd, **kwargs):
+            call_args_list.append(cmd)
+            if "--version" in cmd:
+                return ts4_version_output
+            return tsc_result
+
+        with patch("subprocess.run", side_effect=fake_run):
+            validator._check_tsc(project_ctx)
+
+        tsc_calls = [c for c in call_args_list if "tsc" in c and "--version" not in c]
+        assert tsc_calls, "Expected a tsc --noEmit call"
+        tsc_cmd = tsc_calls[0]
+        assert "--incremental" not in tsc_cmd
+        assert "--tsBuildInfoFile" not in tsc_cmd
+
+    def test_verifiers_no_cache_env_disables_flags(
+        self, validator: TsQualityValidator, tmp_project: Path, project_ctx: ProjectContext
+    ) -> None:
+        """VERIFIERS_NO_CACHE=1 prevents --cache and --incremental flags."""
+        call_args_list: list = []
+
+        def fake_run(cmd, **kwargs):
+            call_args_list.append(list(cmd))
+            raise FileNotFoundError
+
+        with patch.dict(os.environ, {"VERIFIERS_NO_CACHE": "1"}):
+            with patch("subprocess.run", side_effect=fake_run):
+                validator._check_eslint_single(project_ctx, str(tmp_project / "web/src/app.ts"))
+
+        eslint_calls = [c for c in call_args_list if "eslint" in c]
+        assert eslint_calls, "Expected an eslint call"
+        eslint_cmd = eslint_calls[0]
+        assert "--cache" not in eslint_cmd
+        assert "--cache-strategy" not in eslint_cmd
+        assert "--cache-location" not in eslint_cmd
