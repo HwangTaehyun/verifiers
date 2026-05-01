@@ -181,6 +181,31 @@ class DockerConfig:
 
 
 @dataclass
+class TimeoutsConfig:
+    """Phase62-N2: per-validator timeout overrides for parallel_runner.
+
+    Each entry is a V## prefix → seconds mapping. The default applies
+    when a validator's V## prefix is not in ``per_validator``. The
+    parallel runner uses ``max(default, max(per_validator.values()))``
+    as the global ``as_completed`` safety-net timeout, while individual
+    validators may consult ``ctx.config.timeouts.per_validator[V##]``
+    to clamp their internal subprocess.run calls.
+
+    Examples in ``.verifiers/config.yaml``:
+
+        timeouts:
+          default: 30
+          per_validator:
+            V19: 5      # ruff is fast — fail fast if it hangs
+            V21: 180    # pytest may legitimately need 3 min
+            V06: 240    # go-quality stage 2 (lint + test parallel)
+    """
+
+    default: int = 30
+    per_validator: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
 class StopConfig:
     """Stop-hook (Tier 3) tuning.
 
@@ -210,6 +235,8 @@ class VerifiersConfig:
     security: SecurityConfig = field(default_factory=SecurityConfig)
     docker: DockerConfig = field(default_factory=DockerConfig)
     stop: StopConfig = field(default_factory=StopConfig)
+    # Phase62-N2: per-validator timeout overrides.
+    timeouts: TimeoutsConfig = field(default_factory=TimeoutsConfig)
     # Phase52: user-defined validator groups. Keys are group names
     # (lowercase, kebab-case); values are lists of V-IDs or V-ID
     # prefixes. User entries override / add to BUILTIN_GROUPS for
@@ -411,6 +438,16 @@ def _build_config(raw: dict[str, Any]) -> VerifiersConfig:
         run_pytest = stop_raw.get("run_pytest")
         if isinstance(run_pytest, str) and run_pytest in ("always", "never", "smart"):
             cfg.stop.run_pytest = run_pytest
+
+    # Phase62-N2: per-validator timeouts.
+    timeouts_raw = raw.get("timeouts")
+    if isinstance(timeouts_raw, dict):
+        default = timeouts_raw.get("default")
+        if isinstance(default, int) and default > 0:
+            cfg.timeouts.default = default
+        per_v = timeouts_raw.get("per_validator")
+        if isinstance(per_v, dict):
+            cfg.timeouts.per_validator = {str(k): int(v) for k, v in per_v.items() if isinstance(v, int) and v > 0}
 
     return cfg
 

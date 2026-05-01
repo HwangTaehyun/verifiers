@@ -129,6 +129,22 @@ def _run_sequential(
     return findings
 
 
+def _resolve_timeout(validator_id: str, ctx: "ProjectContext", default: int) -> int:
+    """Phase62-N2: pick per-validator timeout from ctx.config.timeouts.
+
+    Falls back to the runner default when no override is configured.
+    Validator id `V19-py-quality` → prefix `V19` lookup. Bound to a
+    minimum of 1 second to avoid 0-second timeouts that would always
+    fire.
+    """
+    try:
+        timeouts = ctx.config.timeouts
+    except AttributeError:
+        return default
+    prefix = _vid_prefix(validator_id)
+    return max(1, timeouts.per_validator.get(prefix, timeouts.default or default))
+
+
 def run_all(
     validators: "list[BaseValidator]",
     ctx: "ProjectContext",
@@ -169,15 +185,17 @@ def run_all(
         futures = {pool.submit(_run_one_validator, v, ctx, mode): v for v in validators}
         for future in as_completed(futures, timeout=None):
             validator = futures[future]
+            # Phase62-N2: pick per-validator timeout from config.
+            v_timeout = _resolve_timeout(validator.id, ctx, per_validator_timeout)
             try:
-                result = future.result(timeout=per_validator_timeout)
+                result = future.result(timeout=v_timeout)
                 findings.extend(result.findings)
             except TimeoutError:
                 log_exception(
                     source=f"parallel_runner/{validator.id}",
-                    error=TimeoutError(f"per-validator {per_validator_timeout}s budget exceeded"),
+                    error=TimeoutError(f"per-validator {v_timeout}s budget exceeded"),
                     context={"mode": mode},
                 )
-                findings.append(_timeout_finding(validator.id, project_root, per_validator_timeout))
+                findings.append(_timeout_finding(validator.id, project_root, v_timeout))
                 future.cancel()
     return findings

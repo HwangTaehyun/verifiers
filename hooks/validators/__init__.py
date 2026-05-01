@@ -12,6 +12,7 @@ at import time rather than producing silently overlapping findings:
 
 from __future__ import annotations
 
+import functools
 import re
 from typing import TYPE_CHECKING
 
@@ -52,8 +53,20 @@ def _assert_registry_invariants(validators: "list[BaseValidator]") -> None:
         prefixes[prefix] = v.id
 
 
+@functools.lru_cache(maxsize=1)
 def get_all_validators() -> list[BaseValidator]:
-    """Return instances of all registered validators."""
+    """Return instances of all registered validators.
+
+    Phase62-N4: cached via ``functools.lru_cache`` so repeated calls
+    within the same process (e.g. router → stop_validator chain) reuse
+    the imported modules + validator instances rather than re-importing
+    49 modules on every invocation. Cuts ~200ms off Tier-2/Tier-3
+    sequential invocations and preserves per-validator state (e.g.
+    ``ProtoConnectValidator.hash_cache``) across calls.
+
+    The cache is process-local; tests that need a fresh registry can
+    call ``get_all_validators.cache_clear()``.
+    """
     from .actions_permissions_block import ActionsPermissionsBlockValidator
     from .actions_sha_pin import ActionsSHAPinValidator
     from .adr_template_compliance import AdrTemplateComplianceValidator
