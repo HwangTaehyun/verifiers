@@ -16,6 +16,7 @@ Checks:
 from __future__ import annotations
 
 import ast
+import hashlib
 import re
 import sys
 from collections.abc import Callable
@@ -36,6 +37,7 @@ from hooks.validators.base import (
     read_hook_input,
     write_hook_output,
 )
+from lib.per_file_cache import PerFileCache
 from lib.project_context import ProjectContext
 
 # ── Default layer definitions ───────────────────────────────────────────────
@@ -316,6 +318,39 @@ def _ts_import_to_layer(
 # ── Main validator class ───────────────────────────────────────────────────
 
 
+def _v15_fingerprint(
+    ctx: "ProjectContext",
+    custom_layers: dict[str, dict[str, int]] | None,
+) -> str:
+    """Phase 64.4: stable hash of V15's project-level config.
+
+    V15's per-file findings depend on three things outside the file's
+    own content:
+
+      1. The project's Go module name from ``go.mod`` — changes which
+         imports count as same-module.
+      2. The user's ``.verifiers/layers.yaml`` (custom layer definitions).
+      3. The default layer maps in this module (changes ride the
+         ``CACHE_VERSION`` bump in ``lib/per_file_cache``, so they
+         don't need their own fingerprint contribution).
+
+    All three are folded into a single sha256 so cache invalidates
+    automatically when any of them change. We don't include
+    ``go.mod`` mtime — only its module declaration — because
+    cosmetic-only edits to ``go.mod`` (require version bumps) don't
+    actually change V15's classification.
+    """
+    go_module = _detect_go_module(ctx.project_root) or ""
+    # Custom layers can be None or a dict-of-dict; canonicalize to a
+    # repr that's stable across Python invocations.
+    if custom_layers is None:
+        layers_repr = "none"
+    else:
+        layers_repr = repr(sorted((k, sorted(v.items())) for k, v in custom_layers.items()))
+    bucket = (go_module, layers_repr)
+    return hashlib.sha256(repr(bucket).encode("utf-8")).hexdigest()
+
+
 class DependencyGuardValidator(BaseValidator):
     """V15: Dependency Direction Guard — Clean Architecture layer enforcement."""
 
@@ -329,9 +364,26 @@ class DependencyGuardValidator(BaseValidator):
         return self._check_file(file_path, ctx, custom_layers)
 
     def validate_project(self, ctx: ProjectContext) -> list[Finding]:
-        """Phase29+ API: project-wide dependency sweep (Tier 3)."""
+        """Phase29+ API: project-wide dependency sweep (Tier 3).
+
+        Phase 64.4: per-file cache.
+
+        V15's findings depend on:
+          - the file's own content (imports list)
+          - the project's Go module name (``go.mod``)
+          - the custom layers config at ``<root>/.verifiers/layers.yaml``
+
+        All three feed into the cache fingerprint so a layers-config
+        edit invalidates without false-positive reruns. The Go module
+        name is included because changing it (rare) would silently
+        change which imports are classified as same-module.
+        """
         custom_layers = _load_custom_layers(ctx.project_root)
-        return self._check_project(ctx, custom_layers)
+        fingerprint = _v15_fingerprint(ctx, custom_layers)
+        cache = PerFileCache.load(ctx.project_root, self.id, config_fingerprint=fingerprint)
+        findings = self._check_project(ctx, custom_layers, cache)
+        cache.save()
+        return findings
 
     def _check_file(
         self,
@@ -493,12 +545,21 @@ class DependencyGuardValidator(BaseValidator):
         self,
         ctx: ProjectContext,
         custom_layers: dict[str, dict[str, int]] | None,
+        cache: PerFileCache,
     ) -> list[Finding]:
-        """Check entire project for dependency violations (Stop mode)."""
+        """Check entire project for dependency violations (Stop mode).
+
+        Phase 64.4: ``cache`` is threaded down to ``_scan_lang_files``
+        so per-file findings are reused when ``mtime`` hasn't changed.
+        """
         findings: list[Finding] = []
-        findings.extend(self._scan_lang_files(ctx.server_dir, ["*.go"], self._check_go_file, ctx, custom_layers))
-        findings.extend(self._scan_lang_files(ctx.web_dir, ["*.ts", "*.tsx"], self._check_ts_file, ctx, custom_layers))
-        findings.extend(self._scan_lang_files(ctx.project_root, ["*.py"], self._check_python_file, ctx, custom_layers))
+        findings.extend(self._scan_lang_files(ctx.server_dir, ["*.go"], self._check_go_file, ctx, custom_layers, cache))
+        findings.extend(
+            self._scan_lang_files(ctx.web_dir, ["*.ts", "*.tsx"], self._check_ts_file, ctx, custom_layers, cache)
+        )
+        findings.extend(
+            self._scan_lang_files(ctx.project_root, ["*.py"], self._check_python_file, ctx, custom_layers, cache)
+        )
         return findings
 
     def _scan_lang_files(
@@ -508,8 +569,15 @@ class DependencyGuardValidator(BaseValidator):
         checker: Callable,
         ctx: ProjectContext,
         custom_layers: dict[str, dict[str, int]] | None,
+        cache: PerFileCache,
     ) -> list[Finding]:
-        """Scan files in a directory and run a language-specific checker."""
+        """Scan files in a directory and run a language-specific checker.
+
+        Phase 64.4: each file's mtime is consulted against ``cache``
+        before invoking the checker. Hit → cached findings; miss →
+        invoke checker + record. The file content is only read on
+        cache miss, saving I/O too.
+        """
         findings: list[Finding] = []
         if not (directory and directory.exists()):
             return findings
@@ -519,10 +587,22 @@ class DependencyGuardValidator(BaseValidator):
                 if self._should_skip(fp):
                     continue
                 try:
+                    mtime_ns = src_file.stat().st_mtime_ns
+                except OSError:
+                    continue
+
+                cached = cache.get(fp, mtime_ns)
+                if cached is not None:
+                    findings.extend(cached)
+                    continue
+
+                try:
                     content = src_file.read_text(errors="replace")
                 except OSError:
                     continue
-                findings.extend(checker(fp, content, ctx, custom_layers))
+                file_findings = checker(fp, content, ctx, custom_layers)
+                cache.put(fp, mtime_ns, file_findings)
+                findings.extend(file_findings)
         return findings
 
     def _should_skip(self, file_path: str) -> bool:

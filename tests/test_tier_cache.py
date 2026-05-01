@@ -136,6 +136,71 @@ def test_compute_input_hash_handles_invalid_pattern(project: Path) -> None:
     assert isinstance(h, str)
 
 
+# ── Phase64.1: exclude_paths integration ─────────────────────────────────
+
+
+def test_compute_input_hash_excludes_vendored_files(project: Path) -> None:
+    """Files matching exclude_paths must not contribute to the hash."""
+    (project / "main.go").write_text("package main\n")
+    (project / "vendor").mkdir()
+    (project / "vendor" / "dep.go").write_text("package dep\n")
+
+    h_with_vendor = compute_input_hash(["**/*.go"], project, exclude_paths=["vendor/**"])
+    # Hash should equal the hash with vendor/ physically absent.
+    (project / "vendor" / "dep.go").unlink()
+    (project / "vendor").rmdir()
+    h_without_vendor = compute_input_hash(["**/*.go"], project, exclude_paths=())
+    assert h_with_vendor == h_without_vendor
+
+
+def test_compute_input_hash_excluded_change_does_not_invalidate(project: Path) -> None:
+    """Editing an excluded file must keep the hash stable."""
+    (project / "main.go").write_text("package main\n")
+    (project / "node_modules").mkdir()
+    (project / "node_modules" / "dep.js").write_text("// dep")
+    excludes = ["node_modules/**"]
+
+    # Hash for .go files — node_modules .js doesn't match the pattern,
+    # but explicit exclusion exercise: also hash .js with exclude.
+    h1 = compute_input_hash(["**/*.go", "**/*.js"], project, exclude_paths=excludes)
+
+    time.sleep(0.01)
+    (project / "node_modules" / "dep.js").write_text("// dep changed")
+    h2 = compute_input_hash(["**/*.go", "**/*.js"], project, exclude_paths=excludes)
+    assert h1 == h2
+
+
+def test_compute_input_hash_excluded_default_off(project: Path) -> None:
+    """Default exclude_paths=() preserves prior behavior."""
+    (project / "vendor").mkdir()
+    (project / "vendor" / "dep.go").write_text("package dep\n")
+    (project / "main.go").write_text("package main\n")
+
+    # Without exclusion: vendor/ contributes to hash.
+    h1 = compute_input_hash(["**/*.go"], project)
+    # With exclusion: vendor/ skipped.
+    h2 = compute_input_hash(["**/*.go"], project, exclude_paths=["vendor/**"])
+    assert h1 != h2
+
+
+def test_compute_input_hash_exclude_pattern_with_subdirectory(project: Path) -> None:
+    """Nested exclusion glob (``**/__generated__/**``) works."""
+    (project / "src").mkdir()
+    (project / "src" / "real.go").write_text("package x\n")
+    (project / "src" / "__generated__").mkdir()
+    (project / "src" / "__generated__" / "auto.go").write_text("package x\n")
+
+    h_no_excl = compute_input_hash(["**/*.go"], project)
+    h_excl = compute_input_hash(["**/*.go"], project, exclude_paths=["**/__generated__/**"])
+    assert h_no_excl != h_excl
+
+    # Touching the generated file must not change the excluded-hash.
+    time.sleep(0.01)
+    (project / "src" / "__generated__" / "auto.go").write_text("package x\n// regen\n")
+    h_excl_after = compute_input_hash(["**/*.go"], project, exclude_paths=["**/__generated__/**"])
+    assert h_excl == h_excl_after
+
+
 # ── CacheEntry ───────────────────────────────────────────────────────────
 
 

@@ -18,6 +18,7 @@ Checks:
 from __future__ import annotations
 
 import ast
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -33,6 +34,7 @@ from hooks.validators.base import (
     read_hook_input,
     write_hook_output,
 )
+from lib.per_file_cache import PerFileCache
 from lib.config_loader import ComplexityThresholds
 from lib.project_context import ProjectContext
 
@@ -790,6 +792,32 @@ def _ts_param_count(param_str: str) -> int:
 # ── Main validator class ───────────────────────────────────────────────────
 
 
+def _complexity_fingerprint(thresholds: "ComplexityThresholds") -> str:
+    """Phase 64.4: stable hash of the complexity thresholds.
+
+    V14's findings depend on threshold values (e.g. ``cyclomatic_warn``
+    going from 10 → 15 means existing complexity-9 functions stop being
+    flagged). When a user edits ``.verifiers/config.yaml`` to tighten
+    or relax thresholds, the per-file cache MUST invalidate or stale
+    findings would persist forever. This fingerprint is stored in the
+    cache header; mismatch → cache wipe.
+
+    Defined at module scope so unit tests can call it without
+    instantiating the validator.
+    """
+    bucket = (
+        thresholds.cyclomatic_warn,
+        thresholds.cyclomatic_error,
+        thresholds.cognitive_warn,
+        thresholds.cognitive_error,
+        thresholds.function_lines_warn,
+        thresholds.function_lines_error,
+        thresholds.nesting_warn,
+        thresholds.params_warn,
+    )
+    return hashlib.sha256(repr(bucket).encode("utf-8")).hexdigest()
+
+
 class ComplexityGuardValidator(BaseValidator):
     """V14: Complexity Guard — cyclomatic complexity, function length, nesting, params.
 
@@ -807,16 +835,31 @@ class ComplexityGuardValidator(BaseValidator):
         return self._analyze_file(file_path, thresholds)
 
     def validate_project(self, ctx: ProjectContext) -> list[Finding]:
-        """Phase29+ API: project-wide complexity sweep (Tier 3)."""
-        thresholds = ctx.config.thresholds.complexity
-        return self._scan_all_files(ctx, thresholds)
+        """Phase29+ API: project-wide complexity sweep (Tier 3).
 
-    def _scan_all_files(self, ctx: ProjectContext, thresholds: ComplexityThresholds) -> list[Finding]:
+        Phase 64.4: load the per-file cache once, pass it through to
+        ``_scan_dir`` / ``_analyze_file_cached``, then save once at
+        the end. Files whose mtime hasn't changed since the last
+        successful scan reuse cached findings.
+        """
+        thresholds = ctx.config.thresholds.complexity
+        fingerprint = _complexity_fingerprint(thresholds)
+        cache = PerFileCache.load(ctx.project_root, self.id, config_fingerprint=fingerprint)
+        findings = self._scan_all_files(ctx, thresholds, cache)
+        cache.save()
+        return findings
+
+    def _scan_all_files(
+        self,
+        ctx: ProjectContext,
+        thresholds: ComplexityThresholds,
+        cache: PerFileCache,
+    ) -> list[Finding]:
         """Scan all source files in the project for complexity issues."""
         findings: list[Finding] = []
-        findings.extend(self._scan_dir(ctx, ctx.server_dir, ["*.go"], thresholds))
-        findings.extend(self._scan_dir(ctx, ctx.web_dir, ["*.ts", "*.tsx"], thresholds))
-        findings.extend(self._scan_dir(ctx, ctx.project_root, ["*.py"], thresholds))
+        findings.extend(self._scan_dir(ctx, ctx.server_dir, ["*.go"], thresholds, cache))
+        findings.extend(self._scan_dir(ctx, ctx.web_dir, ["*.ts", "*.tsx"], thresholds, cache))
+        findings.extend(self._scan_dir(ctx, ctx.project_root, ["*.py"], thresholds, cache))
         return findings
 
     def _scan_dir(
@@ -825,6 +868,7 @@ class ComplexityGuardValidator(BaseValidator):
         directory: Path | None,
         globs: list[str],
         thresholds: ComplexityThresholds,
+        cache: PerFileCache,
     ) -> list[Finding]:
         """Scan a directory with given glob patterns.
 
@@ -834,6 +878,10 @@ class ComplexityGuardValidator(BaseValidator):
         (vendor / node_modules / .gen / __pycache__ / etc). The user
         config gets first crack so noisy projects can opt-out without
         touching validator code.
+
+        Phase 64.4: each file is hashed by mtime against the
+        per-file cache before running the language-specific analyzer.
+        Cache hit → reuse the prior findings. Miss → analyze + record.
         """
         findings: list[Finding] = []
         if not (directory and directory.exists()):
@@ -845,8 +893,34 @@ class ComplexityGuardValidator(BaseValidator):
                     continue
                 if self._should_skip(fp):
                     continue
-                findings.extend(self._analyze_file(fp, thresholds))
+                findings.extend(self._analyze_file_cached(fp, thresholds, cache))
         return findings
+
+    def _analyze_file_cached(
+        self,
+        file_path: str,
+        thresholds: ComplexityThresholds,
+        cache: PerFileCache,
+    ) -> list[Finding]:
+        """Cache-aware wrapper around ``_analyze_file`` (Phase 64.4).
+
+        Looks up ``(file_path, mtime_ns)`` in the cache; on miss runs
+        the analyzer and records the result. ``stat`` failures fall
+        through to the legacy uncached path so we never silently lose
+        a finding because of a missing file.
+        """
+        try:
+            mtime_ns = Path(file_path).stat().st_mtime_ns
+        except OSError:
+            return self._analyze_file(file_path, thresholds)
+
+        cached = cache.get(file_path, mtime_ns)
+        if cached is not None:
+            return cached
+
+        fresh = self._analyze_file(file_path, thresholds)
+        cache.put(file_path, mtime_ns, fresh)
+        return fresh
 
     def _analyze_file(self, file_path: str, thresholds: ComplexityThresholds | None = None) -> list[Finding]:
         """Route analysis to the correct language-specific analyzer."""

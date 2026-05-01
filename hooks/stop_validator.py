@@ -137,11 +137,15 @@ def main() -> None:
     if tier_cache_cfg.enabled:
         skipped: list[str] = []
         runnable: list = []  # type: ignore[var-annotated]
+        # Phase64.1: feed the global exclude.paths into the input hash so
+        # vendored / node_modules / generated trees don't bloat the stat
+        # walk and don't bogus-invalidate cache when they change.
+        cache_exclude = tuple(ctx.config.exclude.paths)
         for v in active:
             if not is_cacheable(v.id):
                 runnable.append(v)
                 continue
-            input_hash = compute_input_hash(v.file_patterns, ctx.project_root)
+            input_hash = compute_input_hash(v.file_patterns, ctx.project_root, cache_exclude)
             cached_input_hashes[v.id] = input_hash
             if lookup_recent_pass(ctx.project_root, v.id, input_hash, max_age_seconds=tier_cache_cfg.max_age_seconds):
                 skipped.append(v.id)
@@ -185,8 +189,10 @@ def main() -> None:
             input_hash = cached_input_hashes.get(v.id)
             if input_hash is None:
                 # Shouldn't happen — every cacheable validator was hashed
-                # in the lookup phase above. Recompute defensively.
-                input_hash = compute_input_hash(v.file_patterns, ctx.project_root)
+                # in the lookup phase above. Recompute defensively with
+                # the same exclusion semantics so the stored hash agrees
+                # with the next lookup.
+                input_hash = compute_input_hash(v.file_patterns, ctx.project_root, tuple(ctx.config.exclude.paths))
             record_pass(ctx.project_root, v.id, input_hash)
 
     # Post-filter findings by config.exclude — Tier 3 parity with Tier 2 router.

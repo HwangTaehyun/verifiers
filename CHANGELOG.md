@@ -10,6 +10,136 @@ the original rationale.
 
 ## [Unreleased]
 
+### Changed (Phase64 — 5 follow-up optimizations: exclude-aware hash, ext bucketing, Tier 2 parallel, V14/V15 incremental, perf audit)
+
+After Phase 63 closed the structural Tier 2 ↔ Tier 3 dedup gap, the
+remaining bottlenecks were small-but-additive: stat-walk over vendored
+trees, O(N=49) regex match per Edit, sequential router dispatch when
+many validators match, and full-project re-analysis even when only one
+file changed. Phase 64 lands all five fixes in one batch.
+
+#### 64.1 — `compute_input_hash` respects `exclude.paths`
+
+`lib/tier_cache.compute_input_hash` now accepts an ``exclude_paths``
+parameter (gitignore-style globs) and skips files matching any of
+them. Wired through `hooks/stop_validator.py` so
+`ctx.config.exclude.paths` automatically feeds in.
+
+- **ROI**: 50-200ms per Stop on monorepos with `vendor/`,
+  `node_modules/`, `**/__generated__/**`. Plus a correctness fix:
+  excluded files no longer invalidate validator caches when they
+  change (a `git pull` on vendored deps used to trigger full re-runs
+  for every Go validator).
+- **Tests**: 4 new in `tests/test_tier_cache.py` — vendored-file
+  skip, modify-while-excluded keeps hash stable, default
+  `exclude_paths=()` preserves prior behavior, nested glob
+  `**/__generated__/**` works.
+
+#### 64.2 — Extension-bucketed validator dispatch
+
+`hooks/validators/__init__.py` gains `_build_dispatch_index()` (cached
+via `@functools.lru_cache(maxsize=1)`) and a `get_matching_validators(file_path, active)`
+helper. The index pre-buckets the 49 validators by file extension so
+a `.go` Edit only does regex match against ~12 candidates instead of
+all 49. `hooks/router.py` swapped to the new helper.
+
+- **ROI**: ~1-2 ms per Edit. Marginal individually, ~100-200ms / hour
+  on heavy editing sessions.
+- **Tests**: 14 in `tests/test_dispatch_index.py` —
+  `_classify_pattern` semantics, bucket separation (ext / residual /
+  wildcard), wildcard validators (V08, V12) match every file,
+  filename-only patterns (`go.mod`) still resolve, dedup, equivalence
+  with legacy `should_run` for representative file set.
+
+#### 64.3 — Tier 2 router parallel dispatch (4+ validators)
+
+`hooks/router.py` now uses `ThreadPoolExecutor(max_workers=4)` when
+4+ validators match a file. Below threshold the sequential path runs
+to avoid spin-up overhead. New `_run_one_validator` worker mirrors
+the Tier 3 contract: per-validator failures are caught + logged via
+`log_exception`, never propagating up to kill the batch.
+
+- **ROI**: typical `.go` Edit hits ~11 validators (V06+V09+V14+V15+V25+V27+V34+V35+V36+V38+V39).
+  Sequential ~200-500ms → parallel ~50-150ms (~3x).
+- **Escape hatch**: `VERIFIERS_PARALLEL=0` opts out (same env var
+  already used for Tier 3).
+- **Tests**: 9 in `tests/test_router_parallel.py` —
+  parallel-equivalent-to-sequential, crash-isolation, threshold
+  constants, escape hatch recognition, 11-way concurrency smoke.
+
+#### 64.4 — V14 / V15 incremental scan via `lib/per_file_cache.py`
+
+New `lib/per_file_cache.py` (~270 LOC). Per-file findings cache keyed
+by ``(validator_id, file_path, mtime_ns, config_fingerprint)`` so
+unchanged files reuse prior findings while changed files get real
+analysis. Two-step `load` + `save` lifecycle keeps the on-disk JSON
+write atomic.
+
+- **V14** (complexity-guard): wired in `_scan_dir` →
+  `_analyze_file_cached`. New module-level `_complexity_fingerprint`
+  hashes the 8 thresholds so a config change wipes the cache.
+- **V15** (dependency-guard): wired in `_scan_lang_files`. New
+  `_v15_fingerprint` includes the Go module name + custom layers
+  yaml so a layers config edit invalidates without false-positive
+  reruns. Skips the file `read_text()` on cache hit (extra I/O save).
+- **Storage**: `<root>/.verifiers/state/per-file-cache/V##.json`,
+  bounded at `MAX_ENTRIES=10,000` with FIFO eviction by
+  `recorded_at`.
+- **Escape hatch**: `VERIFIERS_NO_PER_FILE_CACHE=1`.
+- **ROI**: 1000+ file project, single-file edit → V14/V15 first-miss
+  cost drops from ~3-5s (full project AST) to ~0.5s (one file +
+  lookup). Combines with Phase 63 PASS-state cache: Phase 63 skips
+  V14/V15 entirely when nothing matched changed; Phase 64.4 covers
+  the case where SOMETHING changed but most files are still
+  unchanged.
+- **Tests**: 21 in `tests/test_per_file_cache.py` — round-trip,
+  config fingerprint invalidation, version mismatch, corrupt JSON,
+  malformed finding entries, MAX_ENTRIES eviction, escape hatch,
+  `clear_cache` (one validator + all), end-to-end V14 integration.
+
+#### 64.5 — `scripts/perf_audit.py`
+
+Read-only observability tool that turns
+`<project>/.verifiers/state/metrics/V##.jsonl` history into actionable
+config recommendations:
+
+- **disable candidates** — slow + quiet (≥1s mean, 0 findings, ≥50
+  invocations) get `validators.disabled` YAML stub.
+- **cache TTL bumps** — very slow (≥5s mean) + cacheable get
+  `tier_cache.max_age_seconds: 1800` recommendation.
+- **timeout bumps** — mean ≥50% of default 30s timeout get
+  `timeouts.per_validator[V##]: <3× mean>` recommendation.
+- **review notes** — quiet + uncacheable (V09/V10/V11/V21/V37 test
+  runners) flagged for awareness.
+
+Two output modes: human table (default) + `--json` for pipelines.
+Uses the existing `lib.metrics.aggregate_metrics` aggregation so it
+shares the same window + log-dir conventions as `validator_metrics.py`.
+
+- **Why**: closes the loop on Phase 61–63 caching work. Without
+  perf_audit, knowing whether the cache landed correctly required
+  eyeballing per-Stop wall-clock numbers. Now the user can see
+  validator-by-validator effectiveness + cost trade-offs and tune
+  config from data.
+- **Tests**: 15 in `tests/test_perf_audit.py` — `_is_cacheable`
+  parity with `TIER_CACHE_INELIGIBLE`, every recommendation
+  category, threshold constants, disable-takes-priority over
+  timeout (the `continue` guard), zero-use validators excluded from
+  slowest list, slowest sorted desc.
+
+#### Phase 64 totals
+
+- **+1 module** (`lib/per_file_cache.py`)
+- **+1 script** (`scripts/perf_audit.py`)
+- **+5 test files** (`test_dispatch_index`, `test_router_parallel`,
+  `test_per_file_cache`, `test_perf_audit`, plus 4 new tests in
+  existing `test_tier_cache`)
+- **+63 tests** (1,482 → 1,545 total passing)
+- **0 ruff warnings**
+
+Each sub-phase has its own escape hatch (env var or YAML flag) so
+worst-case rollback is a single export.
+
 ### Changed (Phase63 — Tier 2 ↔ Tier 3 dedup via PASS-state cache)
 
 After Phase 61 (native + subprocess caches inside individual validators)

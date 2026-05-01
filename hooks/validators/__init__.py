@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import functools
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -21,6 +22,15 @@ if TYPE_CHECKING:
 
 
 _VID_PREFIX_RE = re.compile(r"^(V\d{2})-")
+
+# Phase64.2: extract a "primary extension" from a file_patterns entry so
+# we can build an O(1) ext → [validators] lookup at registry import time.
+# Patterns that look like ``**/*.go`` or ``*.go`` fall into the ext bucket;
+# patterns like ``go.mod``, ``Dockerfile*``, ``buf.yaml`` go into a
+# residual list that still needs the per-validator ``should_run`` regex
+# to match. Patterns containing a leading ``.`` followed by alnum at end
+# of string count as the extension form.
+_EXT_RE = re.compile(r"\*\.([A-Za-z0-9]+)$")
 
 
 def _assert_registry_invariants(validators: "list[BaseValidator]") -> None:
@@ -185,3 +195,122 @@ def get_all_validators() -> list[BaseValidator]:
     ]
     _assert_registry_invariants(validators)
     return validators
+
+
+# ── Phase64.2: file-extension bucketed dispatch index ────────────────────
+
+
+def _classify_pattern(pattern: str) -> str | None:
+    """Return the dot-extension this pattern targets, or None when the
+    pattern is a non-extension match (filename glob, exact filename).
+
+    Examples:
+        "**/*.go"               → ".go"
+        "*.tsx"                 → ".tsx"
+        "**/pyproject.toml"     → ".toml"  (last *.<ext> still wins)
+        "go.mod"                → None     (exact filename)
+        "Dockerfile*"           → None     (no ext)
+        "**/__generated__/**"   → None     (catch-all)
+    """
+    m = _EXT_RE.search(pattern)
+    if not m:
+        return None
+    return f".{m.group(1).lower()}"
+
+
+@functools.lru_cache(maxsize=1)
+def _build_dispatch_index() -> tuple[dict[str, list["BaseValidator"]], list["BaseValidator"], list["BaseValidator"]]:
+    """Phase64.2 — bucket the 49-validator registry by file extension.
+
+    Returns ``(ext_index, residual, wildcard)`` where:
+      - ``ext_index``: ``{".go": [V06, V09, ...], ".ts": [V07, V10, ...]}``
+        Validators whose file_patterns include at least one ``*.<ext>``
+        glob land here under EVERY extension they declare.
+      - ``residual``: validators whose file_patterns include at least
+        one non-extension pattern (e.g. ``go.mod``, ``Dockerfile*``,
+        ``buf.yaml``). These still need ``v.should_run(file)`` to
+        confirm — the index can't pre-resolve filename-glob hits.
+      - ``wildcard``: validators with empty file_patterns (e.g. V08
+        security, V12 commit-discipline). They run on every edit per
+        their existing ``should_run`` semantics.
+
+    The split lets a router lookup do ``ext_index[suffix] + residual``
+    instead of iterating all 49 validators per Edit. ``wildcard`` is
+    appended too because ``BaseValidator.should_run`` returns True for
+    them regardless. Validators are de-duplicated in the caller.
+
+    Cached via ``functools.lru_cache`` so the registry walk happens once
+    per process; ``cache_clear()`` for tests that swap the registry.
+    """
+    ext_index: dict[str, list[BaseValidator]] = {}
+    residual: list[BaseValidator] = []
+    wildcard: list[BaseValidator] = []
+    for v in get_all_validators():
+        patterns = v.file_patterns or []
+        if not patterns:
+            wildcard.append(v)
+            continue
+        has_ext = False
+        has_non_ext = False
+        seen_ext_for_v: set[str] = set()
+        for pat in patterns:
+            ext = _classify_pattern(pat)
+            if ext:
+                has_ext = True
+                if ext not in seen_ext_for_v:
+                    ext_index.setdefault(ext, []).append(v)
+                    seen_ext_for_v.add(ext)
+            else:
+                has_non_ext = True
+        # A validator with both ``**/*.go`` AND ``go.mod`` patterns lands
+        # in BOTH ext_index[".go"] AND residual — caller dedupes.
+        if has_non_ext:
+            residual.append(v)
+        # Defensive: a validator whose every pattern was unclassifiable
+        # still needs to be reachable. Treat as residual so should_run
+        # gets the chance to match.
+        if not has_ext and not has_non_ext:
+            residual.append(v)  # pragma: no cover — defensive
+    return ext_index, residual, wildcard
+
+
+def get_matching_validators(file_path: str, active: "list[BaseValidator]") -> "list[BaseValidator]":
+    """Phase64.2 — fast dispatch: return active validators whose
+    ``should_run(file_path)`` is True, skipping the per-Edit O(N=49)
+    regex scan when the file's suffix is enough to narrow the field.
+
+    Algorithm:
+      1. Use ``_build_dispatch_index`` to get the registry buckets.
+      2. Compute candidates = ext_index[suffix] ∪ residual ∪ wildcard.
+      3. Intersect with the caller-supplied ``active`` list (reflects
+         enabled/disabled filtering already done upstream).
+      4. Run ``v.should_run(file)`` on candidates only — Phase62 N3
+         pre-compiled regex still applies.
+
+    Falls open: if the suffix isn't recognized, candidates degrade to
+    ``residual + wildcard`` which still has to do regex matching, but
+    that path only fires for unusual extensions.
+    """
+    ext_index, residual, wildcard = _build_dispatch_index()
+    suffix = Path(file_path).suffix.lower()
+    bucket = ext_index.get(suffix, [])
+
+    # Build candidate set by identity (validator instances are hashable
+    # by default since they're plain objects). De-dup across buckets.
+    seen_ids: set[int] = set()
+    candidates: list[BaseValidator] = []
+    for v in (*bucket, *residual, *wildcard):
+        if id(v) in seen_ids:
+            continue
+        seen_ids.add(id(v))
+        candidates.append(v)
+
+    # Restrict to the active set (preserves caller's enabled/disabled
+    # filtering and the order it provided).
+    active_ids = {id(v) for v in active}
+    narrowed = [v for v in candidates if id(v) in active_ids]
+
+    # Final regex match — required for residual (filename globs like
+    # ``go.mod``) and the rare ext_index member that has additional
+    # constraints (e.g. ``**/__tests__/**/*.ts``).
+    return [v for v in narrowed if v.should_run(file_path)]

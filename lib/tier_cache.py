@@ -98,6 +98,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
+from fnmatch import fnmatch
 from pathlib import Path
 
 # Validators whose result is non-deterministic given file inputs.
@@ -145,13 +146,32 @@ def _cache_file(project_root: Path | str, validator_id: str) -> Path:
     return _cache_dir(project_root) / f"{_vid_prefix(validator_id)}.json"
 
 
-def compute_input_hash(file_patterns: list[str], project_root: Path | str) -> str:
+def compute_input_hash(
+    file_patterns: list[str],
+    project_root: Path | str,
+    exclude_paths: list[str] | tuple[str, ...] = (),
+) -> str:
     """Hash (path, size, mtime) of all files matching ``file_patterns``.
 
     Stat-based (no content read) for speed. Captures:
       - additions (new file → new path in hash)
       - deletions (missing file → missing entry in hash)
       - modifications (mtime/size change)
+
+    Phase64.1: ``exclude_paths`` (gitignore-style globs, typically
+    ``ctx.config.exclude.paths``) are filtered out of the hash. This
+    matters in two ways:
+
+      1. **Speed**: monorepos with vendored deps (``vendor/**``,
+         ``node_modules/**``) can have thousands of files matching
+         ``**/*.go`` / ``**/*.ts``. Stat-ing every one of them on every
+         Stop hook costs 100-200ms even though those files are excluded
+         from validation anyway.
+      2. **Correctness**: a file that's excluded from validation should
+         not invalidate the validator's cache when it changes. Without
+         this filter, ``git pull`` on a vendored dep would invalidate
+         every validator's cache even though the vendored code is
+         never actually checked.
 
     Empty ``file_patterns`` → empty hash (rare; validators with no
     file_patterns run on every invocation).
@@ -162,6 +182,10 @@ def compute_input_hash(file_patterns: list[str], project_root: Path | str) -> st
     root = Path(project_root)
     h = hashlib.sha256()
     seen: set[Path] = set()
+    # Pre-resolve project root once for relative-path computation in the
+    # exclusion check. ``Path.resolve()`` per-file would dominate the
+    # walk on large trees.
+    root_resolved = root.resolve()
 
     for pattern in file_patterns:
         try:
@@ -172,6 +196,17 @@ def compute_input_hash(file_patterns: list[str], project_root: Path | str) -> st
                 if resolved in seen:
                     continue
                 seen.add(resolved)
+                # Phase64.1: skip files matching exclude_paths. Compute
+                # the relative path once; if it lives outside the root
+                # (rare for hook inputs), skip exclusion check and let
+                # the file in.
+                if exclude_paths:
+                    try:
+                        rel = str(resolved.relative_to(root_resolved))
+                    except ValueError:
+                        rel = str(f)
+                    if any(fnmatch(rel, pat) for pat in exclude_paths):
+                        continue
                 try:
                     stat = f.stat()
                     h.update(f"{f}:{stat.st_size}:{stat.st_mtime_ns}\n".encode("utf-8"))
