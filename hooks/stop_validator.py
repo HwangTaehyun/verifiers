@@ -29,6 +29,12 @@ from lib.exclusion import (
 from lib.feedback_tracker import FeedbackTracker
 from lib.json_logger import log_exception
 from lib.parallel_runner import run_all
+from lib.tier_cache import (
+    compute_input_hash,
+    is_cacheable,
+    lookup_recent_pass,
+    record_pass,
+)
 from lib.validator_registry import resolve_active_validators
 from lib.project_context import ProjectContext
 
@@ -114,11 +120,74 @@ def main() -> None:
         write_hook_output(output)
         return
 
-    # Parallel by default (4 workers, 30s per-validator timeout). Set
+    # ── Phase63: Tier 3 PASS-state cache ────────────────────────────────
+    # If a validator passed (zero findings) on a recent Stop AND its file
+    # inputs (path + size + mtime hash) haven't changed AND the entry is
+    # still fresh, skip running it again. The hot-loop pattern this kills
+    # is "edit one .ts file → stop → V06 go-quality re-runs full project
+    # build+lint+test for nothing because nothing in **/*.go changed".
+    #
+    # Sentinels (V##-CRASHED, V##-TIMEOUT) and ineligible validators
+    # (V06/V09/V10/V11/V12/V21/V37 — test runners + git-state-aware) are
+    # NEVER cached; see lib/tier_cache.TIER_CACHE_INELIGIBLE.
+    tier_cache_cfg = ctx.config.tier_cache
+    cached_input_hashes: dict[str, str] = {}  # validator_id → input_hash
+    validators_to_run = list(active)
+
+    if tier_cache_cfg.enabled:
+        skipped: list[str] = []
+        runnable: list = []  # type: ignore[var-annotated]
+        for v in active:
+            if not is_cacheable(v.id):
+                runnable.append(v)
+                continue
+            input_hash = compute_input_hash(v.file_patterns, ctx.project_root)
+            cached_input_hashes[v.id] = input_hash
+            if lookup_recent_pass(ctx.project_root, v.id, input_hash, max_age_seconds=tier_cache_cfg.max_age_seconds):
+                skipped.append(v.id)
+            else:
+                runnable.append(v)
+        validators_to_run = runnable
+        if skipped:
+            log_exception(
+                source="stop_validator/tier_cache",
+                error=RuntimeError(f"tier-cache HIT: skipped {len(skipped)} validator(s)"),
+                context={"skipped": skipped, "ran": [v.id for v in runnable]},
+            )
+
+    # Parallel by default (8 workers, 30s per-validator timeout). Set
     # VERIFIERS_PARALLEL=0 to fall back to the legacy sequential loop.
     # Crashed/timed-out validators contribute V##-CRASHED / V##-TIMEOUT
     # sentinel findings so the user can never get a silent false-approve.
-    all_findings = run_all(active, ctx, mode="stop")
+    all_findings = run_all(validators_to_run, ctx, mode="stop")
+
+    # ── Phase63: record PASS for cacheable validators that produced no
+    # findings on this run. Validators with findings are NOT cached so
+    # the user keeps seeing the issue until fixed. Sentinels are also
+    # excluded (they indicate the worker died or timed out — caching
+    # that as "PASS" would be a bug).
+    if tier_cache_cfg.enabled and validators_to_run:
+        # Group findings by V## prefix so we can tell which validator(s) ran clean.
+        ran_with_findings: set[str] = set()
+        for f in all_findings:
+            if f.kind == "sentinel":
+                # Sentinels imply crash/timeout — keep validator out of cache.
+                ran_with_findings.add(f.rule.split("-", 1)[0])
+                continue
+            if f.rule:
+                ran_with_findings.add(f.rule.split("-", 1)[0])
+        for v in validators_to_run:
+            if not is_cacheable(v.id):
+                continue
+            vid_prefix = v.id.split("-", 1)[0]
+            if vid_prefix in ran_with_findings:
+                continue
+            input_hash = cached_input_hashes.get(v.id)
+            if input_hash is None:
+                # Shouldn't happen — every cacheable validator was hashed
+                # in the lookup phase above. Recompute defensively.
+                input_hash = compute_input_hash(v.file_patterns, ctx.project_root)
+            record_pass(ctx.project_root, v.id, input_hash)
 
     # Post-filter findings by config.exclude — Tier 3 parity with Tier 2 router.
     # Without this filter the Stop hook would report violations that the

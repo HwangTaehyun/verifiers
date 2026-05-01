@@ -206,6 +206,41 @@ class TimeoutsConfig:
 
 
 @dataclass
+class TierCacheConfig:
+    """Phase63: Tier 3 (Stop hook) PASS-state cache.
+
+    Caches a validator's PASS state (zero findings) keyed by a hash of
+    its file inputs. On the next Stop invocation, if the inputs haven't
+    changed AND the entry is fresh, the validator is skipped entirely.
+    Cuts the dominant cost of "edit one .ts file → stop → re-run all 49
+    validators including the 30s go-quality block".
+
+    ``enabled``: master switch. False disables the cache and forces
+        every validator to run on every Stop hook (legacy behavior).
+
+    ``max_age_seconds``: time-to-live for a cached PASS. Even when the
+        file-state hash matches, an entry older than this is treated as
+        a miss. Caps stale-cache risk for non-determinism the hash
+        doesn't catch (e.g. clock skew, NFS mtime weirdness, system
+        package upgrades that change tool output without touching
+        project files). Default 5 minutes.
+
+    Example::
+
+        tier_cache:
+          enabled: true
+          max_age_seconds: 300
+
+    Escape hatch: ``VERIFIERS_NO_TIER_CACHE=1`` env var disables the
+    mechanism even when ``enabled: true`` in config — useful for one-off
+    debugging without editing config.
+    """
+
+    enabled: bool = True
+    max_age_seconds: int = 300
+
+
+@dataclass
 class StopConfig:
     """Stop-hook (Tier 3) tuning.
 
@@ -237,6 +272,8 @@ class VerifiersConfig:
     stop: StopConfig = field(default_factory=StopConfig)
     # Phase62-N2: per-validator timeout overrides.
     timeouts: TimeoutsConfig = field(default_factory=TimeoutsConfig)
+    # Phase63: Tier 3 PASS-state cache (file-hash keyed, TTL bounded).
+    tier_cache: TierCacheConfig = field(default_factory=TierCacheConfig)
     # Phase52: user-defined validator groups. Keys are group names
     # (lowercase, kebab-case); values are lists of V-IDs or V-ID
     # prefixes. User entries override / add to BUILTIN_GROUPS for
@@ -448,6 +485,16 @@ def _build_config(raw: dict[str, Any]) -> VerifiersConfig:
         per_v = timeouts_raw.get("per_validator")
         if isinstance(per_v, dict):
             cfg.timeouts.per_validator = {str(k): int(v) for k, v in per_v.items() if isinstance(v, int) and v > 0}
+
+    # Phase63: Tier 3 PASS-state cache.
+    tier_cache_raw = raw.get("tier_cache")
+    if isinstance(tier_cache_raw, dict):
+        if "enabled" in tier_cache_raw and isinstance(tier_cache_raw["enabled"], bool):
+            cfg.tier_cache.enabled = tier_cache_raw["enabled"]
+        max_age = tier_cache_raw.get("max_age_seconds")
+        # bool is a subclass of int — reject explicitly.
+        if isinstance(max_age, int) and not isinstance(max_age, bool) and max_age > 0:
+            cfg.tier_cache.max_age_seconds = max_age
 
     return cfg
 

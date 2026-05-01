@@ -10,6 +10,122 @@ the original rationale.
 
 ## [Unreleased]
 
+### Changed (Phase63 — Tier 2 ↔ Tier 3 dedup via PASS-state cache)
+
+After Phase 61 (native + subprocess caches inside individual validators)
+the next biggest cost was structural: the Stop hook re-runs every
+validator on every `stop` message even when nothing in their input
+files changed since the last Stop. The dominant case in the workflow
+is "edit one .ts file → stop → V06 go-quality re-runs the full Go
+project for 30s because Tier 3 has no awareness of what changed since
+last Stop". Phase 63 closes that loop.
+
+#### 63.1 New: `lib/tier_cache.py` (~270 LOC)
+
+PASS-state cache keyed by a stat-based hash of each validator's
+file inputs:
+
+- **Hash key**: `sha256(path : st_size : st_mtime_ns)` for every file
+  matching `validator.file_patterns`. Stat-based — no content read —
+  so 2,000+ files hash in ~10 ms.
+- **Storage**: `<project>/.verifiers/state/tier-cache/<V##>.json`
+  with `{"ts": <epoch>, "input_hash": "<sha256>"}`. Atomic write
+  (`tmp → os.replace`). Corrupt JSON → wipe + treat as miss.
+- **Lookup**: `lookup_recent_pass(project_root, validator_id,
+  input_hash, max_age_seconds)` — TRUE iff entry exists, hashes
+  match, AND entry is younger than the TTL.
+- **Record**: `record_pass(project_root, validator_id, input_hash)`
+  — only called for validators that produced ZERO findings on the
+  current Stop (and aren't sentinels).
+- **Hard exclusion list** (`TIER_CACHE_INELIGIBLE`): V06, V09, V10,
+  V11, V12, V21, V37 — test runners + `git`-state-aware checks
+  whose result is non-deterministic given file inputs alone. These
+  are never cached.
+- **TTL**: default 5 minutes. Caps stale-cache risk for
+  non-determinism the hash doesn't catch (clock skew, NFS mtime
+  weirdness, system package upgrades).
+- **Escape hatch**: `VERIFIERS_NO_TIER_CACHE=1` env var disables
+  the entire mechanism — debugging without editing config.
+
+#### 63.2 Wiring into `hooks/stop_validator.py`
+
+- Filter active validator list before `run_all`: for each cacheable
+  validator, compute the input hash and consult
+  `lookup_recent_pass`. Hits are skipped entirely; misses go into
+  the parallel runner.
+- After `run_all`: group findings by V## prefix; for each cacheable
+  validator with no findings AND no sentinel, call `record_pass`.
+  Validators with findings are intentionally NOT cached so the user
+  keeps seeing the issue until fixed.
+
+#### 63.3 Config schema: `tier_cache:` block in `.verifiers/config.yaml`
+
+```yaml
+tier_cache:
+  enabled: true        # master switch (default true)
+  max_age_seconds: 300 # PASS TTL (default 5 minutes)
+```
+
+Both keys optional — empty config keeps defaults.
+
+#### 63.4 Tests: `tests/test_tier_cache.py` (32 tests)
+
+- `compute_input_hash`: empty / no-match / determinism /
+  add-file / remove-file / modify-file / pattern dedup / invalid
+  pattern / directory skip.
+- `CacheEntry.is_fresh`: within TTL, expired.
+- `lookup_recent_pass`: miss when no file, hit after record, miss
+  on hash mismatch, miss on TTL expiration, ineligible validator,
+  corrupt JSON, missing schema keys.
+- `record_pass`: creates dir, atomic write (no `.tmp` leftover),
+  skips ineligible, overwrites prior entry.
+- Escape hatch: disables lookup, disables record, off when env
+  unset.
+- `clear_cache`: removes all entries, no-op when dir missing.
+- End-to-end: cache invalidates on file change, holds when
+  unrelated file changes.
+
+#### 63.5 Expected ROI
+
+For a typical workflow where a single .ts file edit drives the next
+Stop hook: V06 (Go) + the rest of the Go-side validators (V25, V27,
+V34-V35, V38-V39, V47, V49, V50) all pre-cached → skip ~30-60s of
+work. Cache invalidation is automatic per file pattern, so when
+.go files DO change, V06 still runs.
+
+V21 / V11 / V09 / V10 / V12 / V37 still run every Stop (excluded
+by design); the Stop hook's "if it approved, the checks ran"
+guarantee is preserved for system-state-dependent validators.
+
+### Changed (Phase62 — 4 small wins: adaptive workers + per-validator timeouts + pre-compiled patterns + lazy validator import cache)
+
+- **N1 (adaptive workers)**: `parallel_runner.run_all` already
+  defaulted to `min(DEFAULT_MAX_WORKERS=8, len(validators))` — keeps
+  thread count proportional to active validators rather than
+  always spawning 8. Verified during Phase 62 audit; no code change
+  needed beyond a comment refresh.
+- **N2 (per-validator timeouts)**: New `TimeoutsConfig` dataclass
+  (`default: int = 30`, `per_validator: dict[str, int]`). The
+  parallel runner's `_resolve_timeout(validator_id, ctx, default)`
+  consults `ctx.config.timeouts.per_validator[V##]` with a min-1s
+  clamp. Lets users tune slow checks (e.g. `V21: 180` for pytest)
+  or fail-fast on flaky ones (`V19: 5` for ruff) via
+  `.verifiers/config.yaml`.
+- **N3 (pre-compiled `file_patterns`)**: New module-level
+  `_compile_patterns(patterns: tuple[str, ...])` decorated with
+  `@functools.lru_cache(maxsize=128)` translates fnmatch globs to
+  regex once per pattern set. `BaseValidator.should_run` now uses
+  the pre-compiled list; eliminates ~50-100 ms of repeated
+  `fnmatch.translate` work across 49 validators per edit.
+- **N4 (lazy validator import cache)**: `get_all_validators()`
+  decorated with `@functools.lru_cache(maxsize=1)` so the
+  router → stop_validator chain reuses imported modules + validator
+  instances rather than re-importing 49 modules on every
+  invocation. Cuts ~200 ms off Tier-2/Tier-3 sequential calls and
+  preserves per-validator state across calls
+  (e.g. `ProtoConnectValidator.hash_cache`). Tests can call
+  `get_all_validators.cache_clear()` for a fresh registry.
+
 ### Changed (Phase61 — Performance optimizations: V06 Option C, V07 native cache, V03 subprocess cache)
 
 Three performance optimizations applied per the user's directive
