@@ -135,11 +135,21 @@ class SecurityValidator(BaseValidator):
         phi_fields: list[str] = PHI_FIELDS,
         phi_enabled: bool = True,
     ) -> list[Finding]:
-        """Scan Go source files for security issues."""
+        """Scan Go source files for security issues.
+
+        Phase 71: query ``ctx.file_index`` and filter to under server_dir
+        instead of running V08's own ``rglob``. Eliminates one of the
+        per-Stop walks identified in the Phase 71 audit.
+        """
         findings: list[Finding] = []
         if not (ctx.server_dir and ctx.server_dir.exists()):
             return findings
-        for go_file in ctx.server_dir.rglob("*.go"):
+        server_resolved = ctx.server_dir.resolve()
+        for go_file in ctx.file_index.find_by_pattern("*.go"):
+            try:
+                go_file.resolve().relative_to(server_resolved)
+            except (ValueError, OSError):
+                continue
             fp = str(go_file)
             if any(exc in fp for exc in EXCLUDE_PATHS):
                 continue
@@ -147,16 +157,24 @@ class SecurityValidator(BaseValidator):
         return findings
 
     def _scan_web_files(self, ctx: ProjectContext) -> list[Finding]:
-        """Scan TypeScript/TSX source files for secrets."""
+        """Scan TypeScript/TSX source files for secrets.
+
+        Phase 71: same migration as ``_scan_go_files`` — file_index +
+        directory-prefix filter replaces V08's own ``rglob``.
+        """
         findings: list[Finding] = []
         if not (ctx.web_dir and ctx.web_dir.exists()):
             return findings
-        for ext in ("*.ts", "*.tsx"):
-            for ts_file in ctx.web_dir.rglob(ext):
-                fp = str(ts_file)
-                if any(exc in fp for exc in EXCLUDE_PATHS):
-                    continue
-                findings.extend(self._check_secrets(fp))
+        web_resolved = ctx.web_dir.resolve()
+        for ts_file in ctx.file_index.find_by_pattern("*.ts", "*.tsx"):
+            try:
+                ts_file.resolve().relative_to(web_resolved)
+            except (ValueError, OSError):
+                continue
+            fp = str(ts_file)
+            if any(exc in fp for exc in EXCLUDE_PATHS):
+                continue
+            findings.extend(self._check_secrets(fp))
         return findings
 
     # ── Check: Hardcoded secrets ─────────────────────────────────────────

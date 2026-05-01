@@ -514,9 +514,7 @@ class TsQualityValidator(BaseValidator):
         # project index. This restricts the hash to .ts/.tsx files under
         # web_dir and inherits the index's exclude.paths pruning.
         ts_files = [
-            p
-            for p in ctx.file_index.find_by_pattern("*.ts", "*.tsx")
-            if str(p).startswith(str(web_dir / "src"))
+            p for p in ctx.file_index.find_by_pattern("*.ts", "*.tsx") if str(p).startswith(str(web_dir / "src"))
         ]
         if not ts_files:
             return findings
@@ -610,9 +608,7 @@ class TsQualityValidator(BaseValidator):
             return findings
 
         ts_files = [
-            p
-            for p in ctx.file_index.find_by_pattern("*.ts", "*.tsx")
-            if str(p).startswith(str(web_dir / "src"))
+            p for p in ctx.file_index.find_by_pattern("*.ts", "*.tsx") if str(p).startswith(str(web_dir / "src"))
         ]
         if not ts_files:
             return findings

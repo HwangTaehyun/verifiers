@@ -38,33 +38,19 @@ from lib.project_context import ProjectContext
 # ── Language detection helpers ────────────────────────────────────────────────
 
 
-def _has_go_files(root: Path) -> bool:
-    """Check if project has Go source files."""
-    for p in root.rglob("*.go"):
-        # Skip vendor and node_modules
-        parts = p.parts
-        if "vendor" not in parts and "node_modules" not in parts:
-            return True
-    return False
+def _has_go_files(ctx: ProjectContext) -> bool:
+    """Check if project has Go source files (Phase 71: O(1) via file_index)."""
+    return bool(ctx.file_index.find_by_pattern("*.go"))
 
 
-def _has_python_files(root: Path) -> bool:
-    """Check if project has Python source files."""
-    for p in root.rglob("*.py"):
-        parts = p.parts
-        if "node_modules" not in parts and ".venv" not in parts and "venv" not in parts:
-            return True
-    return False
+def _has_python_files(ctx: ProjectContext) -> bool:
+    """Check if project has Python source files (Phase 71: O(1) via file_index)."""
+    return bool(ctx.file_index.find_by_pattern("*.py"))
 
 
-def _has_ts_files(root: Path) -> bool:
-    """Check if project has TypeScript/JavaScript source files."""
-    for ext in ("*.ts", "*.tsx", "*.js", "*.jsx"):
-        for p in root.rglob(ext):
-            parts = p.parts
-            if "node_modules" not in parts and "dist" not in parts and "build" not in parts:
-                return True
-    return False
+def _has_ts_files(ctx: ProjectContext) -> bool:
+    """Check if project has TypeScript/JavaScript source files (Phase 71: O(1) via file_index)."""
+    return bool(ctx.file_index.find_by_pattern("*.ts", "*.tsx", "*.js", "*.jsx"))
 
 
 # ── Config file detection ─────────────────────────────────────────────────────
@@ -384,7 +370,7 @@ class LinterConfigGuardValidator(BaseValidator):
         root = ctx.project_root
 
         # ── Go ──
-        if _has_go_files(root):
+        if _has_go_files(ctx):
             config = _find_golangci_config(root)
             if config is None:
                 findings.append(
@@ -400,7 +386,7 @@ class LinterConfigGuardValidator(BaseValidator):
                 findings.extend(_check_golangci_rules(config))
 
         # ── Python ──
-        if _has_python_files(root):
+        if _has_python_files(ctx):
             config, config_type = _find_ruff_config(root)
             if config is None:
                 findings.append(
@@ -419,7 +405,7 @@ class LinterConfigGuardValidator(BaseValidator):
                 findings.extend(_check_ruff_rules(config, config_type))
 
         # ── TypeScript ──
-        if _has_ts_files(root):
+        if _has_ts_files(ctx):
             config = _find_eslint_config(root)
             if config is None:
                 findings.append(

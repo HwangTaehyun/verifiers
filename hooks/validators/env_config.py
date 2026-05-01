@@ -149,9 +149,13 @@ class EnvConfigValidator(BaseValidator):
         return example_vars
 
     def _check_compose_env_refs(self, ctx: ProjectContext, example_vars: set[str], env_example: Path) -> list[Finding]:
-        """Check docker-compose references: ${VAR} without default."""
+        """Check docker-compose references: ${VAR} without default.
+
+        Phase 71: query ``ctx.file_index`` instead of running our own
+        ``project_root.glob`` walk that re-traverses the whole tree.
+        """
         findings: list[Finding] = []
-        for compose_file in ctx.project_root.glob("**/docker-compose*.yaml"):
+        for compose_file in ctx.file_index.find_by_pattern("docker-compose*.yaml", "docker-compose*.yml"):
             try:
                 content = compose_file.read_text()
             except OSError:
@@ -177,11 +181,20 @@ class EnvConfigValidator(BaseValidator):
         return findings
 
     def _check_go_env_refs(self, ctx: ProjectContext, example_vars: set[str], env_example: Path) -> list[Finding]:
-        """Check Go code: os.Getenv("APP_*")."""
+        """Check Go code: os.Getenv("APP_*").
+
+        Phase 71: query ``ctx.file_index`` and filter to under server_dir
+        instead of V01's own ``rglob``.
+        """
         findings: list[Finding] = []
         if not (ctx.server_dir and ctx.server_dir.exists()):
             return findings
-        for go_file in ctx.server_dir.rglob("*.go"):
+        server_resolved = ctx.server_dir.resolve()
+        for go_file in ctx.file_index.find_by_pattern("*.go"):
+            try:
+                go_file.resolve().relative_to(server_resolved)
+            except (ValueError, OSError):
+                continue
             if "_test.go" in str(go_file):
                 continue
             try:

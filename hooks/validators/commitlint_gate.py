@@ -75,11 +75,11 @@ class CommitlintGateValidator(BaseValidator):
     def _check(self, ctx: ProjectContext) -> list[Finding]:
         root = Path(ctx.project_root)
 
-        consumes = self._detects_consumption(root)
+        consumes = self._detects_consumption(ctx, root)
         if not consumes:
             return []
 
-        enforced = self._detects_enforcement(root)
+        enforced = self._detects_enforcement(ctx, root)
         if enforced:
             return []
 
@@ -109,10 +109,12 @@ class CommitlintGateValidator(BaseValidator):
 
     # ── Step 1: detect consumption ────────────────────────────────────
 
-    def _detects_consumption(self, root: Path) -> bool:
-        """Return True if the project uses conventional commits tooling or format."""
-        # Check all package.json files under root
-        for pkg_path in root.rglob("package.json"):
+    def _detects_consumption(self, ctx: ProjectContext, root: Path) -> bool:
+        """Return True if the project uses conventional commits tooling or format.
+
+        Phase 71: package.json discovery via file_index instead of own rglob.
+        """
+        for pkg_path in ctx.file_index.find_by_pattern("package.json"):
             try:
                 data = json.loads(pkg_path.read_text(errors="replace"))
             except Exception:
@@ -147,8 +149,11 @@ class CommitlintGateValidator(BaseValidator):
 
     # ── Step 2: detect enforcement ────────────────────────────────────
 
-    def _detects_enforcement(self, root: Path) -> bool:
-        """Return True if any commitlint enforcement gate is present."""
+    def _detects_enforcement(self, ctx: ProjectContext, root: Path) -> bool:
+        """Return True if any commitlint enforcement gate is present.
+
+        Phase 71: package.json discovery via file_index.
+        """
         # commitlint config files at repo root
         for name in _COMMITLINT_CONFIGS:
             if (root / name).is_file():
@@ -159,7 +164,7 @@ class CommitlintGateValidator(BaseValidator):
             return True
 
         # commitlint in any package.json deps
-        for pkg_path in root.rglob("package.json"):
+        for pkg_path in ctx.file_index.find_by_pattern("package.json"):
             try:
                 data = json.loads(pkg_path.read_text(errors="replace"))
             except Exception:

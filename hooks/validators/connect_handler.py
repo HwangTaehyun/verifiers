@@ -105,14 +105,39 @@ def _has_connect_import(go_file: Path) -> bool:
 
 
 def _detect_connect(ctx: ProjectContext) -> bool:
-    """Project-wide gate: any .go file in server/ imports Connect."""
+    """Project-wide gate: any .go file in server/ imports Connect.
+
+    Phase 71: query the shared file_index instead of an independent rglob.
+    The detection short-circuits on the first hit so the saving is small,
+    but it's the cheapest migration to do alongside the other three.
+    """
     if ctx.server_dir is None:
         return False
-    # Cheap probe — first hit is enough
-    for go_file in ctx.server_dir.rglob("*.go"):
+    server_resolved = ctx.server_dir.resolve()
+    for go_file in ctx.file_index.find_by_pattern("*.go"):
+        try:
+            go_file.resolve().relative_to(server_resolved)
+        except (ValueError, OSError):
+            continue
         if _has_connect_import(go_file):
             return True
     return False
+
+
+def _go_files_under(ctx: ProjectContext, root: Path) -> list[Path]:
+    """Phase 71: shared helper for V27's three "walk all .go in <root>"
+    sites. Replaces ``root.rglob("*.go")`` with file_index + prefix filter
+    so we share the single project walk instead of running three more.
+    """
+    root_resolved = root.resolve()
+    out: list[Path] = []
+    for go_file in ctx.file_index.find_by_pattern("*.go"):
+        try:
+            go_file.resolve().relative_to(root_resolved)
+        except (ValueError, OSError):
+            continue
+        out.append(go_file)
+    return out
 
 
 def _proto_dirs(ctx: ProjectContext) -> list[Path]:
@@ -180,9 +205,9 @@ class ConnectHandlerValidator(BaseValidator):
                         declared.add((svc, rpc_match.group(1)))
         return declared
 
-    def _collect_go_handlers(self, internal_root: Path) -> set[tuple[str, str]]:
+    def _collect_go_handlers(self, ctx: ProjectContext, internal_root: Path) -> set[tuple[str, str]]:
         implemented: set[tuple[str, str]] = set()
-        for go_file in internal_root.rglob("*.go"):
+        for go_file in _go_files_under(ctx, internal_root):
             try:
                 src = go_file.read_text(errors="replace")
             except OSError:
@@ -201,7 +226,7 @@ class ConnectHandlerValidator(BaseValidator):
         if not proto_dirs or internal_root is None:
             return []
         declared = self._collect_proto_rpcs(proto_dirs)
-        implemented = self._collect_go_handlers(internal_root)
+        implemented = self._collect_go_handlers(ctx, internal_root)
 
         findings: list[Finding] = []
         for svc, rpc in sorted(declared - implemented):
@@ -232,8 +257,9 @@ class ConnectHandlerValidator(BaseValidator):
             return []
         # We only care about main.go / server.go / wiring files where
         # NewXxxHandler is invoked. Walk every .go file and inspect.
+        # Phase 71: file_index instead of own rglob.
         findings: list[Finding] = []
-        for go_file in internal_root.rglob("*.go"):
+        for go_file in _go_files_under(ctx, internal_root):
             try:
                 src = go_file.read_text(errors="replace")
             except OSError:
@@ -303,7 +329,8 @@ class ConnectHandlerValidator(BaseValidator):
         if internal_root is None:
             return []
         findings: list[Finding] = []
-        for go_file in internal_root.rglob("*.go"):
+        # Phase 71: file_index instead of own rglob.
+        for go_file in _go_files_under(ctx, internal_root):
             try:
                 src = go_file.read_text(errors="replace")
             except OSError:

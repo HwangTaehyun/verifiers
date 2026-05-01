@@ -52,32 +52,43 @@ def _write_file(base: Path, name: str, content: str) -> str:
 
 
 class TestLanguageDetection:
+    """Phase 71: helpers now take a ProjectContext (queries ctx.file_index)
+    instead of walking the filesystem directly. The DEFAULT_PRUNE_NAMES set
+    in ``lib/file_index.py`` already filters vendor/node_modules/.venv at
+    walk-time, so the dedicated "excluded" tests still pass — the exclusion
+    just happens at a different layer."""
+
+    def _ctx(self, root: Path):
+        from lib.project_context import ProjectContext
+
+        return ProjectContext(str(root))
+
     def test_has_go_files(self, tmp_path: Path) -> None:
         _write_file(tmp_path, "main.go", "package main")
-        assert _has_go_files(tmp_path) is True
+        assert _has_go_files(self._ctx(tmp_path)) is True
 
     def test_has_go_files_empty(self, tmp_path: Path) -> None:
-        assert _has_go_files(tmp_path) is False
+        assert _has_go_files(self._ctx(tmp_path)) is False
 
     def test_has_go_files_vendor_excluded(self, tmp_path: Path) -> None:
         _write_file(tmp_path, "vendor/lib.go", "package vendor")
-        assert _has_go_files(tmp_path) is False
+        assert _has_go_files(self._ctx(tmp_path)) is False
 
     def test_has_python_files(self, tmp_path: Path) -> None:
         _write_file(tmp_path, "app.py", "print('hello')")
-        assert _has_python_files(tmp_path) is True
+        assert _has_python_files(self._ctx(tmp_path)) is True
 
     def test_has_python_files_venv_excluded(self, tmp_path: Path) -> None:
         _write_file(tmp_path, ".venv/lib.py", "pass")
-        assert _has_python_files(tmp_path) is False
+        assert _has_python_files(self._ctx(tmp_path)) is False
 
     def test_has_ts_files(self, tmp_path: Path) -> None:
         _write_file(tmp_path, "src/App.tsx", "export default App")
-        assert _has_ts_files(tmp_path) is True
+        assert _has_ts_files(self._ctx(tmp_path)) is True
 
     def test_has_ts_files_node_modules_excluded(self, tmp_path: Path) -> None:
         _write_file(tmp_path, "node_modules/lib.js", "module.exports = {}")
-        assert _has_ts_files(tmp_path) is False
+        assert _has_ts_files(self._ctx(tmp_path)) is False
 
 
 # ============================================================================
