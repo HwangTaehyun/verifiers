@@ -495,23 +495,44 @@ class TsQualityValidator(BaseValidator):
         previous implementation checked `stdout.strip()` which matched
         madge's success banner ("✔ No circular dependency found!") and
         produced a guaranteed false positive on every successful run.
+
+        Phase 68: wrapped with ``lib.subprocess_cache.cached_run`` since
+        madge has no native cache and a single invocation costs ~1.5 s
+        on a typical web project (it walks all .ts/.tsx files + builds
+        an import graph). Cache key = (.ts/.tsx files via Phase 65
+        ``ctx.file_index`` + tsconfig.json + madge version). 7-day FIFO.
+        Cycles being deterministic from inputs makes the cache safe.
         """
         findings: list[Finding] = []
+        web_dir = ctx.web_dir if ctx.web_dir else (Path(ctx.project_root) / "web")
+        if not web_dir.exists():
+            return findings
+
+        # Phase 68 + Phase 65: build the input-file list from the shared
+        # project index. This restricts the hash to .ts/.tsx files under
+        # web_dir and inherits the index's exclude.paths pruning.
+        ts_files = [
+            p
+            for p in ctx.file_index.find_by_pattern("*.ts", "*.tsx")
+            if str(p).startswith(str(web_dir / "src"))
+        ]
+        if not ts_files:
+            return findings
+
+        config_files = [p for p in (web_dir / "tsconfig.json", web_dir / "package.json") if p.is_file()]
 
         try:
-            result = subprocess.run(
-                [
-                    "bunx",
-                    "madge",
-                    "--circular",
-                    "--json",
-                    "--extensions",
-                    "ts,tsx",
-                    "src/",
-                ],
-                cwd=str(ctx.web_dir),
-                capture_output=True,
-                text=True,
+            from lib.subprocess_cache import cached_run, detect_tool_version
+
+            madge_version = detect_tool_version(["bunx", "madge", "--version"], cwd=web_dir)
+            result = cached_run(
+                project_root=ctx.project_root,
+                label="V07-madge-circular",
+                cmd=["bunx", "madge", "--circular", "--json", "--extensions", "ts,tsx", "src/"],
+                cwd=web_dir,
+                input_files=ts_files,
+                tool_version=madge_version,
+                config_files=config_files,
                 timeout=30,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired):
