@@ -21,6 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output  # noqa: E402
+from lib.per_file_cache import PerFileCache  # noqa: E402
 from lib.project_context import ProjectContext  # noqa: E402
 
 # Matches lines of the form:
@@ -154,14 +155,45 @@ class GoErrorWrappingValidator(BaseValidator):
         return _scan_file(Path(file_path))
 
     def validate_project(self, ctx: ProjectContext) -> list[Finding]:
-        """Tier 3 (Stop): walk all matching Go files under server_dir (or cwd)."""
+        """Tier 3 (Stop): scan all matching Go files under server_dir.
+
+        Phase 69: per-file mtime cache (Phase 64.4 pattern). Findings are
+        purely a function of file content so the cache is straight
+        ``(file_path, mtime_ns) → list[Finding]``. Cache lives at
+        ``.verifiers/state/per-file-cache/V34.json``. No config
+        fingerprint — the regex is hard-coded in this module.
+
+        Phase 65: walks via ``ctx.file_index.find_by_pattern("*.go")``
+        instead of ``root.rglob("*.go")`` so we share the single index
+        with V14/V15/V35/V39 etc.
+        """
         root = ctx.server_dir if ctx.server_dir is not None else ctx.project_root
         if root is None:
             return []
+        root_resolved = root.resolve()
+        cache = PerFileCache.load(ctx.project_root, self.id, config_fingerprint="")
+
         findings: list[Finding] = []
-        for candidate in root.rglob("*.go"):
-            if _is_eligible(candidate):
-                findings.extend(_scan_file(candidate))
+        for candidate in ctx.file_index.find_by_pattern("*.go"):
+            # Behavior preservation: scope to under server_dir.
+            try:
+                candidate.resolve().relative_to(root_resolved)
+            except (ValueError, OSError):
+                continue
+            if not _is_eligible(candidate):
+                continue
+            try:
+                mtime_ns = candidate.stat().st_mtime_ns
+            except OSError:
+                continue
+            cached = cache.get(str(candidate), mtime_ns)
+            if cached is not None:
+                findings.extend(cached)
+                continue
+            fresh = _scan_file(candidate)
+            cache.put(str(candidate), mtime_ns, fresh)
+            findings.extend(fresh)
+        cache.save()
         return findings
 
 

@@ -162,14 +162,48 @@ class HasuraGraphQLEnforcementValidator(BaseValidator):
     # ── Stop-mode scan ───────────────────────────────────────────────────
 
     def _scan_project(self, ctx: ProjectContext) -> list[Finding]:
-        """Scan all Go files under server_dir (or project_root) for SQL violations."""
-        findings: list[Finding] = []
+        """Scan all Go files under server_dir (or project_root) for SQL violations.
+
+        Phase 69: per-file mtime cache (Phase 64.4 pattern). Findings
+        are deterministic from .go content + the binary "hasura present"
+        signal — caller already gated on ``_detect_hasura(ctx)``, so by
+        the time we land here hasura IS present. Cache fingerprint
+        captures that fact (string ``"hasura"``) so the cache invalidates
+        if a project removes hasura between Stop hooks.
+
+        Phase 65: walks via ``ctx.file_index.find_by_pattern("*.go")``.
+        """
+        from lib.per_file_cache import PerFileCache
+
         scan_root = ctx.server_dir or ctx.project_root
-        for go_file in scan_root.rglob("*.go"):
+        scan_root_resolved = scan_root.resolve()
+        cache = PerFileCache.load(
+            ctx.project_root,
+            self.id,
+            config_fingerprint="hasura-present-v1",
+        )
+
+        findings: list[Finding] = []
+        for go_file in ctx.file_index.find_by_pattern("*.go"):
+            try:
+                go_file.resolve().relative_to(scan_root_resolved)
+            except (ValueError, OSError):
+                continue
             fp = str(go_file)
             if _is_exempt(fp):
                 continue
-            findings.extend(self._check_go_file(fp))
+            try:
+                mtime_ns = go_file.stat().st_mtime_ns
+            except OSError:
+                continue
+            cached = cache.get(fp, mtime_ns)
+            if cached is not None:
+                findings.extend(cached)
+                continue
+            fresh = self._check_go_file(fp)
+            cache.put(fp, mtime_ns, fresh)
+            findings.extend(fresh)
+        cache.save()
         return findings
 
     # ── Per-file checks ──────────────────────────────────────────────────

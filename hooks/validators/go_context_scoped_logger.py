@@ -24,6 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output  # noqa: E402
+from lib.per_file_cache import PerFileCache  # noqa: E402
 from lib.project_context import ProjectContext  # noqa: E402
 
 # Matches global zerolog calls: log.Info(, log.Error(, log.Warn(, log.Debug(,
@@ -110,13 +111,37 @@ class GoContextScopedLoggerValidator(BaseValidator):
         return _scan_file(path)
 
     def validate_project(self, ctx: ProjectContext) -> list[Finding]:
-        """Tier 3 (Stop): walk all internal/**/*.go under server_dir."""
+        """Tier 3 (Stop): scan internal/**/*.go for ctx-scoped logger discipline.
+
+        Phase 69: per-file mtime cache (Phase 64.4 pattern). Findings are
+        purely a function of file content. Uses ``ctx.file_index``
+        (Phase 65) for the file walk.
+        """
         if ctx.server_dir is None:
             return []
+        server_resolved = ctx.server_dir.resolve()
+        cache = PerFileCache.load(ctx.project_root, self.id, config_fingerprint="")
+
         findings: list[Finding] = []
-        for candidate in ctx.server_dir.rglob("*.go"):
-            if _is_eligible(candidate):
-                findings.extend(_scan_file(candidate))
+        for candidate in ctx.file_index.find_by_pattern("*.go"):
+            try:
+                candidate.resolve().relative_to(server_resolved)
+            except (ValueError, OSError):
+                continue
+            if not _is_eligible(candidate):
+                continue
+            try:
+                mtime_ns = candidate.stat().st_mtime_ns
+            except OSError:
+                continue
+            cached = cache.get(str(candidate), mtime_ns)
+            if cached is not None:
+                findings.extend(cached)
+                continue
+            fresh = _scan_file(candidate)
+            cache.put(str(candidate), mtime_ns, fresh)
+            findings.extend(fresh)
+        cache.save()
         return findings
 
 
