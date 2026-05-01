@@ -134,12 +134,20 @@ class GoTestRunnerValidator(BaseValidator):
         ``repeated_fail_threshold`` controls when V09-REPEATED-FAIL fires;
         defaults to the module constant for back-compat with any external
         caller, while ``validate()`` always supplies the config value.
+
+        Phase 66: ``-count=1`` is intentionally omitted (same reasoning
+        as V06). When the user edits a .go file the package hash
+        changes, invalidating its cache entry → fresh run. When V09
+        fires on a no-op edit (Claude rewrote with identical content)
+        the cache hit returns in <100ms instead of re-running. The
+        ``-json`` and ``-timeout`` flags are in Go's cacheable set;
+        only ``-count=1`` would have disabled the cache.
         """
         findings: list[Finding] = []
 
         try:
             result = subprocess.run(
-                ["go", "test", "-json", "-count=1", "-timeout=30s", pkg_dir],
+                ["go", "test", "-json", "-timeout=30s", pkg_dir],
                 cwd=str(ctx.server_dir),
                 capture_output=True,
                 text=True,

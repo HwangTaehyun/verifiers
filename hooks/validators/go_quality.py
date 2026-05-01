@@ -255,7 +255,27 @@ class GoQualityValidator(BaseValidator):
     # ── Check 5: go test (Stop mode) ─────────────────────────────────────
 
     def _check_go_test(self, ctx: ProjectContext) -> list[Finding]:
-        """Run tests to verify correctness."""
+        """Run tests to verify correctness.
+
+        Phase 66: ``-count=1`` is intentionally omitted so Go's built-in
+        ``$GOCACHE/test/`` is used. Per ``go help testflag``, the
+        idiomatic way to *disable* the test cache is to pass ``-count=1``;
+        omitting it lets unchanged packages hit the cache and return
+        ``ok pkg/foo (cached)`` in <100 ms instead of re-running the
+        full suite.
+
+        On ax-finance-project the difference measured 4.0 s → 0.72 s on
+        warm runs (5.6×). Cache invalidation is sound: Go fingerprints
+        the test binary (sources + transitively-reachable packages +
+        Go version + cacheable flags) AND tracks ``os.Getenv`` /
+        ``os.Open`` calls inside tests, so any source/env/file change
+        invalidates the affected packages automatically.
+
+        ``-race`` and ``-timeout`` are in the cacheable flag set, so
+        keeping them does not disable the cache. Users who want a
+        forced fresh run can invoke ``go test -count=1 ./...`` directly
+        — this hook is a developer-experience tool, not CI.
+        """
         findings: list[Finding] = []
 
         # Use Makefile test target if available
@@ -265,11 +285,11 @@ class GoQualityValidator(BaseValidator):
                 if "test:" in makefile.read_text():
                     cmd = ["make", "test"]
                 else:
-                    cmd = ["go", "test", "-race", "-count=1", "-timeout=120s", "./..."]
+                    cmd = ["go", "test", "-race", "-timeout=120s", "./..."]
             except OSError:
-                cmd = ["go", "test", "-race", "-count=1", "-timeout=120s", "./..."]
+                cmd = ["go", "test", "-race", "-timeout=120s", "./..."]
         else:
-            cmd = ["go", "test", "-race", "-count=1", "-timeout=120s", "./..."]
+            cmd = ["go", "test", "-race", "-timeout=120s", "./..."]
 
         try:
             result = subprocess.run(
