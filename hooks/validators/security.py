@@ -20,7 +20,10 @@ from pathlib import Path
 # Add parent directories to path so we can import lib/
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+import hashlib
+
 from hooks.validators.base import BaseValidator, Finding, read_hook_input, write_hook_output
+from lib.per_file_cache import PerFileCache
 from lib.project_context import ProjectContext
 
 # ── Secret patterns ──────────────────────────────────────────────────────────
@@ -69,6 +72,23 @@ PHI_FIELDS = [
 # ── .gitignore required entries ──────────────────────────────────────────────
 
 REQUIRED_GITIGNORE = [".env", "*.pem", "*.key", ".env.local", "*.p12"]
+
+
+def _v08_fingerprint(phi_enabled: bool, phi_fields: list[str]) -> str:
+    """Phase 71 T4: stable hash of V08's PHI configuration.
+
+    V08's per-file findings depend on:
+      - file content (via mtime in PerFileCache key)
+      - SECRET_REGEXES (frozen at module level — captured by CACHE_VERSION
+        in PerFileCache when the regex set changes meaningfully)
+      - PHI scanning config: phi_enabled flag + phi_fields list
+
+    The fingerprint folds phi_enabled + sorted(phi_fields) so toggling
+    PHI scanning or editing the field list invalidates the cache without
+    requiring a manual ``rm -rf .verifiers/state/per-file-cache/V08*``.
+    """
+    bucket = (phi_enabled, tuple(sorted(phi_fields)))
+    return hashlib.sha256(repr(bucket).encode("utf-8")).hexdigest()
 
 
 class SecurityValidator(BaseValidator):
@@ -121,25 +141,39 @@ class SecurityValidator(BaseValidator):
         phi_enabled: bool = True,
         required_gitignore: list[str] = REQUIRED_GITIGNORE,
     ) -> list[Finding]:
-        """Project-wide checks (Stop mode)."""
+        """Project-wide checks (Stop mode).
+
+        Phase 71 T4: per-file mtime cache for the .go and .ts(x) scans.
+        ``_check_single_file`` is purely deterministic from (file content,
+        phi_enabled, phi_fields). The cache fingerprint covers the latter
+        two; mtime covers content. _check_gitignore is project-state, not
+        per-file — left uncached.
+        """
         findings: list[Finding] = []
         findings.extend(self._check_gitignore(ctx, required_gitignore=required_gitignore))
-        findings.extend(self._scan_go_files(ctx, phi_fields=phi_fields, phi_enabled=phi_enabled))
-        findings.extend(self._scan_web_files(ctx))
+        cache = PerFileCache.load(
+            ctx.project_root,
+            self.id,
+            config_fingerprint=_v08_fingerprint(phi_enabled, phi_fields),
+        )
+        findings.extend(self._scan_go_files(ctx, cache, phi_fields=phi_fields, phi_enabled=phi_enabled))
+        findings.extend(self._scan_web_files(ctx, cache))
+        cache.save()
         return findings
 
     def _scan_go_files(
         self,
         ctx: ProjectContext,
+        cache: PerFileCache,
         *,
         phi_fields: list[str] = PHI_FIELDS,
         phi_enabled: bool = True,
     ) -> list[Finding]:
         """Scan Go source files for security issues.
 
-        Phase 71: query ``ctx.file_index`` and filter to under server_dir
-        instead of running V08's own ``rglob``. Eliminates one of the
-        per-Stop walks identified in the Phase 71 audit.
+        Phase 71 T1+T4: query ``ctx.file_index``, scope to server_dir,
+        and consult ``cache`` per-file before running ``_check_single_file``.
+        Cache miss → real check + record. Cache hit → reuse findings.
         """
         findings: list[Finding] = []
         if not (ctx.server_dir and ctx.server_dir.exists()):
@@ -153,14 +187,24 @@ class SecurityValidator(BaseValidator):
             fp = str(go_file)
             if any(exc in fp for exc in EXCLUDE_PATHS):
                 continue
-            findings.extend(self._check_single_file(fp, phi_fields=phi_fields, phi_enabled=phi_enabled))
+            try:
+                mtime_ns = go_file.stat().st_mtime_ns
+            except OSError:
+                continue
+            cached = cache.get(fp, mtime_ns)
+            if cached is not None:
+                findings.extend(cached)
+                continue
+            fresh = self._check_single_file(fp, phi_fields=phi_fields, phi_enabled=phi_enabled)
+            cache.put(fp, mtime_ns, fresh)
+            findings.extend(fresh)
         return findings
 
-    def _scan_web_files(self, ctx: ProjectContext) -> list[Finding]:
+    def _scan_web_files(self, ctx: ProjectContext, cache: PerFileCache) -> list[Finding]:
         """Scan TypeScript/TSX source files for secrets.
 
-        Phase 71: same migration as ``_scan_go_files`` — file_index +
-        directory-prefix filter replaces V08's own ``rglob``.
+        Phase 71 T1+T4: same as ``_scan_go_files`` — file_index walk +
+        per-file mtime cache.
         """
         findings: list[Finding] = []
         if not (ctx.web_dir and ctx.web_dir.exists()):
@@ -174,7 +218,17 @@ class SecurityValidator(BaseValidator):
             fp = str(ts_file)
             if any(exc in fp for exc in EXCLUDE_PATHS):
                 continue
-            findings.extend(self._check_secrets(fp))
+            try:
+                mtime_ns = ts_file.stat().st_mtime_ns
+            except OSError:
+                continue
+            cached = cache.get(fp, mtime_ns)
+            if cached is not None:
+                findings.extend(cached)
+                continue
+            fresh = self._check_secrets(fp)
+            cache.put(fp, mtime_ns, fresh)
+            findings.extend(fresh)
         return findings
 
     # ── Check: Hardcoded secrets ─────────────────────────────────────────

@@ -125,6 +125,42 @@ class ProjectContext:
         return _is_excluded_glob(file_path, self.project_root, self.config.exclude.paths)
 
     @functools.cached_property
+    def compose_docs(self) -> dict[str, dict]:
+        """Phase 71 T2: parsed docker-compose YAML, cached per Stop hook.
+
+        On a typical project, 5+ validators (V01 env_config, V05 docker,
+        V20 hasura, V22 multi_env, V44 dockerfile-base, V57 sbom) each
+        ``read_text() + yaml.safe_load()`` the same compose files. With
+        4 compose variants × 5 validators that's 20 parses for 4 files.
+        Caching the parsed dict on ProjectContext (lifecycle = one Stop
+        hook) cuts it to 4 parses, period.
+
+        Keys are the absolute path string of each compose file. Values
+        are the parsed top-level dict. Files that fail to parse (YAML
+        error, OSError, non-dict root) are stored as ``{}`` so callers
+        can use a uniform ``.get(...)`` access pattern without re-trying
+        the parse.
+
+        The walk for compose files goes through ``self.file_index`` so
+        we share the Phase 65 single-walk infrastructure — no extra
+        directory traversal.
+        """
+        import yaml
+
+        out: dict[str, dict] = {}
+        for compose_file in self.file_index.find_by_pattern(
+            "docker-compose*.yaml", "docker-compose*.yml"
+        ):
+            try:
+                data = yaml.safe_load(compose_file.read_text(errors="replace"))
+            except (yaml.YAMLError, OSError):
+                data = {}
+            if not isinstance(data, dict):
+                data = {}
+            out[str(compose_file)] = data
+        return out
+
+    @functools.cached_property
     def file_index(self) -> ProjectFileIndex:
         """Phase 65: single-walk project file index, lazily built.
 
