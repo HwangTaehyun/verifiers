@@ -10,6 +10,77 @@ the original rationale.
 
 ## [Unreleased]
 
+### Added (Phase72 — 5 architecture/security/type-safety rules for 1M-LOC scale)
+
+End-of-session research surfaced 5 high-ROI rules that target the
+class of failures that hurt at 100k+ → 1M LOC: architectural drift,
+type erosion, SQL injection, and form-schema drift. All 5 share the
+existing ``ctx.file_index`` infrastructure (no new walks, no perf
+regression).
+
+- **V60-LAYER-SKIP** — Go layer-import enforcement. Reads
+  ``go.layers`` + ``go.allowed_imports`` from ``.verifiers/config.yaml``
+  and flags handler→repo direct imports (or any layer skipping its
+  intermediate). Empty config → silent no-op so projects without a
+  layered architecture aren't punished.
+  Reference: [arch-go](https://github.com/arch-go/arch-go) (continuously
+  developed since 2021), [go-arch-lint](https://github.com/fe3dback/go-arch-lint)
+  (continuously developed since 2020).
+
+- **V61-SQL-CONCAT / V61-SQL-SPRINTF** — Go SQL parameterization. Flags
+  ``db.Query("..." + var)`` and ``db.Exec(fmt.Sprintf(...))`` patterns
+  that build SQL via string concatenation — the [OWASP Top 10
+  A03:2021](https://owasp.org/Top10/A03_2021-Injection/) (published 2021)
+  injection class ([CWE-89](https://cwe.mitre.org/data/definitions/89.html)).
+  Escape hatch: ``// verifier:sql-safe REASON`` (e.g. table-name
+  allowlist where placeholders can't bind identifiers).
+
+- **V64-NO-LAYER-CONFIG / V64-DEPCRUISE-NOT-WIRED** — TS layer-import
+  enforcement (detection mode). Verifies a TS project has either a
+  [dependency-cruiser](https://github.com/sverweij/dependency-cruiser)
+  (continuously developed since 2016) config at root or a
+  ``dependency-cruiser`` / ``eslint-plugin-boundaries`` devDependency
+  wired into a ``package.json`` script. Active mode (running depcruise
+  as subprocess + parsing forbidden findings) reserved for Phase 73.
+
+- **V65-ANY-BUDGET-EXCEEDED** — TS ``any`` ratchet. Counts ``: any`` /
+  ``as any`` / ``<any>`` / ``// @ts-expect-error`` / ``// @ts-ignore``
+  across the codebase, stores in ``.verifiers/ts-any-baseline.json``,
+  fails PRs that increase the count, auto-decreases baseline on drops.
+  First run establishes baseline silently. Generated files
+  (``.gen.``, ``__generated__``, ``dist/``, ``build/``, ``.next/``,
+  ``node_modules/``) excluded.
+  Reference: [type-coverage](https://github.com/plantain-00/type-coverage)
+  (continuously developed since 2017), [Betterer](https://betterer.dev/)
+  (continuously updated, retrieved 2026-05-03).
+
+- **V76-RHF-SCHEMA-MISMATCH / V76-RHF-NOT-FROM-INFER** — React Hook
+  Form ↔ Zod schema sync. Within a single file, flags
+  ``useForm<T>({ resolver: zodResolver(S) })`` when ``T`` is defined
+  as ``z.infer<typeof S2>`` with S != S2, or as a plain type literal
+  (``type T = {...}``) instead of inferred from the schema. Cross-file
+  T resolution (imported types) is silent — left for v2.
+  Reference: [React Hook Form ↔ Zod guide](https://react-hook-form.com/get-started#SchemaValidation)
+  (continuously updated, retrieved 2026-05-03).
+
+Total: 5 new validators, ~520 LOC, **49 new tests**, all 1636 tests
+pass + ruff clean. ``BUILTIN_GROUPS`` extended (V60/V64/V65/V76 →
+``code-quality``, V61 → ``security``).
+
+New config schema in ``.verifiers/config.yaml``::
+
+    go:
+      layers:
+        handlers: "internal/handlers"
+        services: "internal/services"
+        repos:    "internal/repos"
+      allowed_imports:
+        handlers: [services]
+        services: [repos]
+        repos:    []
+
+Empty ``go.layers`` keeps V60 silent — opt-in by design.
+
 ### Added (Phase71 — V23-TS-NOCHECK rule for Connect-RPC TS plugins)
 
 `V23-TS-NOCHECK-MISSING` / `V23-TS-NOCHECK-ENABLED` enforces

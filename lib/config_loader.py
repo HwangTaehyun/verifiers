@@ -241,6 +241,38 @@ class TierCacheConfig:
 
 
 @dataclass
+class GoConfig:
+    """V60 (Go layer imports) — directional layer enforcement.
+
+    ``layers`` maps a layer name to a path-segment suffix (e.g.
+    ``"internal/handlers"``). A .go file or an import path is classified
+    into a layer when that segment appears as a path-segment substring.
+
+    ``allowed_imports`` maps a layer to the layers it is allowed to
+    import. Same-layer imports are always allowed (intra-layer composition
+    is fine). External imports (no matching layer) are unconstrained.
+
+    Empty ``layers`` dict → V60 silently no-ops (zero cost) so projects
+    without a layered architecture aren't punished.
+
+    Example::
+
+        go:
+          layers:
+            handlers: "internal/handlers"
+            services: "internal/services"
+            repos:    "internal/repos"
+          allowed_imports:
+            handlers: [services]
+            services: [repos]
+            repos:    []
+    """
+
+    layers: dict[str, str] = field(default_factory=dict)
+    allowed_imports: dict[str, list[str]] = field(default_factory=dict)
+
+
+@dataclass
 class StopConfig:
     """Stop-hook (Tier 3) tuning.
 
@@ -269,6 +301,8 @@ class VerifiersConfig:
     validators: ValidatorsConfig = field(default_factory=ValidatorsConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
     docker: DockerConfig = field(default_factory=DockerConfig)
+    # Phase 72: V60 (Go layer imports) directional architecture rules.
+    go: GoConfig = field(default_factory=GoConfig)
     stop: StopConfig = field(default_factory=StopConfig)
     # Phase62-N2: per-validator timeout overrides.
     timeouts: TimeoutsConfig = field(default_factory=TimeoutsConfig)
@@ -294,7 +328,12 @@ class VerifiersConfig:
 
 BUILTIN_GROUPS: dict[str, list[str]] = {
     # Phase54-56: V34, V35, V36, V38, V39 added.
-    "code-quality": ["V06", "V07", "V14", "V19", "V34", "V35", "V36", "V38", "V39"],
+    # Phase 72: V60 (Go layer), V64 (TS layer detection), V65 (TS any-budget),
+    # V76 (RHF zod schema sync) — type/architecture discipline at scale.
+    "code-quality": [
+        "V06", "V07", "V14", "V19", "V34", "V35", "V36", "V38", "V39",
+        "V60", "V64", "V65", "V76",
+    ],
     "test-execution": ["V09", "V10", "V11", "V21", "V37"],
     "env-config": ["V01", "V22"],
     # Phase56-58: V44, V45 + V58 (reproducible build markers).
@@ -302,7 +341,8 @@ BUILTIN_GROUPS: dict[str, list[str]] = {
     # Phase54-58: V46, V47, V48, V49, V50, V56.
     "api-rpc-data": ["V02", "V03", "V04", "V20", "V23", "V27", "V46", "V47", "V48", "V49", "V50", "V56"],
     # Phase54-58: V40, V41, V42, V43 + V57 (SBOM CI). V55 cut by user.
-    "security": ["V08", "V18", "V40", "V41", "V42", "V43", "V57"],
+    # Phase 72: V61 (Go SQL parameterization, OWASP A03 / CWE-89).
+    "security": ["V08", "V18", "V40", "V41", "V42", "V43", "V57", "V61"],
     # Phase58: V53, V54 + V51 (ADR), V52 (README badges) — all docs/governance.
     "process": ["V12", "V13", "V15", "V16", "V51", "V52", "V53", "V54"],
 }
@@ -469,6 +509,24 @@ def _build_config(raw: dict[str, Any]) -> VerifiersConfig:
         cfg.docker.dev_filename_patterns = _coerce_str_list(docker_raw.get("dev_filename_patterns"))
         cfg.docker.production_stage_names = _coerce_str_list(docker_raw.get("production_stage_names"))
         cfg.docker.dev_stage_names = _coerce_str_list(docker_raw.get("dev_stage_names"))
+
+    # Phase 72: Go layer config.
+    go_raw = raw.get("go")
+    if isinstance(go_raw, dict):
+        layers_raw = go_raw.get("layers")
+        if isinstance(layers_raw, dict):
+            layers_dict: dict[str, str] = {}
+            for key, value in layers_raw.items():
+                if isinstance(key, str) and isinstance(value, str) and value.strip():
+                    layers_dict[key] = value
+            cfg.go.layers = layers_dict
+        allowed_raw = go_raw.get("allowed_imports")
+        if isinstance(allowed_raw, dict):
+            allowed_dict: dict[str, list[str]] = {}
+            for key, value in allowed_raw.items():
+                if isinstance(key, str):
+                    allowed_dict[key] = _coerce_str_list(value)
+            cfg.go.allowed_imports = allowed_dict
 
     stop_raw = raw.get("stop")
     if isinstance(stop_raw, dict):

@@ -105,6 +105,8 @@ def get_all_validators() -> list[BaseValidator]:
     from .go_quality import GoQualityValidator
     from .go_test_race_coverage import GoTestRaceCoverageValidator
     from .github_community_files import GithubCommunityFilesValidator
+    from .go_layer_imports import GoLayerImportsValidator
+    from .go_sql_parameterization import GoSqlParameterizationValidator
     from .go_test_runner import GoTestRunnerValidator
     from .golangci_strictness import GolangciStrictnessValidator
     from .graphql_gen import GraphqlGenValidator
@@ -124,8 +126,11 @@ def get_all_validators() -> list[BaseValidator]:
     from .py_test_runner import PyTestRunnerValidator
     from .readme_badges import ReadmeBadgesValidator
     from .reproducible_build_markers import ReproducibleBuildMarkersValidator
+    from .rhf_zod_schema_sync import RhfZodSchemaSyncValidator
     from .sbom_ci_step import SbomCiStepValidator
     from .security import SecurityValidator
+    from .ts_any_budget import TsAnyBudgetValidator
+    from .ts_layer_imports import TsLayerImportsValidator
     from .ts_quality import TsQualityValidator
     from .ts_test_runner import TsTestRunnerValidator
 
@@ -192,6 +197,13 @@ def get_all_validators() -> list[BaseValidator]:
         ReadmeBadgesValidator(),  # V52 — README CI + license badges
         SbomCiStepValidator(),  # V57 — SBOM generation in CI
         ReproducibleBuildMarkersValidator(),  # V58 — SOURCE_DATE_EPOCH for reproducible builds
+        # Phase 72 (Tier A from end-of-session review): architecture +
+        # security + type-safety ratchet at 1M-LOC scale.
+        GoLayerImportsValidator(),  # V60 — handler→service→repo direction enforcement
+        GoSqlParameterizationValidator(),  # V61 — SQL string concat / fmt.Sprintf injection
+        TsLayerImportsValidator(),  # V64 — dependency-cruiser config presence (detection)
+        TsAnyBudgetValidator(),  # V65 — `: any` / @ts-expect-error ratchet
+        RhfZodSchemaSyncValidator(),  # V76 — useForm<T> ↔ z.infer<typeof S> sync
     ]
     _assert_registry_invariants(validators)
     return validators

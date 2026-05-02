@@ -73,6 +73,7 @@ class TestBuiltinGroups:
         # V43 (image scan), V57 (SBOM CI).
         # V55 (Sentry/error-tracking) was added then cut by user — too
         # opinionated for a template; teams pick their own tracking.
+        # Phase 72: V61 (Go SQL parameterization, OWASP A03 / CWE-89).
         assert BUILTIN_GROUPS["security"] == [
             "V08",
             "V18",
@@ -81,6 +82,7 @@ class TestBuiltinGroups:
             "V42",
             "V43",
             "V57",
+            "V61",
         ]
 
     def test_no_v_id_appears_in_two_groups(self) -> None:
