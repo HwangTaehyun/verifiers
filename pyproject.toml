@@ -15,3 +15,10 @@ pythonpath = ["."]
 [tool.ruff]
 target-version = "py311"
 line-length = 120
+
+# Pyright needs the project root on sys.path the same way pytest does
+# (see ``pythonpath`` above) so ``lib.*`` and ``hooks.*`` resolve.
+[tool.pyright]
+extraPaths = ["."]
+include = ["hooks", "lib", "scripts", "tests"]
+pythonVersion = "3.11"

@@ -160,14 +160,12 @@ class EnvConfigValidator(BaseValidator):
                 content = compose_file.read_text()
             except OSError:
                 continue
+            # The regex \w+ excludes ':' so ${VAR:-default} forms are not
+            # matched at all — no extra default-detection check needed.
             for match in re.finditer(r"\$\{(\w+)\}", content):
                 var = match.group(1)
-                start = match.start()
-                full_ctx = content[start : start + len(match.group(0)) + 20]
-                if ":-" in full_ctx[: full_ctx.find("}") + 1] if "}" in full_ctx else "":
-                    continue
                 if var not in example_vars:
-                    line_num = content[:start].count("\n") + 1
+                    line_num = content[: match.start()].count("\n") + 1
                     findings.append(
                         Finding(
                             severity="warning",

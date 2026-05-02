@@ -27,11 +27,13 @@ import sys
 from typing import Any
 
 # ── Phase 71 T3 re-exports — pure data + base class live in lib/ now ──
+# Explicit ``as Name`` aliasing so Pyright's re-export check follows
+# transitive imports (PEP 484 §implicit-reexport rule).
 from lib.validators_core import (
-    BaseValidator,
-    Finding,
-    ValidationResult,
-    _compile_patterns,
+    BaseValidator as BaseValidator,
+    Finding as Finding,
+    ValidationResult as ValidationResult,
+    _compile_patterns as _compile_patterns,
 )
 
 __all__ = [
@@ -239,7 +241,7 @@ def stdin_truncation_finding(cap_bytes: int) -> Finding:
         fix=(
             "Reduce the size of the edit (e.g., split a huge generated-file "
             "rewrite into smaller chunks) or, if the payload is legitimately "
-            "this large, raise ``_MAX_STDIN_BYTES`` in lib/validators/base.py."
+            "this large, raise ``_MAX_STDIN_BYTES`` in hooks/validators/base.py."
         ),
         kind="sentinel",
     )

@@ -302,6 +302,12 @@ class BufGovernanceValidator(BaseValidator):
     def _check_ts_nocheck_disabled(self, ctx: ProjectContext) -> list[Finding]:
         """Require ``ts_nocheck=false`` on TS-targeting plugins in buf.gen.yaml.
 
+        Scope: protobuf-es / connect-es plugin family only (detected by
+        ``target=ts`` opt OR plugin name ending in ``/es`` or containing
+        ``/es:``). Other TS generators (ts-proto, protoc-gen-ts) use
+        different option syntax and are NOT enforced here — file a follow-up
+        if they appear in the user's stack.
+
         The buf-build/es and connectrpc/es plugins default to emitting
         ``// @ts-nocheck`` at the top of every generated file, which
         silently disables strict-mode TS checking for the entire

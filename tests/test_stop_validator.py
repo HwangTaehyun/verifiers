@@ -154,7 +154,9 @@ class TestCircuitBreaker:
         (tmp_path / ".git").mkdir()
 
         # Pre-set counter to MAX - 1 (so next block triggers circuit breaker)
-        from hooks.stop_validator import _MAX_CONSECUTIVE_BLOCKS
+        # Phase 71b: constant moved to lib.circuit_breaker; alias to old
+        # local name so the test body stays unchanged.
+        from lib.circuit_breaker import DEFAULT_MAX_CONSECUTIVE_BLOCKS as _MAX_CONSECUTIVE_BLOCKS
 
         counter_file = tmp_path / ".verifiers" / "state" / "verifier-block-count"
         counter_file.parent.mkdir(parents=True, exist_ok=True)
@@ -245,7 +247,9 @@ class TestCircuitBreaker:
         """When circuit breaker fires, reason field should be removed."""
         (tmp_path / ".git").mkdir()
 
-        from hooks.stop_validator import _MAX_CONSECUTIVE_BLOCKS
+        # Phase 71b: constant moved to lib.circuit_breaker; alias to old
+        # local name so the test body stays unchanged.
+        from lib.circuit_breaker import DEFAULT_MAX_CONSECUTIVE_BLOCKS as _MAX_CONSECUTIVE_BLOCKS
 
         counter_file = tmp_path / ".verifiers" / "state" / "verifier-block-count"
         counter_file.parent.mkdir(parents=True, exist_ok=True)

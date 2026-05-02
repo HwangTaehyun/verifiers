@@ -38,8 +38,9 @@ from lib.tier_cache import (
 from lib.validator_registry import resolve_active_validators
 from lib.project_context import ProjectContext
 
-
-_MAX_CONSECUTIVE_BLOCKS = 3  # Approve after N consecutive blocks to prevent infinite loop
+# Phase 71 review: max-consecutive-blocks lives in lib/circuit_breaker
+# now (DEFAULT_MAX_CONSECUTIVE_BLOCKS = 3). Calling apply_circuit_breaker
+# without the kwarg uses that default — single source of truth.
 
 
 def _apply_exclude_filters(findings: list[Finding], ctx: ProjectContext) -> list[Finding]:
@@ -244,7 +245,6 @@ def main() -> None:
         output=output,
         findings=all_findings,
         stop_hook_active=stop_hook_active,
-        max_consecutive_blocks=_MAX_CONSECUTIVE_BLOCKS,
     )
 
     # Persist session feedback for cross-session analysis

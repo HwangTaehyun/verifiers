@@ -45,6 +45,8 @@ The function mutates ``output`` in place AND returns it for ergonomics.
 
 from __future__ import annotations
 
+import json
+import shlex
 from pathlib import Path
 from typing import Any
 
@@ -106,11 +108,16 @@ def apply_circuit_breaker(
         if block_count >= max_consecutive_blocks:
             # Safety valve: let the agent through with warnings
             output["decision"] = "approve"
+            # Build a shell-safe re-run hint: json.dumps escapes the cwd
+            # for valid JSON, shlex.quote wraps it so the user can paste
+            # the line verbatim even when cwd contains quotes/whitespace.
+            json_payload = json.dumps({"cwd": cwd})
+            quoted = shlex.quote(json_payload)
             circuit_msg = (
                 f"\n\n⚠️ CIRCUIT BREAKER: {block_count} consecutive stop-hook blocks. "
                 f"Approving to prevent infinite loop. "
                 f"{len([f for f in findings if f.severity == 'error'])} unresolved error(s) remain. "
-                f'Run `echo \'{{"cwd": "{cwd}"}}\' | uv run --script stop_validator.py` '
+                f"Run `echo {quoted} | uv run --script stop_validator.py` "
                 f"to see full details."
             )
             output.setdefault("additionalContext", "")
