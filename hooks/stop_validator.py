@@ -29,6 +29,7 @@ from lib.exclusion import (
 from lib.feedback_tracker import FeedbackTracker
 from lib.json_logger import log_exception
 from lib.parallel_runner import run_all
+from lib.circuit_breaker import apply_circuit_breaker
 from lib.tier_cache import (
     is_cacheable,
     lookup_recent_pass,
@@ -233,72 +234,18 @@ def main() -> None:
         output["additionalContext"] = feedback_msg
         output["decision"] = "block"
 
-    # ── Circuit breaker: if already in a stop-hook loop, limit retries ──
-    # State lives at <cwd>/.verifiers/state/verifier-block-count to keep
-    # everything verifier-owned inside its own ``.verifiers/`` namespace
-    # (already used by V15 ``dependency_guard`` for ``.verifiers/layers.yaml``).
-    # The legacy <cwd>/.verifier-block-count is read once for back-compat
-    # then unlinked so users don't see a stale dotfile in the project root.
-    # Per-worktree scope is intentional: the circuit breaker tracks
-    # "this conversation keeps hitting the same block", and Claude
-    # sessions are typically scoped to a single worktree.
-    state_dir = Path(cwd) / ".verifiers" / "state"
-    block_marker = state_dir / "verifier-block-count"
-    legacy_marker = Path(cwd) / ".verifier-block-count"
-
-    def _read_block_count() -> int:
-        for marker in (block_marker, legacy_marker):
-            try:
-                if marker.exists():
-                    return int(marker.read_text().strip())
-            except (ValueError, OSError):
-                continue
-        return 0
-
-    def _drop_legacy_marker() -> None:
-        try:
-            legacy_marker.unlink(missing_ok=True)
-        except OSError:
-            pass
-
-    if stop_hook_active and output.get("decision") == "block":
-        block_count = _read_block_count() + 1
-
-        if block_count >= _MAX_CONSECUTIVE_BLOCKS:
-            # Safety valve: let the agent through with warnings
-            output["decision"] = "approve"
-            circuit_msg = (
-                f"\n\n⚠️ CIRCUIT BREAKER: {block_count} consecutive stop-hook blocks. "
-                f"Approving to prevent infinite loop. "
-                f"{len([f for f in all_findings if f.severity == 'error'])} unresolved error(s) remain. "
-                f'Run `echo \'{{"cwd": "{cwd}"}}\' | uv run --script stop_validator.py` '
-                f"to see full details."
-            )
-            output.setdefault("additionalContext", "")
-            output["additionalContext"] += circuit_msg
-            # Remove reason since we're approving
-            output.pop("reason", None)
-            # Reset counter
-            try:
-                block_marker.unlink(missing_ok=True)
-            except OSError:
-                pass
-            _drop_legacy_marker()
-        else:
-            # Persist block count
-            try:
-                state_dir.mkdir(parents=True, exist_ok=True)
-                block_marker.write_text(str(block_count))
-            except OSError:
-                pass
-            _drop_legacy_marker()
-    else:
-        # Not in a loop or approved — reset counter
-        try:
-            block_marker.unlink(missing_ok=True)
-        except OSError:
-            pass
-        _drop_legacy_marker()
+    # Phase 71 L4: circuit-breaker logic moved to lib/circuit_breaker.py.
+    # Same semantics as the inline version — counts consecutive
+    # ``decision: "block"`` returns and converts the Nth (default 3) to
+    # ``approve`` with an explanatory ``additionalContext`` so a stuck
+    # session always makes forward progress.
+    output = apply_circuit_breaker(
+        cwd=cwd,
+        output=output,
+        findings=all_findings,
+        stop_hook_active=stop_hook_active,
+        max_consecutive_blocks=_MAX_CONSECUTIVE_BLOCKS,
+    )
 
     # Persist session feedback for cross-session analysis
     try:
