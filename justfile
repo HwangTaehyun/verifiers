@@ -13,124 +13,166 @@ default:
 
 # Global 설치 (hooks + skills + agents + commands → ~/.claude/)
 install:
-    @echo "Installing verifiers globally..."
-    # Ensure directories exist
-    mkdir -p ~/.claude/hooks
-    mkdir -p ~/.claude/skills
-    mkdir -p ~/.claude/agents/team
-    mkdir -p ~/.claude/commands
-    # Verifiers base symlink (skills reference validators through this)
-    ln -sf {{justfile_directory()}} ~/.claude/verifiers
-    # Skills (Tier 2: 상황별 검증)
-    ln -sf {{justfile_directory()}}/skills/verify/ ~/.claude/skills/verify
-    ln -sf {{justfile_directory()}}/skills/verify-env/ ~/.claude/skills/verify-env
-    ln -sf {{justfile_directory()}}/skills/verify-docker/ ~/.claude/skills/verify-docker
-    ln -sf {{justfile_directory()}}/skills/verify-graphql/ ~/.claude/skills/verify-graphql
-    ln -sf {{justfile_directory()}}/skills/verify-proto/ ~/.claude/skills/verify-proto
-    ln -sf {{justfile_directory()}}/skills/verify-hasura/ ~/.claude/skills/verify-hasura
-    ln -sf {{justfile_directory()}}/skills/verify-go/ ~/.claude/skills/verify-go
-    ln -sf {{justfile_directory()}}/skills/verify-ts/ ~/.claude/skills/verify-ts
-    ln -sf {{justfile_directory()}}/skills/verify-ui/ ~/.claude/skills/verify-ui
-    ln -sf {{justfile_directory()}}/skills/verify-go-test/ ~/.claude/skills/verify-go-test
-    ln -sf {{justfile_directory()}}/skills/verify-ts-test/ ~/.claude/skills/verify-ts-test
-    ln -sf {{justfile_directory()}}/skills/verify-py-test/ ~/.claude/skills/verify-py-test
-    ln -sf {{justfile_directory()}}/skills/verify-commit/ ~/.claude/skills/verify-commit
-    ln -sf {{justfile_directory()}}/skills/verify-cheating/ ~/.claude/skills/verify-cheating
-    ln -sf {{justfile_directory()}}/skills/verify-complexity/ ~/.claude/skills/verify-complexity
-    ln -sf {{justfile_directory()}}/skills/verify-deps/ ~/.claude/skills/verify-deps
-    ln -sf {{justfile_directory()}}/skills/verify-linter/ ~/.claude/skills/verify-linter
-    ln -sf {{justfile_directory()}}/skills/verify-input/ ~/.claude/skills/verify-input
-    ln -sf {{justfile_directory()}}/skills/verify-mock/ ~/.claude/skills/verify-mock
-    ln -sf {{justfile_directory()}}/skills/test-classical/ ~/.claude/skills/test-classical
-    ln -sf {{justfile_directory()}}/skills/write-business-function/ ~/.claude/skills/write-business-function
-    # Agents
-    ln -sf {{justfile_directory()}}/agents/stack-verifier.md ~/.claude/agents/stack-verifier.md
-    ln -sf {{justfile_directory()}}/agents/ui-verifier.md ~/.claude/agents/ui-verifier.md
-    ln -sf {{justfile_directory()}}/agents/tdd-writer.md ~/.claude/agents/tdd-writer.md
-    ln -sf {{justfile_directory()}}/agents/team/builder.md ~/.claude/agents/team/builder.md
-    ln -sf {{justfile_directory()}}/agents/team/validator.md ~/.claude/agents/team/validator.md
-    # Commands
-    ln -sf {{justfile_directory()}}/commands/verify.md ~/.claude/commands/verify.md
-    ln -sf {{justfile_directory()}}/commands/build-with-validation.md ~/.claude/commands/build-with-validation.md
-    ln -sf {{justfile_directory()}}/commands/tdd.md ~/.claude/commands/tdd.md
-    ln -sf {{justfile_directory()}}/commands/tdd-write.md ~/.claude/commands/tdd-write.md
-    ln -sf {{justfile_directory()}}/commands/tdd-update.md ~/.claude/commands/tdd-update.md
-    # settings.json hook 등록 (Tier 1 + Tier 3)
-    uv run {{justfile_directory()}}/scripts/merge_settings.py
-    @echo "✅ Installed globally. Restart Claude Code to activate."
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -t 1 ]; then
+      GREEN=$'\033[0;32m'; CYAN=$'\033[0;36m'; DIM=$'\033[2m'; BOLD=$'\033[1m'; RED=$'\033[0;31m'; NC=$'\033[0m'
+    else
+      GREEN=""; CYAN=""; DIM=""; BOLD=""; RED=""; NC=""
+    fi
+    start_ms=$(($(date +%s%N) / 1000000))
+    SRC="{{justfile_directory()}}"
+    DST="$HOME/.claude"
+
+    echo -e "${CYAN}❯${NC} Installing verifiers → ${BOLD}~/.claude/${NC}"
+    mkdir -p "$DST/hooks" "$DST/skills" "$DST/agents/team" "$DST/commands"
+    ln -sf "$SRC" "$DST/verifiers"
+
+    SKILLS=(verify verify-env verify-docker verify-graphql verify-proto verify-hasura
+            verify-go verify-ts verify-ui verify-go-test verify-ts-test verify-py-test
+            verify-commit verify-cheating verify-complexity verify-deps verify-linter
+            verify-input verify-mock test-classical write-business-function)
+    for s in "${SKILLS[@]}"; do
+      ln -sf "$SRC/skills/$s/" "$DST/skills/$s"
+    done
+    echo -e "  ${GREEN}✓${NC} Skills ${DIM}(${#SKILLS[@]})${NC}"
+
+    AGENTS=(stack-verifier ui-verifier tdd-writer)
+    for a in "${AGENTS[@]}"; do
+      ln -sf "$SRC/agents/$a.md" "$DST/agents/$a.md"
+    done
+    ln -sf "$SRC/agents/team/builder.md" "$DST/agents/team/builder.md"
+    ln -sf "$SRC/agents/team/validator.md" "$DST/agents/team/validator.md"
+    echo -e "  ${GREEN}✓${NC} Agents ${DIM}($((${#AGENTS[@]} + 2)))${NC}"
+
+    COMMANDS=(verify build-with-validation tdd tdd-write tdd-update)
+    for c in "${COMMANDS[@]}"; do
+      ln -sf "$SRC/commands/$c.md" "$DST/commands/$c.md"
+    done
+    echo -e "  ${GREEN}✓${NC} Commands ${DIM}(${#COMMANDS[@]})${NC}"
+
+    if uv run "$SRC/scripts/merge_settings.py" >/dev/null 2>&1; then
+      echo -e "  ${GREEN}✓${NC} Hooks merged ${DIM}(Tier 1/2/3)${NC}"
+    else
+      echo -e "  ${RED}✗${NC} Hook merge failed — re-run with verbose: uv run $SRC/scripts/merge_settings.py" >&2
+      exit 1
+    fi
+
+    elapsed=$(( $(date +%s%N) / 1000000 - start_ms ))
+    echo -e "${BOLD}${GREEN}✓${NC} Installed in ${BOLD}${elapsed}ms${NC}"
+    echo -e "  ${DIM}→ Restart Claude Code to activate.${NC}"
 
 # Global 삭제
 uninstall:
-    @echo "Uninstalling verifiers..."
-    rm -f ~/.claude/verifiers
-    rm -f ~/.claude/skills/verify ~/.claude/skills/verify-* ~/.claude/skills/test-classical ~/.claude/skills/write-business-function
-    rm -f ~/.claude/agents/stack-verifier.md
-    rm -f ~/.claude/agents/ui-verifier.md
-    rm -f ~/.claude/agents/tdd-writer.md
-    rm -f ~/.claude/agents/team/builder.md ~/.claude/agents/team/validator.md
-    rm -f ~/.claude/commands/verify.md
-    rm -f ~/.claude/commands/build-with-validation.md
-    rm -f ~/.claude/commands/tdd.md ~/.claude/commands/tdd-write.md ~/.claude/commands/tdd-update.md
-    uv run {{justfile_directory()}}/scripts/unmerge_settings.py
-    @echo "✅ Uninstalled. Restart Claude Code."
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -t 1 ]; then
+      GREEN=$'\033[0;32m'; CYAN=$'\033[0;36m'; DIM=$'\033[2m'; BOLD=$'\033[1m'; NC=$'\033[0m'
+    else
+      GREEN=""; CYAN=""; DIM=""; BOLD=""; NC=""
+    fi
+    start_ms=$(($(date +%s%N) / 1000000))
+    SRC="{{justfile_directory()}}"
+    DST="$HOME/.claude"
+
+    echo -e "${CYAN}❯${NC} Uninstalling verifiers ${DIM}from ~/.claude/${NC}"
+    rm -f "$DST/verifiers"
+    rm -f "$DST/skills/verify" "$DST"/skills/verify-* "$DST/skills/test-classical" "$DST/skills/write-business-function"
+    echo -e "  ${GREEN}✓${NC} Skills"
+    rm -f "$DST/agents/stack-verifier.md" "$DST/agents/ui-verifier.md" "$DST/agents/tdd-writer.md"
+    rm -f "$DST/agents/team/builder.md" "$DST/agents/team/validator.md"
+    echo -e "  ${GREEN}✓${NC} Agents"
+    rm -f "$DST/commands/verify.md" "$DST/commands/build-with-validation.md"
+    rm -f "$DST/commands/tdd.md" "$DST/commands/tdd-write.md" "$DST/commands/tdd-update.md"
+    echo -e "  ${GREEN}✓${NC} Commands"
+    uv run "$SRC/scripts/unmerge_settings.py" >/dev/null 2>&1 || true
+    echo -e "  ${GREEN}✓${NC} Hooks unmerged"
+
+    elapsed=$(( $(date +%s%N) / 1000000 - start_ms ))
+    echo -e "${BOLD}${GREEN}✓${NC} Uninstalled in ${BOLD}${elapsed}ms${NC}"
+    echo -e "  ${DIM}→ Restart Claude Code.${NC}"
 
 # 특정 프로젝트에 설치 (프로젝트의 .claude/ 디렉토리에 심볼릭 링크)
 install-project project_dir:
-    @echo "Installing verifiers to {{project_dir}}/.claude/ ..."
-    mkdir -p {{project_dir}}/.claude/hooks
-    mkdir -p {{project_dir}}/.claude/skills
-    mkdir -p {{project_dir}}/.claude/agents/team
-    mkdir -p {{project_dir}}/.claude/commands
-    ln -sf {{justfile_directory()}} {{project_dir}}/.claude/verifiers
-    ln -sf {{justfile_directory()}}/skills/verify/ {{project_dir}}/.claude/skills/verify
-    ln -sf {{justfile_directory()}}/skills/verify-env/ {{project_dir}}/.claude/skills/verify-env
-    ln -sf {{justfile_directory()}}/skills/verify-docker/ {{project_dir}}/.claude/skills/verify-docker
-    ln -sf {{justfile_directory()}}/skills/verify-graphql/ {{project_dir}}/.claude/skills/verify-graphql
-    ln -sf {{justfile_directory()}}/skills/verify-proto/ {{project_dir}}/.claude/skills/verify-proto
-    ln -sf {{justfile_directory()}}/skills/verify-hasura/ {{project_dir}}/.claude/skills/verify-hasura
-    ln -sf {{justfile_directory()}}/skills/verify-go/ {{project_dir}}/.claude/skills/verify-go
-    ln -sf {{justfile_directory()}}/skills/verify-ts/ {{project_dir}}/.claude/skills/verify-ts
-    ln -sf {{justfile_directory()}}/skills/verify-ui/ {{project_dir}}/.claude/skills/verify-ui
-    ln -sf {{justfile_directory()}}/skills/verify-go-test/ {{project_dir}}/.claude/skills/verify-go-test
-    ln -sf {{justfile_directory()}}/skills/verify-ts-test/ {{project_dir}}/.claude/skills/verify-ts-test
-    ln -sf {{justfile_directory()}}/skills/verify-py-test/ {{project_dir}}/.claude/skills/verify-py-test
-    ln -sf {{justfile_directory()}}/skills/verify-commit/ {{project_dir}}/.claude/skills/verify-commit
-    ln -sf {{justfile_directory()}}/skills/verify-cheating/ {{project_dir}}/.claude/skills/verify-cheating
-    ln -sf {{justfile_directory()}}/skills/verify-complexity/ {{project_dir}}/.claude/skills/verify-complexity
-    ln -sf {{justfile_directory()}}/skills/verify-deps/ {{project_dir}}/.claude/skills/verify-deps
-    ln -sf {{justfile_directory()}}/skills/verify-linter/ {{project_dir}}/.claude/skills/verify-linter
-    ln -sf {{justfile_directory()}}/skills/verify-input/ {{project_dir}}/.claude/skills/verify-input
-    ln -sf {{justfile_directory()}}/skills/verify-mock/ {{project_dir}}/.claude/skills/verify-mock
-    ln -sf {{justfile_directory()}}/skills/test-classical/ {{project_dir}}/.claude/skills/test-classical
-    ln -sf {{justfile_directory()}}/skills/write-business-function/ {{project_dir}}/.claude/skills/write-business-function
-    ln -sf {{justfile_directory()}}/agents/stack-verifier.md {{project_dir}}/.claude/agents/stack-verifier.md
-    ln -sf {{justfile_directory()}}/agents/ui-verifier.md {{project_dir}}/.claude/agents/ui-verifier.md
-    ln -sf {{justfile_directory()}}/agents/tdd-writer.md {{project_dir}}/.claude/agents/tdd-writer.md
-    ln -sf {{justfile_directory()}}/agents/team/builder.md {{project_dir}}/.claude/agents/team/builder.md
-    ln -sf {{justfile_directory()}}/agents/team/validator.md {{project_dir}}/.claude/agents/team/validator.md
-    ln -sf {{justfile_directory()}}/commands/verify.md {{project_dir}}/.claude/commands/verify.md
-    ln -sf {{justfile_directory()}}/commands/build-with-validation.md {{project_dir}}/.claude/commands/build-with-validation.md
-    ln -sf {{justfile_directory()}}/commands/tdd.md {{project_dir}}/.claude/commands/tdd.md
-    ln -sf {{justfile_directory()}}/commands/tdd-write.md {{project_dir}}/.claude/commands/tdd-write.md
-    ln -sf {{justfile_directory()}}/commands/tdd-update.md {{project_dir}}/.claude/commands/tdd-update.md
-    # settings.json hook 등록 (Tier 1 + Tier 3)
-    uv run {{justfile_directory()}}/scripts/merge_settings.py --settings-path {{project_dir}}/.claude/settings.json
-    @echo "✅ Installed to {{project_dir}}. Restart Claude Code to activate."
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -t 1 ]; then
+      GREEN=$'\033[0;32m'; CYAN=$'\033[0;36m'; DIM=$'\033[2m'; BOLD=$'\033[1m'; RED=$'\033[0;31m'; NC=$'\033[0m'
+    else
+      GREEN=""; CYAN=""; DIM=""; BOLD=""; RED=""; NC=""
+    fi
+    start_ms=$(($(date +%s%N) / 1000000))
+    SRC="{{justfile_directory()}}"
+    DST="{{project_dir}}/.claude"
+    PROJECT_NAME=$(basename "{{project_dir}}")
+
+    echo -e "${CYAN}❯${NC} Installing verifiers → ${BOLD}${PROJECT_NAME}${NC}"
+    mkdir -p "$DST/hooks" "$DST/skills" "$DST/agents/team" "$DST/commands"
+    ln -sf "$SRC" "$DST/verifiers"
+
+    SKILLS=(verify verify-env verify-docker verify-graphql verify-proto verify-hasura
+            verify-go verify-ts verify-ui verify-go-test verify-ts-test verify-py-test
+            verify-commit verify-cheating verify-complexity verify-deps verify-linter
+            verify-input verify-mock test-classical write-business-function)
+    for s in "${SKILLS[@]}"; do
+      ln -sf "$SRC/skills/$s/" "$DST/skills/$s"
+    done
+    echo -e "  ${GREEN}✓${NC} Skills ${DIM}(${#SKILLS[@]})${NC}"
+
+    AGENTS=(stack-verifier ui-verifier tdd-writer)
+    for a in "${AGENTS[@]}"; do
+      ln -sf "$SRC/agents/$a.md" "$DST/agents/$a.md"
+    done
+    ln -sf "$SRC/agents/team/builder.md" "$DST/agents/team/builder.md"
+    ln -sf "$SRC/agents/team/validator.md" "$DST/agents/team/validator.md"
+    echo -e "  ${GREEN}✓${NC} Agents ${DIM}($((${#AGENTS[@]} + 2)))${NC}"
+
+    COMMANDS=(verify build-with-validation tdd tdd-write tdd-update)
+    for c in "${COMMANDS[@]}"; do
+      ln -sf "$SRC/commands/$c.md" "$DST/commands/$c.md"
+    done
+    echo -e "  ${GREEN}✓${NC} Commands ${DIM}(${#COMMANDS[@]})${NC}"
+
+    if uv run "$SRC/scripts/merge_settings.py" --settings-path "$DST/settings.json" >/dev/null 2>&1; then
+      echo -e "  ${GREEN}✓${NC} Hooks merged ${DIM}(Tier 1/2/3 → $DST/settings.json)${NC}"
+    else
+      echo -e "  ${RED}✗${NC} Hook merge failed — re-run: uv run $SRC/scripts/merge_settings.py --settings-path $DST/settings.json" >&2
+      exit 1
+    fi
+
+    elapsed=$(( $(date +%s%N) / 1000000 - start_ms ))
+    echo -e "${BOLD}${GREEN}✓${NC} Installed in ${BOLD}${elapsed}ms${NC}"
+    echo -e "  ${DIM}→ Restart Claude Code to activate.${NC}"
 
 # 특정 프로젝트에서 삭제
 uninstall-project project_dir:
-    @echo "Uninstalling verifiers from {{project_dir}}/.claude/ ..."
-    rm -f {{project_dir}}/.claude/verifiers
-    rm -f {{project_dir}}/.claude/skills/verify {{project_dir}}/.claude/skills/verify-* {{project_dir}}/.claude/skills/test-classical {{project_dir}}/.claude/skills/write-business-function
-    rm -f {{project_dir}}/.claude/agents/stack-verifier.md
-    rm -f {{project_dir}}/.claude/agents/ui-verifier.md
-    rm -f {{project_dir}}/.claude/agents/tdd-writer.md
-    rm -f {{project_dir}}/.claude/agents/team/builder.md {{project_dir}}/.claude/agents/team/validator.md
-    rm -f {{project_dir}}/.claude/commands/verify.md
-    rm -f {{project_dir}}/.claude/commands/build-with-validation.md
-    rm -f {{project_dir}}/.claude/commands/tdd.md {{project_dir}}/.claude/commands/tdd-write.md {{project_dir}}/.claude/commands/tdd-update.md
-    uv run {{justfile_directory()}}/scripts/unmerge_settings.py --settings-path {{project_dir}}/.claude/settings.json
-    @echo "✅ Uninstalled from {{project_dir}}."
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -t 1 ]; then
+      GREEN=$'\033[0;32m'; CYAN=$'\033[0;36m'; DIM=$'\033[2m'; BOLD=$'\033[1m'; NC=$'\033[0m'
+    else
+      GREEN=""; CYAN=""; DIM=""; BOLD=""; NC=""
+    fi
+    start_ms=$(($(date +%s%N) / 1000000))
+    SRC="{{justfile_directory()}}"
+    DST="{{project_dir}}/.claude"
+    PROJECT_NAME=$(basename "{{project_dir}}")
+
+    echo -e "${CYAN}❯${NC} Uninstalling verifiers ${DIM}from ${PROJECT_NAME}${NC}"
+    rm -f "$DST/verifiers"
+    rm -f "$DST/skills/verify" "$DST"/skills/verify-* "$DST/skills/test-classical" "$DST/skills/write-business-function"
+    echo -e "  ${GREEN}✓${NC} Skills"
+    rm -f "$DST/agents/stack-verifier.md" "$DST/agents/ui-verifier.md" "$DST/agents/tdd-writer.md"
+    rm -f "$DST/agents/team/builder.md" "$DST/agents/team/validator.md"
+    echo -e "  ${GREEN}✓${NC} Agents"
+    rm -f "$DST/commands/verify.md" "$DST/commands/build-with-validation.md"
+    rm -f "$DST/commands/tdd.md" "$DST/commands/tdd-write.md" "$DST/commands/tdd-update.md"
+    echo -e "  ${GREEN}✓${NC} Commands"
+    uv run "$SRC/scripts/unmerge_settings.py" --settings-path "$DST/settings.json" >/dev/null 2>&1 || true
+    echo -e "  ${GREEN}✓${NC} Hooks unmerged"
+
+    elapsed=$(( $(date +%s%N) / 1000000 - start_ms ))
+    echo -e "${BOLD}${GREEN}✓${NC} Uninstalled in ${BOLD}${elapsed}ms${NC}"
 
 # ═══════════════════════════════════════════
 # 검증 실행
