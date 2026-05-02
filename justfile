@@ -26,28 +26,28 @@ install:
 
     echo -e "${CYAN}❯${NC} Installing verifiers → ${BOLD}~/.claude/${NC}"
     mkdir -p "$DST/hooks" "$DST/skills" "$DST/agents/team" "$DST/commands"
-    ln -sf "$SRC" "$DST/verifiers"
+    ln -sfn "$SRC" "$DST/verifiers"
 
     SKILLS=(verify verify-env verify-docker verify-graphql verify-proto verify-hasura
             verify-go verify-ts verify-ui verify-go-test verify-ts-test verify-py-test
             verify-commit verify-cheating verify-complexity verify-deps verify-linter
             verify-input verify-mock test-classical write-business-function)
     for s in "${SKILLS[@]}"; do
-      ln -sf "$SRC/skills/$s/" "$DST/skills/$s"
+      ln -sfn "$SRC/skills/$s/" "$DST/skills/$s"
     done
     echo -e "  ${GREEN}✓${NC} Skills ${DIM}(${#SKILLS[@]})${NC}"
 
     AGENTS=(stack-verifier ui-verifier tdd-writer)
     for a in "${AGENTS[@]}"; do
-      ln -sf "$SRC/agents/$a.md" "$DST/agents/$a.md"
+      ln -sfn "$SRC/agents/$a.md" "$DST/agents/$a.md"
     done
-    ln -sf "$SRC/agents/team/builder.md" "$DST/agents/team/builder.md"
-    ln -sf "$SRC/agents/team/validator.md" "$DST/agents/team/validator.md"
+    ln -sfn "$SRC/agents/team/builder.md" "$DST/agents/team/builder.md"
+    ln -sfn "$SRC/agents/team/validator.md" "$DST/agents/team/validator.md"
     echo -e "  ${GREEN}✓${NC} Agents ${DIM}($((${#AGENTS[@]} + 2)))${NC}"
 
     COMMANDS=(verify build-with-validation tdd tdd-write tdd-update)
     for c in "${COMMANDS[@]}"; do
-      ln -sf "$SRC/commands/$c.md" "$DST/commands/$c.md"
+      ln -sfn "$SRC/commands/$c.md" "$DST/commands/$c.md"
     done
     echo -e "  ${GREEN}✓${NC} Commands ${DIM}(${#COMMANDS[@]})${NC}"
 
@@ -108,28 +108,28 @@ install-project project_dir:
 
     echo -e "${CYAN}❯${NC} Installing verifiers → ${BOLD}${PROJECT_NAME}${NC}"
     mkdir -p "$DST/hooks" "$DST/skills" "$DST/agents/team" "$DST/commands"
-    ln -sf "$SRC" "$DST/verifiers"
+    ln -sfn "$SRC" "$DST/verifiers"
 
     SKILLS=(verify verify-env verify-docker verify-graphql verify-proto verify-hasura
             verify-go verify-ts verify-ui verify-go-test verify-ts-test verify-py-test
             verify-commit verify-cheating verify-complexity verify-deps verify-linter
             verify-input verify-mock test-classical write-business-function)
     for s in "${SKILLS[@]}"; do
-      ln -sf "$SRC/skills/$s/" "$DST/skills/$s"
+      ln -sfn "$SRC/skills/$s/" "$DST/skills/$s"
     done
     echo -e "  ${GREEN}✓${NC} Skills ${DIM}(${#SKILLS[@]})${NC}"
 
     AGENTS=(stack-verifier ui-verifier tdd-writer)
     for a in "${AGENTS[@]}"; do
-      ln -sf "$SRC/agents/$a.md" "$DST/agents/$a.md"
+      ln -sfn "$SRC/agents/$a.md" "$DST/agents/$a.md"
     done
-    ln -sf "$SRC/agents/team/builder.md" "$DST/agents/team/builder.md"
-    ln -sf "$SRC/agents/team/validator.md" "$DST/agents/team/validator.md"
+    ln -sfn "$SRC/agents/team/builder.md" "$DST/agents/team/builder.md"
+    ln -sfn "$SRC/agents/team/validator.md" "$DST/agents/team/validator.md"
     echo -e "  ${GREEN}✓${NC} Agents ${DIM}($((${#AGENTS[@]} + 2)))${NC}"
 
     COMMANDS=(verify build-with-validation tdd tdd-write tdd-update)
     for c in "${COMMANDS[@]}"; do
-      ln -sf "$SRC/commands/$c.md" "$DST/commands/$c.md"
+      ln -sfn "$SRC/commands/$c.md" "$DST/commands/$c.md"
     done
     echo -e "  ${GREEN}✓${NC} Commands ${DIM}(${#COMMANDS[@]})${NC}"
 
