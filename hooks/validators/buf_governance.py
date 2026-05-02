@@ -95,24 +95,26 @@ class BufGovernanceValidator(BaseValidator):
     ]
 
     def validate_file(self, ctx: ProjectContext, file_path: str) -> list[Finding]:
-        """Tier 2: lock drift + protovalidate (cheap)."""
+        """Tier 2: lock drift + protovalidate + ts_nocheck (cheap)."""
         buf_dir = _find_buf_dir(ctx)
-        if buf_dir is None:
-            return []
         findings: list[Finding] = []
-        findings.extend(self._check_lock_drift(buf_dir))
-        findings.extend(self._check_protovalidate(buf_dir))
+        if buf_dir is not None:
+            findings.extend(self._check_lock_drift(buf_dir))
+            findings.extend(self._check_protovalidate(buf_dir))
+        # ts_nocheck check is project-wide (web/buf.gen.yaml may live
+        # outside buf_dir) — runs even when buf_dir is None.
+        findings.extend(self._check_ts_nocheck_disabled(ctx))
         return findings
 
     def validate_project(self, ctx: ProjectContext) -> list[Finding]:
-        """Tier 3: lock drift + protovalidate + breaking-change scan."""
+        """Tier 3: lock drift + protovalidate + breaking + ts_nocheck."""
         buf_dir = _find_buf_dir(ctx)
-        if buf_dir is None:
-            return []
         findings: list[Finding] = []
-        findings.extend(self._check_lock_drift(buf_dir))
-        findings.extend(self._check_protovalidate(buf_dir))
-        findings.extend(self._check_breaking(ctx, buf_dir))
+        if buf_dir is not None:
+            findings.extend(self._check_lock_drift(buf_dir))
+            findings.extend(self._check_protovalidate(buf_dir))
+            findings.extend(self._check_breaking(ctx, buf_dir))
+        findings.extend(self._check_ts_nocheck_disabled(ctx))
         return findings
 
     # ── (a) buf.yaml ↔ buf.lock drift ─────────────────────────────────
@@ -289,6 +291,87 @@ class BufGovernanceValidator(BaseValidator):
                         fix=(
                             "Add `[(buf.validate.field).required = true]` (and/or "
                             "format-specific rules like `.string.email = true`)."
+                        ),
+                    )
+                )
+        return findings
+
+
+    # ── (d) ts_nocheck=false enforcement (Phase 71 follow-up) ────────
+
+    def _check_ts_nocheck_disabled(self, ctx: ProjectContext) -> list[Finding]:
+        """Require ``ts_nocheck=false`` on TS-targeting plugins in buf.gen.yaml.
+
+        The buf-build/es and connectrpc/es plugins default to emitting
+        ``// @ts-nocheck`` at the top of every generated file, which
+        silently disables strict-mode TS checking for the entire
+        Connect-RPC client surface. Mistypes / mis-shaped messages
+        flow through untyped and only fail at runtime.
+
+        Adding ``- ts_nocheck=false`` to the plugin's ``opt`` list flips
+        the generator off — generated files become part of the strict-
+        TS pipeline. This rule enforces that flip on any plugin that
+        targets TypeScript (``target=ts`` in opt OR plugin name ending
+        in ``/es:*``).
+
+        Walks every ``buf.gen.yaml`` in the project via Phase 65
+        ``ctx.file_index`` so web/buf.gen.yaml and server/buf.gen.yaml
+        get checked together.
+
+        Reference: ``ts_nocheck`` plugin option documented at
+        https://github.com/bufbuild/protobuf-es/blob/main/docs/runtime_api.md
+        """
+        findings: list[Finding] = []
+        for buf_gen in ctx.file_index.find_by_pattern("buf.gen.yaml"):
+            try:
+                doc = yaml.safe_load(buf_gen.read_text(errors="replace"))
+            except (yaml.YAMLError, OSError):
+                continue
+            if not isinstance(doc, dict):
+                continue
+            plugins = doc.get("plugins") or []
+            if not isinstance(plugins, list):
+                continue
+            for idx, plugin in enumerate(plugins):
+                if not isinstance(plugin, dict):
+                    continue
+                opt = plugin.get("opt") or []
+                if not isinstance(opt, list):
+                    continue
+                opt_strs = [str(x) for x in opt]
+                # Identify TS-targeting plugins.
+                plugin_name = str(plugin.get("remote") or plugin.get("local") or plugin.get("name") or "")
+                is_ts = (
+                    "target=ts" in opt_strs
+                    or "/es:" in plugin_name
+                    or plugin_name.endswith("/es")
+                )
+                if not is_ts:
+                    continue
+                # Look for ts_nocheck=true (bad) or absence (default-true, also bad).
+                has_false = "ts_nocheck=false" in opt_strs
+                has_true = "ts_nocheck=true" in opt_strs
+                if has_false:
+                    continue  # Explicitly disabled — good.
+                # Either missing or set to true — emit finding.
+                rule = "V23-TS-NOCHECK-ENABLED" if has_true else "V23-TS-NOCHECK-MISSING"
+                msg_state = "set to true" if has_true else "not set (default true)"
+                findings.append(
+                    Finding(
+                        severity="warning",
+                        file=str(buf_gen),
+                        rule=rule,
+                        message=(
+                            f"Plugin '{plugin_name or f'#{idx}'}' targets TS but ts_nocheck is "
+                            f"{msg_state}. Generated files start with `// @ts-nocheck`, "
+                            "silently bypassing strict-TS checking of the Connect-RPC client "
+                            "surface."
+                        ),
+                        fix=(
+                            f"Add `- ts_nocheck=false` to the plugin's opt list in "
+                            f"{buf_gen}. Then re-generate (e.g. `bun run generate:buf`) so "
+                            "the @ts-nocheck headers are dropped and tsc actually checks the "
+                            "generated code."
                         ),
                     )
                 )

@@ -258,3 +258,104 @@ class TestBreaking:
             findings = validator.validate_project(ctx)
         # Should have logged but emitted no V23-BREAKING findings
         assert all(not f.rule.startswith("V23-BREAKING-") for f in findings)
+
+
+# ── 4. V23-TS-NOCHECK — buf.gen.yaml plugin opt enforcement (Phase 71+) ──
+
+
+class TestTsNocheck:
+    """Phase 71 follow-up: enforce ``ts_nocheck=false`` on TS-targeting
+    Connect-RPC plugins so generated code is part of strict-TS checking
+    instead of silently bypassed via ``// @ts-nocheck`` headers."""
+
+    def _write_buf_gen(self, path: Path, body: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(textwrap.dedent(body).lstrip())
+
+    def test_ts_nocheck_false_no_finding(self, validator, repo, ctx):
+        """Explicit ``ts_nocheck=false`` → no finding."""
+        self._write_buf_gen(
+            repo / "web" / "buf.gen.yaml",
+            """
+            version: v2
+            plugins:
+              - remote: buf.build/bufbuild/es:v1.10.0
+                out: src/api/connectRpc/gen
+                opt:
+                  - target=ts
+                  - import_extension=none
+                  - ts_nocheck=false
+            """,
+        )
+        findings = validator.validate_project(ctx)
+        assert all(not f.rule.startswith("V23-TS-NOCHECK") for f in findings)
+
+    def test_ts_nocheck_missing_emits_finding(self, validator, repo, ctx):
+        """No ``ts_nocheck`` opt at all → V23-TS-NOCHECK-MISSING."""
+        self._write_buf_gen(
+            repo / "web" / "buf.gen.yaml",
+            """
+            version: v2
+            plugins:
+              - remote: buf.build/bufbuild/es:v1.10.0
+                out: src/api/connectRpc/gen
+                opt:
+                  - target=ts
+                  - import_extension=none
+            """,
+        )
+        findings = validator.validate_project(ctx)
+        nocheck = [f for f in findings if f.rule == "V23-TS-NOCHECK-MISSING"]
+        assert len(nocheck) == 1
+        assert "ts_nocheck=false" in nocheck[0].fix
+
+    def test_ts_nocheck_true_emits_finding(self, validator, repo, ctx):
+        """Explicit ``ts_nocheck=true`` → V23-TS-NOCHECK-ENABLED."""
+        self._write_buf_gen(
+            repo / "web" / "buf.gen.yaml",
+            """
+            version: v2
+            plugins:
+              - remote: buf.build/bufbuild/es:v1.10.0
+                out: src/api/connectRpc/gen
+                opt:
+                  - target=ts
+                  - ts_nocheck=true
+            """,
+        )
+        findings = validator.validate_project(ctx)
+        nocheck = [f for f in findings if f.rule == "V23-TS-NOCHECK-ENABLED"]
+        assert len(nocheck) == 1
+
+    def test_non_ts_plugin_ignored(self, validator, repo, ctx):
+        """Plugins not targeting TS (e.g. Go) are not flagged."""
+        self._write_buf_gen(
+            repo / "server" / "buf.gen.yaml",
+            """
+            version: v2
+            plugins:
+              - remote: buf.build/protocolbuffers/go:v1.34.0
+                out: gen/go
+                opt:
+                  - paths=source_relative
+            """,
+        )
+        findings = validator.validate_project(ctx)
+        assert all(not f.rule.startswith("V23-TS-NOCHECK") for f in findings)
+
+    def test_connectrpc_es_plugin_also_checked(self, validator, repo, ctx):
+        """``connectrpc/es`` plugin is also a TS target — same rule applies."""
+        self._write_buf_gen(
+            repo / "web" / "buf.gen.yaml",
+            """
+            version: v2
+            plugins:
+              - remote: buf.build/connectrpc/es:v1.6.1
+                out: src/api/connectRpc/gen
+                opt:
+                  - target=ts
+            """,
+        )
+        findings = validator.validate_project(ctx)
+        nocheck = [f for f in findings if f.rule.startswith("V23-TS-NOCHECK")]
+        assert len(nocheck) == 1
