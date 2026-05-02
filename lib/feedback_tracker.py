@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from hooks.validators.base import Finding
+from lib.validators_core import Finding  # Phase 71 T3
 
 # Default log directory relative to verifiers repo root
 LOG_DIR = Path(__file__).parent.parent / "logs"

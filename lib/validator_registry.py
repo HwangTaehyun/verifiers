@@ -27,13 +27,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hooks.validators import get_all_validators
-from hooks.validators.base import Finding
+from lib.validators_core import Finding  # Phase 71 T3
 from lib.config_loader import expand_disabled_groups
 from lib.exclusion import filter_disabled_validators, filter_enabled_validators
 from lib.json_logger import log_exception
 
 if TYPE_CHECKING:
-    from hooks.validators.base import BaseValidator
+    from lib.validators_core import BaseValidator  # Phase 71 T3
     from lib.project_context import ProjectContext
 
 

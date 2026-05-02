@@ -37,11 +37,11 @@ import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from typing import TYPE_CHECKING
 
-from hooks.validators.base import Finding, ValidationResult
+from lib.validators_core import Finding, ValidationResult  # Phase 71 T3
 from lib.json_logger import log_exception
 
 if TYPE_CHECKING:
-    from hooks.validators.base import BaseValidator
+    from lib.validators_core import BaseValidator  # Phase 71 T3
     from lib.project_context import ProjectContext
 
 

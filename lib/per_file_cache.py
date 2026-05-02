@@ -94,7 +94,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from hooks.validators.base import Finding
+from lib.validators_core import Finding  # Phase 71 T3
 
 
 CACHE_VERSION = 1
