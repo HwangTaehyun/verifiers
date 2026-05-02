@@ -10,6 +10,268 @@ the original rationale.
 
 ## [Unreleased]
 
+### Added (Phase71 — V23-TS-NOCHECK rule for Connect-RPC TS plugins)
+
+`V23-TS-NOCHECK-MISSING` / `V23-TS-NOCHECK-ENABLED` enforces
+``ts_nocheck=false`` on TypeScript-targeting plugins in
+``buf.gen.yaml``:
+
+- `bufbuild/es` and `connectrpc/es` plugins default to emitting
+  ``// @ts-nocheck`` at the top of every generated file, which
+  silently disables strict-TS checking for the entire Connect-RPC
+  client surface. Mistypes in handler ↔ proto contracts only fail
+  at runtime.
+- Adding ``- ts_nocheck=false`` to the plugin's ``opt`` list flips
+  the generator off so generated files participate in tsc strict
+  checking.
+- V23 walks every ``buf.gen.yaml`` via ``ctx.file_index`` (Phase 65),
+  identifies TS-targeting plugins (``target=ts`` or plugin name
+  ending in ``/es``), and requires explicit ``ts_nocheck=false``.
+- Both rules are warnings (not errors) — projects mid-migration
+  can ship with the default while cleaning up generated-code type
+  errors.
+
+5 new tests in ``tests/test_buf_governance.py::TestTsNocheck``.
+
+### Changed (Phase71 — 5 sub-phase architectural cleanup + perf finishing touches)
+
+After Phase 70 brought wall to 3.6 s the wall floor was V06+V07
+subprocess work — beyond architectural reach without daemon-mode
+tooling. Phase 71 spends the energy on **code-quality cleanup**
+that the architecture review (architecture-strategist +
+performance-oracle agents) flagged.
+
+#### 71.T1 — 6 more validators migrated to ctx.file_index
+
+Phase 65 introduced the shared ``file_index`` but only migrated 7
+validators. The Phase 71 audit found 6 more still doing their own
+``rglob`` walks:
+
+- **V16** linter_config_guard: 3× ``rglob`` just to answer "do
+  go/py/ts files exist?" → now O(1) ``bool(ctx.file_index.find_by_pattern("*.go"))``.
+- **V08** security: server.rglob("*.go") + web.rglob("*.ts*") → file_index.
+- **V01** env_config: project_root.glob("**/docker-compose*.yaml")
+  + server.rglob("*.go") → file_index.
+- **V27** connect_handler: 4× internal_root.rglob("*.go") (handler
+  completeness, interceptor check, error returns, connect detection)
+  → shared ``_go_files_under(ctx, root)`` helper.
+- **V54** commitlint_gate: 2× root.rglob("package.json") (consume +
+  enforce detection) → file_index.
+
+V01 broadening side effect: docker-compose discovery now matches
+both .yaml AND .yml (file_index.find_by_pattern handles both),
+where the previous glob was .yaml only. This surfaces one new
+finding on ax-finance-project — a real env var declared in a .yml
+compose that wasn't previously checked. Intentional improvement.
+
+#### 71.T2 — `ProjectContext.compose_docs` cached_property
+
+5+ validators (V01/V05/V20/V22/V44/V57) historically each
+``read_text()`` + ``yaml.safe_load()`` the same compose files. With
+4 compose variants × 5 validators that's 20 parses for 4 files.
+
+New ``ctx.compose_docs: dict[str, dict]`` cached_property parses
+each compose file ONCE per Stop hook (lifecycle = single ctx).
+Validators can opt in incrementally — this commit ships the
+infrastructure without forcing migrations.
+
+#### 71.T3 — Layering inversion fix (Finding/BaseValidator → lib/)
+
+Architecture review H1 flagged a silent dependency inversion:
+``lib/parallel_runner.py``, ``lib/per_file_cache.py``,
+``lib/feedback_tracker.py``, and ``lib/validator_registry.py`` all
+imported ``Finding`` (and ``BaseValidator``, ``ValidationResult``)
+from ``hooks/validators/base.py``. Lower-tier (lib/) reaching into
+higher-tier (hooks/) — every new lib/ cache module deepened the
+violation.
+
+Fix: extract pure data + base class to a new module
+``lib/validators_core.py``:
+  - ``Finding``, ``ValidationResult`` (dataclasses)
+  - ``BaseValidator`` (run() dispatch)
+  - ``_compile_patterns`` (fnmatch → regex memoization)
+
+``hooks/validators/base.py`` is now a re-export shim — back-compat
+preserved. The 4 lib/ modules now import from ``lib.validators_core``
+directly so the layering invariant is realized at the import-graph
+level, not just by re-export sleight of hand. What stays in
+``hooks/validators/base.py``: hook I/O helpers (``read_hook_input``
+with stdin cap, ``write_hook_output``), finding → JSON formatter
+(``format_output``, ``_build_reason``, ``_dedup_findings``), the
+truncation sentinel builder.
+
+#### 71.T4 — V08 security PerFileCache
+
+V08's ``_scan_go_files`` + ``_scan_web_files`` were the only
+walk-heavy validators NOT yet on Phase 64.4's per-file cache
+pattern. V08 has the same shape as V14/V15/V20/V34/V35/V39:
+per-file regex scan with findings purely deterministic from
+(file content, config). Wired with ``PerFileCache`` + a new
+``_v08_fingerprint(phi_enabled, phi_fields)`` config fingerprint
+so toggling PHI scanning invalidates without manual cache wipe.
+
+V08 cold dropped from ~5,000 ms to ~850 ms (file_index removed
+the 4-second walk overhead). On clean projects V08 is then
+PASS-state cached by Phase 63; on dirty projects PerFileCache
+covers per-file deltas.
+
+#### 71.L4 — Circuit breaker extracted to lib/circuit_breaker.py
+
+stop_validator.main() was 318 LOC mixing five concerns. The
+60-LOC circuit-breaker logic (consecutive-block counter at
+``<cwd>/.verifiers/state/verifier-block-count`` with default-3
+trip threshold + legacy marker migration) lifted to its own
+module with a single ``apply_circuit_breaker(...)`` entry point.
+Mutates output in place + returns for ergonomics.
+``DEFAULT_MAX_CONSECUTIVE_BLOCKS`` constant exposed for tests.
+
+#### Measured wall (ax-finance-project, true cold then warm)
+
+                    Phase 70    Phase 71 final
+  COLD             16,653 ms    15,267 ms       -8%
+  WARM #2           3,647 ms     3,461 ms       -5%
+  WARM #3           3,629 ms     3,584 ms       -1%
+  EDIT 1 .go        3,645 ms     3,513 ms       -4%
+  NO-CACHE          6,062 ms     5,678 ms       -6%
+
+Wall stays around 3.5 s — Phase 71's code-quality cleanup doesn't
+have a perf story (the V07/V06 subprocess floor caps further
+gains without architectural changes). Tests: 1,587 passing.
+
+### Changed (Phase70 — knip cache + detect_tool_version lru_cache + eager file_index)
+
+cProfile of V07 (warm Stop hook) revealed three previously-uncovered
+overhead sources:
+
+1. ``_check_unused_code`` (knip) was uncached — 722 ms / Stop
+   wasted re-running the unused-code analysis on unchanged inputs.
+   Now wraps with ``lib.subprocess_cache.cached_run`` (Phase 61
+   pattern). Inputs: .ts/.tsx files (via Phase 65 ctx.file_index),
+   tsconfig.json, package.json, knip.config.{json,js,ts}, knip
+   tool version. 7-day FIFO. Output deterministic from those
+   inputs.
+
+2. ``detect_tool_version`` ran ``bunx <tool> --version`` cold every
+   call — 590 ms / Stop wasted on bunx Node.js startup. Now backed
+   by ``@functools.lru_cache(maxsize=64)`` keyed on (cmd_tuple,
+   cwd_str). Tool versions don't change mid-process, so every call
+   after the first is a hash lookup.
+
+3. ``ProjectContext.file_index`` (Phase 65 cached_property) was
+   built lazily inside the parallel runner — first validator paid
+   200 ms that landed on the longest-pole thread.
+   ``hooks/stop_validator.py`` now triggers ``ctx.file_index``
+   immediately after creating the ctx, before the ThreadPool
+   spawns workers.
+
+V07 isolated dropped 3,575 ms → 2,000 ms (−44%):
+  tsc:                1,086 ms  (unchanged — already cached)
+  eslint:               752 ms  (Phase 67)
+  madge:                104 ms  (Phase 68 + Phase 70 lru_cache, was 668)
+  knip:                   5 ms  (Phase 70 cache, was 722)
+  vite_env:              33 ms
+
+Wall reduction smaller than V07's isolated 1.6 s improvement
+because V06 (~2.2 s) is now the wall floor.
+
+### Changed (Phase69 — per-file cache for V20/V34/V35/V39 Go regex scanners)
+
+V20 hasura_graphql_enforcement, V34 go_error_wrapping, V35
+go_context_propagation, and V39 go_context_scoped_logger all share
+the ``_scan_file → findings`` pattern with results deterministic
+from file content. Same property V14/V15 already exploited in
+Phase 64.4.
+
+Applied PerFileCache pattern + Phase 65 file_index walk across all
+four. V20's fingerprint includes ``"hasura-present-v1"`` so
+hasura presence transitions invalidate the cache.
+
+Per-validator (warm, isolated):
+                          Phase 68    Phase 69
+  V20 hasura-graphql:        886 ms     81 ms     -91%
+  V34 go-error-wrapping:     803 ms     98 ms     -88%
+  V39 go-context-logger:     799 ms     96 ms     -88%
+
+Wall change small (~100-700 ms) because V07 (~3.7 s) was the
+wall floor — V20/V34/V39 ran in parallel WITH V07. CPU savings of
+~2.4 s/Stop are real and visible in metrics.
+
+The investigation that drove Phase 69 also disproved an earlier
+GIL-contention hypothesis: V07 alone (3.6 s) ≈ V07 + 4 concurrent
+scanners (3.4 s). The "+1.2 s overhead" previously attributed to
+GIL was actually first-validator-pays-file-index-build cost
+(~288 ms) plus measurement noise.
+
+### Changed (Phase68 — V07 madge subprocess cache)
+
+V07's ``_check_circular_imports`` calls ``bunx madge --circular
+--json --extensions ts,tsx src/`` which walks all .ts/.tsx and
+builds the import graph. madge has no native cache, measured
+1.56 s warm. Wrapped with ``lib.subprocess_cache.cached_run``
+(same as V03 buf-lint). Inputs: .ts/.tsx files via ctx.file_index,
+tsconfig.json, package.json, madge tool version. 7-day FIFO.
+
+Cold (cache write): 2,214 ms.
+Warm (cache hit):     668 ms (-57% vs uncached).
+
+### Changed (Phase67 — V07 ESLint actually starts working)
+
+Three bugs in V07's ESLint invocation, all fixed:
+
+1. ``bun run eslint`` invokes the project's ``package.json`` script
+   for ``eslint``, which on real projects already includes args
+   (e.g. ``"src/**/*.{ts, tsx}" --fix --no-warn-ignored``). V07
+   appending its own args caused ESLint to see duplicate options
+   and reject them with ``Invalid option '--warn-ignored'``,
+   exiting in 0.17 s with ZERO findings. New
+   ``_resolve_eslint_command()`` helper now uses
+   ``<web>/node_modules/.bin/eslint`` directly, bypassing the
+   script wrapper.
+2. ``--no-warn-ignored`` is an ESLint v9+ flag. The validator was
+   passing it unconditionally, so any project on ESLint v8 (still
+   the most common) saw the "Invalid option" failure. Removed.
+3. ``--cache-location`` was passed as a directory path with
+   trailing slash. ESLint v8 with ``cache-strategy=content`` only
+   wrote a 0-byte ``.lock-hash`` sentinel inside but never the
+   actual cache file. Now passes a file path
+   (``.eslintcache``) so the cache file gets written.
+
+Direct measurement (ax-finance-project, ESLint v8.57.1):
+  Cold (no cache):    4.52 s
+  Warm 1 (cache hit): 0.74 s   ← 6.1× speedup
+
+Side effect: V07 was previously producing 1 finding because the
+fail-fast on duplicate options never reached real linting. After
+Phase 67 V07 surfaces 104 findings — real signal previously
+suppressed.
+
+### Changed (Phase66 — drop -count=1 from V06/V09 to restore Go test cache)
+
+Per ``go help testflag``: ``The idiomatic way to disable test
+caching explicitly is to use -count=1.``
+
+V06 and V09 were both passing ``-count=1`` to ``go test``,
+defeating Go's ``$GOCACHE/test/`` entirely. Every Stop hook
+re-ran every package's tests from scratch, even when nothing in
+the test binary's input hash had changed. Removing the flag lets
+Go's cache do its job:
+  - Test binary hash = sha256(sources + transitive deps + Go
+    version + cacheable flags + tracked os.Getenv/os.Open reads)
+  - Match → ``ok pkg/foo (cached)`` returned in <100 ms
+  - Mismatch → fresh run as before
+
+``-race`` and ``-timeout`` are in Go's cacheable flag set, so
+keeping them does NOT disable the cache.
+
+Direct measurement on ax-finance-project (server/):
+  go test -race -count=1 ./...    cold 5.0 s    warm 4.0 s
+  go test -race ./...              cold 4.2 s    warm 0.7 s
+  → 5.6× speedup on warm
+
+CI pipelines that need paranoid ``-count=1`` should keep their
+own ``go test`` invocation; this hook is a developer-experience
+tool optimizing edit-feedback latency.
+
 ### Changed (Phase65 — single-walk project file index eliminates GIL+IO contention)
 
 Phase 64 made the verifier suite **18% faster on warm runs** (97s → 80s

@@ -164,14 +164,29 @@ just clean-logs         # 로그 + 캐시 초기화
 
 #### 실측 — ax-finance-project (102,975 entries / web/node_modules 91,753)
 
-| 시나리오 | Phase 64 까지 | Phase 65 적용 후 | 절감 |
-|---|---:|---:|---:|
-| COLD (모든 캐시 wipe) | 96,902 ms | **6,182 ms** | **−93.6%** |
-| WARM | 79,531 ms | **6,186 ms** | **−92.2%** |
-| EDIT 1 .go file | 79,364 ms | **5,791 ms** | **−92.7%** |
-| 캐시 모두 비활성 | 97,429 ms | **6,288 ms** | **−93.5%** |
+| 시나리오 | Phase 64 까지 | Phase 65 적용 후 | Phase 71 (현재) | 누적 절감 |
+|---|---:|---:|---:|---:|
+| COLD (전체 wipe) | 96,902 ms | 6,182 ms | **15,267 ms** ¹ | −84% |
+| **WARM** | 79,531 ms | 6,186 ms | **3,461 ms** | **−96%** |
+| EDIT 1 .go file | 79,364 ms | 5,791 ms | **3,513 ms** | −96% |
+| 캐시 모두 비활성 | 97,429 ms | 6,288 ms | **5,678 ms** | −94% |
 
-새 wall floor 는 V06 (`go test -race`) + V07 (`tsc --noEmit`) ≈ 5.5 s — subprocess 자체가 floor.
+¹ Phase 65 의 6.2 s COLD 측정은 V07 의 `tsbuildinfo` / `.eslintcache` 가 부분 보존된 상태였습니다. Phase 71 측정은 모든 native cache + Go `$GOCACHE/test/` 까지 wipe 한 진짜 cold — 이게 사용자가 처음 verifier 적용한 첫 Stop hook 의 실제 비용입니다. 그 이후의 모든 Stop hook 은 WARM 시나리오 (3.5 s).
+
+새 wall floor 는 V07 (`tsc --noEmit` + eslint + madge + knip 합 약 2 s) + V06 (`go build` + cached `go test`) — subprocess 자체가 floor 며, 두 validator 가 ThreadPool 의 longest pole.
+
+#### Phase 66-71: subprocess 자체 캐시 + 코드 정리 (cold 첫 실행 후의 매일 Stop 비용 5s → 3.5s)
+
+Phase 65 가 walk 비용을 제거한 후 V07 의 subprocess 자체가 wall floor 가 됐습니다. Phase 66-71 는 그 subprocess 비용을 cProfile 로 분해해서 캐시 가능한 모든 비용을 잡았습니다:
+
+| Phase | 핵심 변경 | 효과 |
+|-------|----------|------|
+| **66** | V06/V09 의 `-count=1` 제거 → Go 자체 test cache 복원 | warm test 5s → 0.7s |
+| **67** | V07 ESLint fix: `bun run` script wrapper 우회 + v9-only `--no-warn-ignored` 제거 + cache-location 을 디렉토리 → 파일 | V07 가 비로소 정상 동작 (이전엔 0.17s 에 fail-fast → 0 finding, 지금 104 findings) |
+| **68** | V07 madge subprocess cache (Phase 61 패턴 확장) | madge 1.5s → 0.7s |
+| **69** | V20 / V34 / V35 / V39 (Go regex scanner 4개) per-file 캐시 | 각 800ms → 100ms (CPU 2.4s 절감) |
+| **70** | V07 knip cache + `detect_tool_version` lru_cache + eager file_index build | V07 isolated 3.6s → 2.0s (−44%) |
+| **71** | T1: 6 validator 가 더 file_index 공유 (V16/V08/V01/V27/V54). T2: `ProjectContext.compose_docs` cached_property. T3: `Finding`/`BaseValidator` → `lib/validators_core.py` (layering invariant 회복). T4: V08 PerFileCache. L4: `circuit_breaker` 모듈 분리. + 신규 V23-TS-NOCHECK 룰 | wall 3.5s 유지, 코드 일관성 + V08 cache 도달, 13/14 walk-heavy validator 가 file_index 공유 |
 
 #### Phase 65: 단일 walk 프로젝트 인덱스 (`lib/file_index.py`)
 
@@ -224,7 +239,7 @@ just clean-logs         # 로그 + 캐시 초기화
 | `VERIFIERS_PARALLEL=0`        | Tier 2/3 병렬 실행 비활성, sequential fallback                          |
 | `VERIFIERS_NO_CACHE=1`        | V07 eslint/tsc + V03 buf 의 subprocess 캐시 비활성                      |
 | `VERIFIERS_NO_TIER_CACHE=1`   | Phase 63 PASS-state 캐시 비활성 — 모든 validator 매 Stop 마다 강제 실행 |
-| `VERIFIERS_NO_PER_FILE_CACHE=1` | Phase 64.4 V14/V15 per-file 캐시 비활성                                |
+| `VERIFIERS_NO_PER_FILE_CACHE=1` | Phase 64.4 / 69 / 71 per-file 캐시 비활성 (V14/V15/V20/V34/V35/V39/V08) |
 | `VERIFIERS_DEBUG=1`           | hook 디버그 로그 활성                                                   |
 
 > `file_index` 는 escape hatch 없음 — 캐시가 아니라 walk 통합이라 비활성화 시 30 초+ 의 GIL/IO 경합으로 회귀. 대신 `tests/test_file_index.py` 가 동작 invariant 를 박제.
