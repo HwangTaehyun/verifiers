@@ -46,6 +46,7 @@ just install
 | ----------------------- | ------------------------------------------------- |
 | 베이스 심볼릭 링크      | `~/.claude/verifiers`                             |
 | Tier 2 skills (20개)    | `~/.claude/skills/verify*`                        |
+| Write-time skills (1개) | `~/.claude/skills/write-business-function`        |
 | Agents (5개)            | `~/.claude/agents/{stack-verifier,ui-verifier,tdd-writer}.md`, `~/.claude/agents/team/{builder,validator}.md` |
 | Slash commands (5개)    | `~/.claude/commands/{verify,build-with-validation,tdd,tdd-write,tdd-update}.md` |
 | Tier 1 + Tier 3 hooks   | `~/.claude/settings.json` 에 머지                 |
@@ -88,6 +89,7 @@ grep -i verifiers ~/.claude/settings.json        # hook 등록 확인
 | Edit / Write / MultiEdit 직후 | Tier 1 `security_hook.py` 가 보안 위반 패턴을 즉시 차단 + Tier 2 `router.py` 가 파일 패턴 매칭 validator 만 디스패치 |
 | Claude 가 turn 을 끝낼 때     | Tier 3 `stop_validator.py` 가 V01~V58 전체를 종합 실행 (Phase 63 PASS-state 캐시로 입력 변경 없는 항목 skip) |
 | Claude 가 적합하다고 판단할 때 | `skills/verify-*` 를 상황에 맞게 호출 (예: TS 변경 시 `verify-ts`) |
+| Claude 가 비즈니스 로직 함수 **작성** 직전 | `skills/write-business-function` 가 자동 활성 — input validation → context validation → throw 패턴 + 언어별 docstring 강제 (write-time 가이드, post-hoc 검사 X) |
 
 ### 수동 실행 (CLI)
 

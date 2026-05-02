@@ -42,6 +42,7 @@ install:
     ln -sf {{justfile_directory()}}/skills/verify-input/ ~/.claude/skills/verify-input
     ln -sf {{justfile_directory()}}/skills/verify-mock/ ~/.claude/skills/verify-mock
     ln -sf {{justfile_directory()}}/skills/test-classical/ ~/.claude/skills/test-classical
+    ln -sf {{justfile_directory()}}/skills/write-business-function/ ~/.claude/skills/write-business-function
     # Agents
     ln -sf {{justfile_directory()}}/agents/stack-verifier.md ~/.claude/agents/stack-verifier.md
     ln -sf {{justfile_directory()}}/agents/ui-verifier.md ~/.claude/agents/ui-verifier.md
@@ -62,7 +63,7 @@ install:
 uninstall:
     @echo "Uninstalling verifiers..."
     rm -f ~/.claude/verifiers
-    rm -f ~/.claude/skills/verify ~/.claude/skills/verify-* ~/.claude/skills/test-classical
+    rm -f ~/.claude/skills/verify ~/.claude/skills/verify-* ~/.claude/skills/test-classical ~/.claude/skills/write-business-function
     rm -f ~/.claude/agents/stack-verifier.md
     rm -f ~/.claude/agents/ui-verifier.md
     rm -f ~/.claude/agents/tdd-writer.md
@@ -101,6 +102,7 @@ install-project project_dir:
     ln -sf {{justfile_directory()}}/skills/verify-input/ {{project_dir}}/.claude/skills/verify-input
     ln -sf {{justfile_directory()}}/skills/verify-mock/ {{project_dir}}/.claude/skills/verify-mock
     ln -sf {{justfile_directory()}}/skills/test-classical/ {{project_dir}}/.claude/skills/test-classical
+    ln -sf {{justfile_directory()}}/skills/write-business-function/ {{project_dir}}/.claude/skills/write-business-function
     ln -sf {{justfile_directory()}}/agents/stack-verifier.md {{project_dir}}/.claude/agents/stack-verifier.md
     ln -sf {{justfile_directory()}}/agents/ui-verifier.md {{project_dir}}/.claude/agents/ui-verifier.md
     ln -sf {{justfile_directory()}}/agents/tdd-writer.md {{project_dir}}/.claude/agents/tdd-writer.md
@@ -119,7 +121,7 @@ install-project project_dir:
 uninstall-project project_dir:
     @echo "Uninstalling verifiers from {{project_dir}}/.claude/ ..."
     rm -f {{project_dir}}/.claude/verifiers
-    rm -f {{project_dir}}/.claude/skills/verify {{project_dir}}/.claude/skills/verify-* {{project_dir}}/.claude/skills/test-classical
+    rm -f {{project_dir}}/.claude/skills/verify {{project_dir}}/.claude/skills/verify-* {{project_dir}}/.claude/skills/test-classical {{project_dir}}/.claude/skills/write-business-function
     rm -f {{project_dir}}/.claude/agents/stack-verifier.md
     rm -f {{project_dir}}/.claude/agents/ui-verifier.md
     rm -f {{project_dir}}/.claude/agents/tdd-writer.md
