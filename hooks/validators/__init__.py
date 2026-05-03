@@ -105,9 +105,11 @@ def get_all_validators() -> list[BaseValidator]:
     from .go_quality import GoQualityValidator
     from .go_test_race_coverage import GoTestRaceCoverageValidator
     from .github_community_files import GithubCommunityFilesValidator
+    from .go_circular_deps import GoCircularDepsValidator
     from .go_layer_imports import GoLayerImportsValidator
     from .go_sql_parameterization import GoSqlParameterizationValidator
     from .go_test_runner import GoTestRunnerValidator
+    from .go_typed_env import GoTypedEnvValidator
     from .golangci_strictness import GolangciStrictnessValidator
     from .graphql_gen import GraphqlGenValidator
     from .hasura_graphql_enforcement import HasuraGraphQLEnforcementValidator
@@ -125,12 +127,16 @@ def get_all_validators() -> list[BaseValidator]:
     from .py_quality import PyQualityValidator
     from .py_test_runner import PyTestRunnerValidator
     from .readme_badges import ReadmeBadgesValidator
+    from .react_hooks_plugin import ReactHooksPluginValidator
+    from .react_suspense_error_boundary import ReactSuspenseErrorBoundaryValidator
     from .reproducible_build_markers import ReproducibleBuildMarkersValidator
+    from .rhf_default_values import RhfDefaultValuesValidator
     from .rhf_zod_schema_sync import RhfZodSchemaSyncValidator
     from .sbom_ci_step import SbomCiStepValidator
     from .security import SecurityValidator
     from .ts_any_budget import TsAnyBudgetValidator
     from .ts_layer_imports import TsLayerImportsValidator
+    from .ts_no_direct_fetch import TsNoDirectFetchValidator
     from .ts_quality import TsQualityValidator
     from .ts_test_runner import TsTestRunnerValidator
 
@@ -204,6 +210,13 @@ def get_all_validators() -> list[BaseValidator]:
         TsLayerImportsValidator(),  # V64 — dependency-cruiser config presence (detection)
         TsAnyBudgetValidator(),  # V65 — `: any` / @ts-expect-error ratchet
         RhfZodSchemaSyncValidator(),  # V76 — useForm<T> ↔ z.infer<typeof S> sync
+        # Phase 73 (Tier B): typed-env + React + RHF defaults + Go cycles.
+        GoTypedEnvValidator(),  # V62 — os.Getenv outside config layer
+        TsNoDirectFetchValidator(),  # V66 — fetch / axios in Client Components
+        ReactHooksPluginValidator(),  # V71 — eslint-plugin-react-hooks at 'error' level
+        ReactSuspenseErrorBoundaryValidator(),  # V72 — Suspense + ErrorBoundary pairing
+        RhfDefaultValuesValidator(),  # V77 — useForm<T> defaultValues covers T keys
+        GoCircularDepsValidator(),  # V80 — Go package import cycles (Tarjan SCC)
     ]
     _assert_registry_invariants(validators)
     return validators

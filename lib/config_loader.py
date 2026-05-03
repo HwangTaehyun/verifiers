@@ -270,6 +270,9 @@ class GoConfig:
 
     layers: dict[str, str] = field(default_factory=dict)
     allowed_imports: dict[str, list[str]] = field(default_factory=dict)
+    # Phase 73: V62 typed-env allowlist. Empty → validator's default
+    # (("internal/config", "cmd")) applies.
+    config_dirs: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -330,9 +333,11 @@ BUILTIN_GROUPS: dict[str, list[str]] = {
     # Phase54-56: V34, V35, V36, V38, V39 added.
     # Phase 72: V60 (Go layer), V64 (TS layer detection), V65 (TS any-budget),
     # V76 (RHF zod schema sync) — type/architecture discipline at scale.
+    # Phase 73: V62 (typed env), V66 (no direct fetch), V71 (hooks plugin),
+    # V72 (Suspense+EB), V77 (RHF defaultValues), V80 (Go circular deps).
     "code-quality": [
         "V06", "V07", "V14", "V19", "V34", "V35", "V36", "V38", "V39",
-        "V60", "V64", "V65", "V76",
+        "V60", "V62", "V64", "V65", "V66", "V71", "V72", "V76", "V77", "V80",
     ],
     "test-execution": ["V09", "V10", "V11", "V21", "V37"],
     "env-config": ["V01", "V22"],
@@ -527,6 +532,7 @@ def _build_config(raw: dict[str, Any]) -> VerifiersConfig:
                 if isinstance(key, str):
                     allowed_dict[key] = _coerce_str_list(value)
             cfg.go.allowed_imports = allowed_dict
+        cfg.go.config_dirs = _coerce_str_list(go_raw.get("config_dirs"))
 
     stop_raw = raw.get("stop")
     if isinstance(stop_raw, dict):

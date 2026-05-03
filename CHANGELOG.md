@@ -10,6 +10,80 @@ the original rationale.
 
 ## [Unreleased]
 
+### Added (Phase73 — 6 Tier-B rules: typed env + React + RHF defaults + Go cycles)
+
+Phase 73 ships the Tier-B catalog from the end-of-session review.
+Higher false-positive surface than Phase 72 (heuristics rather than
+deterministic checks), so each ships with explicit escape-hatch
+comments and per-project config knobs where needed.
+
+- **V62-DIRECT-ENV** — Go typed env. Flags ``os.Getenv`` /
+  ``os.LookupEnv`` calls outside the configured allowlist (default:
+  ``internal/config/`` and ``cmd/``). Override via
+  ``go.config_dirs`` in ``.verifiers/config.yaml``. Escape hatch:
+  ``// verifier:env-direct-ok REASON``.
+  Reference: [12-Factor App III. Config](https://12factor.net/config)
+  (published 2011), [caarlos0/env](https://github.com/caarlos0/env)
+  (continuously developed since 2015).
+
+- **V66-COMPONENT-DIRECT-FETCH** — Forbids ``fetch(`` / ``axios.<method>(``
+  inside React Client Components (detected by ``'use client'``
+  directive, ``/components/`` path, or use of ``useState`` / ``useEffect``
+  / ``useReducer``). Server Components (RSC) and ``services/`` /
+  ``api/`` / ``lib/`` modules exempt. Escape hatch:
+  ``// verifier:fetch-ok REASON``.
+  Reference: [React Server Components RFC](https://github.com/reactjs/rfcs/blob/main/text/0188-server-components.md)
+  (published 2020-12), [Dan Abramov "You Might Not Need an Effect"](https://react.dev/learn/you-might-not-need-an-effect)
+  (last updated 2024-02).
+
+- **V71-NO-ESLINT-CONFIG / V71-HOOKS-RULE-MISSING / V71-HOOKS-RULE-NOT-ENFORCED**
+  — Verifies that React projects (``.tsx`` files present) have an
+  ESLint config with ``react-hooks/rules-of-hooks`` AND
+  ``react-hooks/exhaustive-deps`` set to ``'error'``. Both numeric
+  (``0`` / ``1`` / ``2``) and string levels supported.
+  Reference: [eslint-plugin-react-hooks](https://www.npmjs.com/package/eslint-plugin-react-hooks)
+  (continuously updated, official React team).
+
+- **V72-SUSPENSE-NO-EB** — Heuristic pairing of ``<Suspense>`` with
+  ``<ErrorBoundary>``. Same-file EB satisfies the rule; if absent,
+  V72 falls back to checking for an EB in any project layout file
+  (``app/layout.tsx``, ``_app.tsx``, ``RootLayout.tsx``, etc.). One
+  finding per file (not per Suspense). Escape hatch:
+  ``// verifier:suspense-eb-elsewhere REASON``.
+  Reference: [React Suspense docs](https://react.dev/reference/react/Suspense#showing-an-error-to-users-with-an-error-boundary)
+  (continuously updated).
+
+- **V77-RHF-DEFAULTS-INCOMPLETE** — Within a single file, verifies
+  ``useForm<T>({ defaultValues: { ... } })`` covers every key declared
+  in T. Resolves T from ``z.infer<typeof S>``, ``type T = { ... }``,
+  or ``interface T { ... }``. Optional fields (``key?: T``) still
+  required in defaults — RHF needs them for controlled-input
+  behavior. Cross-file T resolution out of scope.
+  Reference: [RHF defaultValues API](https://react-hook-form.com/docs/useform#defaultValues)
+  (continuously updated).
+
+- **V80-CIRCULAR-DEPS** — Pure-Python static cycle detection on Go
+  packages via Tarjan's SCC. Reads ``go.mod`` for module name, builds
+  package-level import graph, reports SCCs of size > 1. Test files
+  (``_test.go``) excluded. External (third-party) imports filtered out.
+  No subprocess required.
+  Reference: [Tarjan's SCC algorithm](https://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm)
+  (R. E. Tarjan, 1972), [madge](https://github.com/pahen/madge)
+  (TS equivalent, continuously developed since 2014).
+
+Total: 6 new validators, ~840 LOC, **62 new tests**, all 1698 tests
+pass + ruff clean. ``BUILTIN_GROUPS["code-quality"]`` extended with
+all 6 (V62/V66/V71/V72/V77/V80).
+
+New config: ``go.config_dirs`` in ``.verifiers/config.yaml``::
+
+    go:
+      config_dirs:
+        - "internal/config"
+        - "pkg/settings"  # custom override
+
+Empty ``go.config_dirs`` keeps V62 default (``internal/config`` + ``cmd``).
+
 ### Added (Phase72 — 5 architecture/security/type-safety rules for 1M-LOC scale)
 
 End-of-session research surfaced 5 high-ROI rules that target the
