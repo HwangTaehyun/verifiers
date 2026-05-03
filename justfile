@@ -31,7 +31,8 @@ install:
     SKILLS=(verify verify-env verify-docker verify-graphql verify-proto verify-hasura
             verify-go verify-ts verify-ui verify-go-test verify-ts-test verify-py-test
             verify-commit verify-cheating verify-complexity verify-deps verify-linter
-            verify-input verify-mock test-classical write-business-function)
+            verify-input verify-mock test-classical write-business-function
+            env-vs-config-decision)
     for s in "${SKILLS[@]}"; do
       ln -sfn "$SRC/skills/$s/" "$DST/skills/$s"
     done
@@ -77,7 +78,7 @@ uninstall:
 
     echo -e "${CYAN}❯${NC} Uninstalling verifiers ${DIM}from ~/.claude/${NC}"
     rm -f "$DST/verifiers"
-    rm -f "$DST/skills/verify" "$DST"/skills/verify-* "$DST/skills/test-classical" "$DST/skills/write-business-function"
+    rm -f "$DST/skills/verify" "$DST"/skills/verify-* "$DST/skills/test-classical" "$DST/skills/write-business-function" "$DST/skills/env-vs-config-decision"
     echo -e "  ${GREEN}✓${NC} Skills"
     rm -f "$DST/agents/stack-verifier.md" "$DST/agents/ui-verifier.md" "$DST/agents/tdd-writer.md"
     rm -f "$DST/agents/team/builder.md" "$DST/agents/team/validator.md"
@@ -113,7 +114,8 @@ install-project project_dir:
     SKILLS=(verify verify-env verify-docker verify-graphql verify-proto verify-hasura
             verify-go verify-ts verify-ui verify-go-test verify-ts-test verify-py-test
             verify-commit verify-cheating verify-complexity verify-deps verify-linter
-            verify-input verify-mock test-classical write-business-function)
+            verify-input verify-mock test-classical write-business-function
+            env-vs-config-decision)
     for s in "${SKILLS[@]}"; do
       ln -sfn "$SRC/skills/$s/" "$DST/skills/$s"
     done
@@ -160,7 +162,7 @@ uninstall-project project_dir:
 
     echo -e "${CYAN}❯${NC} Uninstalling verifiers ${DIM}from ${PROJECT_NAME}${NC}"
     rm -f "$DST/verifiers"
-    rm -f "$DST/skills/verify" "$DST"/skills/verify-* "$DST/skills/test-classical" "$DST/skills/write-business-function"
+    rm -f "$DST/skills/verify" "$DST"/skills/verify-* "$DST/skills/test-classical" "$DST/skills/write-business-function" "$DST/skills/env-vs-config-decision"
     echo -e "  ${GREEN}✓${NC} Skills"
     rm -f "$DST/agents/stack-verifier.md" "$DST/agents/ui-verifier.md" "$DST/agents/tdd-writer.md"
     rm -f "$DST/agents/team/builder.md" "$DST/agents/team/validator.md"

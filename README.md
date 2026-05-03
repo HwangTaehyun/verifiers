@@ -46,7 +46,7 @@ just install
 | ----------------------- | ------------------------------------------------- |
 | 베이스 심볼릭 링크      | `~/.claude/verifiers`                             |
 | Tier 2 skills (20개)    | `~/.claude/skills/verify*`                        |
-| Write-time skills (1개) | `~/.claude/skills/write-business-function`        |
+| Write-time skills (2개) | `~/.claude/skills/{write-business-function,env-vs-config-decision}` |
 | Agents (5개)            | `~/.claude/agents/{stack-verifier,ui-verifier,tdd-writer}.md`, `~/.claude/agents/team/{builder,validator}.md` |
 | Slash commands (5개)    | `~/.claude/commands/{verify,build-with-validation,tdd,tdd-write,tdd-update}.md` |
 | Tier 1 + Tier 3 hooks   | `~/.claude/settings.json` 에 머지                 |
@@ -162,7 +162,7 @@ just clean-logs         # 로그 + 캐시 초기화
 
 ### Tier 3 SLA (parallel runner + 다층 캐시 + 단일 walk 인덱스)
 
-`lib/parallel_runner.py` 가 `ThreadPoolExecutor(max_workers=min(8, len(validators)))` 로 49 개 validator 를 병렬 실행합니다. Phase 36 에서 ProcessPoolExecutor → ThreadPoolExecutor 로 전환 (subprocess 호출이 GIL 을 놓아서 thread 가 process 와 동등 — spawn cost + pickling 제거).
+`lib/parallel_runner.py` 가 `ThreadPoolExecutor(max_workers=min(8, len(validators)))` 로 60 개 validator 를 병렬 실행합니다. Phase 36 에서 ProcessPoolExecutor → ThreadPoolExecutor 로 전환 (subprocess 호출이 GIL 을 놓아서 thread 가 process 와 동등 — spawn cost + pickling 제거).
 
 #### 실측 — ax-finance-project (102,975 entries / web/node_modules 91,753)
 
