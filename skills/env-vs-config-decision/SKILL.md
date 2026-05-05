@@ -41,8 +41,8 @@ AI 에이전트 / 개발자가 새 설정 값을 추가할 때마다 **"이건 e
             배포 시스템    │  ─                   │  ② Env-public    │
             (K8s/Docker)  │                     │     (env)        │
                           ├─────────────────────┼──────────────────┤
-            코드 작성자    │  ─                   │  ④ Tuning (yaml) │
-            (PR 리뷰)      │                     │  ③ Code (.go)    │
+            코드 작성자    │  ─                   │  ③ Tuning (yaml) │
+            (PR 리뷰)      │                     │  ④ Code (.go)    │
                           └─────────────────────┴──────────────────┘
 ```
 
@@ -107,23 +107,7 @@ AI 에이전트 / 개발자가 새 설정 값을 추가할 때마다 **"이건 e
 - env 가 override (cloud-native 의 표준 패턴: K8s ConfigMap → env var)
 - Viper 가 자동으로 합침 (env > yaml)
 
-### Tier ③ Code (Go / TypeScript)
-
-| 예시 | 왜 코드? |
-|------|---------|
-| 라우트 등록 (`cmd/server/main.go`) | 코드의 일부, 함수 호출 |
-| Connect-RPC interceptor 체인 | middleware 순서는 코드 |
-| status enum → 한국어 매핑 | 상수, type 안전 |
-| region 분류 함수 (`internal/finance/region.go`) | 비즈니스 룰 |
-| invoice number format | ADR-001 박제 + 코드 상수 |
-| Stripe API version (`"2024-09-30.acacia"`) | 의존성 버전, 코드 |
-
-**저장 위치**:
-- `.go` / `.ts` 파일, type 안전성 활용
-- 환경별로 안 바뀜 → env 로 뺄 이유 없음
-- 변경 시 PR + 리뷰 + 테스트
-
-### Tier ④ Tuning (yaml committed)
+### Tier ③ Tuning (yaml committed)
 
 | 예시 | 왜 yaml? |
 |------|---------|
@@ -140,6 +124,22 @@ AI 에이전트 / 개발자가 새 설정 값을 추가할 때마다 **"이건 e
 - `server/config/<name>.yaml` (committed)
 - 환경별 미세 차이는 `<name>.docker.yaml` / `<name>.local.yaml`
 - 변경 시 PR 리뷰 (커뮤니티 가시성)
+
+### Tier ④ Code (Go / TypeScript)
+
+| 예시 | 왜 코드? |
+|------|---------|
+| 라우트 등록 (`cmd/server/main.go`) | 코드의 일부, 함수 호출 |
+| Connect-RPC interceptor 체인 | middleware 순서는 코드 |
+| status enum → 한국어 매핑 | 상수, type 안전 |
+| region 분류 함수 (`internal/finance/region.go`) | 비즈니스 룰 |
+| invoice number format | ADR-001 박제 + 코드 상수 |
+| Stripe API version (`"2024-09-30.acacia"`) | 의존성 버전, 코드 |
+
+**저장 위치**:
+- `.go` / `.ts` 파일, type 안전성 활용
+- 환경별로 안 바뀜 → env 로 뺄 이유 없음
+- 변경 시 PR + 리뷰 + 테스트
 
 ---
 
@@ -245,7 +245,7 @@ yaml:
 
 UI 상수 (예: `MAX_INVOICE_LINES_PER_PAGE=50`) 를 env 로 빼는 경우.
 
-- **왜 안 됨**: 환경별로 안 바뀐다. 코드의 일부 (Tier ③).
+- **왜 안 됨**: 환경별로 안 바뀐다. 코드의 일부 (Tier ④).
 - **신호**: "정말 deploy 마다 바뀌나?" 자문하면 보통 NO → 코드로.
 
 ### 4. ❌ yaml 과 env 양쪽에 같은 키 무계획 중복
@@ -275,9 +275,9 @@ config path 결정 시 `pflag.Lookup("config").Changed` 만 체크 → CLI flag 
    │
    ├─ 환경별 다름? ────────── YES → env 우선 (Tier ② — yaml default OK)
    │
-   ├─ 코드 동작? ──────────── YES → 코드 (Tier ③ — .go / .ts)
+   ├─ 운영 튜닝? ──────────── YES → yaml (Tier ③ — committed)
    │
-   └─ 그 외 ──────────────────── → yaml (Tier ④ — committed)
+   └─ 그 외 (코드 동작) ──────── → 코드 (Tier ④ — .go / .ts)
 
 
 [저장 매핑]
@@ -286,21 +286,21 @@ config path 결정 시 `pflag.Lookup("config").Changed` 만 체크 → CLI flag 
      Tier ① → docker-compose env (dev) / K8s Secret (prod)
      Tier ② → docker-compose env (dev) / K8s ConfigMap (prod)
                 + yaml 에 default 두는 건 OK (Viper 가 env override 허용)
-     Tier ③ → cmd/, internal/ 의 .go 파일
-     Tier ④ → server/config/<name>.yaml (committed)
+     Tier ③ → server/config/<name>.yaml (committed)
+     Tier ④ → cmd/, internal/ 의 .go 파일
 
    Frontend (Vite):
      Tier ① → 절대 ❌ (VITE_* 는 public)
      Tier ② → web/env/.env.[mode]
-     Tier ③ → web/src/config/*.ts
-     Tier ④ → web/src/config/*.ts (yaml 미지원)
+     Tier ③ → web/src/config/*.ts (yaml 미지원 → TS 로 표현)
+     Tier ④ → web/src/config/*.ts
 
 
 [Viper 우선순위 — Backend]
    ① viper.Set()              (가장 강함, 거의 안 씀)
-   ② flag (--port=8888)        ← Tier ④ override 가능
+   ② flag (--port=8888)        ← Tier ③ override 가능
    ③ env var (APP_*)           ← Tier ① + ②
-   ④ config file (yaml 1개)    ← Tier ② default + Tier ④
+   ④ config file (yaml 1개)    ← Tier ② default + Tier ③
    ⑤ key/value store (etcd)    (이 프로젝트 미사용)
    ⑥ SetDefault()              ← 코드 default
 ```
