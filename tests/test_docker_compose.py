@@ -895,3 +895,48 @@ class TestV05CleanProject:
         """Project with no Docker files should produce zero findings."""
         result = validator.run(docker_ctx)
         assert len(result.findings) == 0
+
+
+# ══════════════════════════════════════════════════════════════════
+# Defensive parsing — malformed YAML must not crash validate_project
+# ══════════════════════════════════════════════════════════════════
+
+
+class TestV05DefensiveParsing:
+    """Files matching ``docker-compose*.yaml`` glob can still parse to
+    non-mapping shapes (top-level list, scalar) when malformed or when
+    the name happens to match a non-compose document. The validator must
+    skip these rather than crash on ``data.get(...)``.
+
+    Regression: previously V05-docker crashed at line 210 of
+    ``docker_compose.py`` with
+    ``AttributeError: 'list' object has no attribute 'get'`` because the
+    parse guard only handled ``None`` (via ``or {}``), not other non-dict
+    shapes. The bug surfaced as a V05-CRASHED warning on every Stop hook
+    run for projects whose compose-named YAML files contained
+    top-level lists.
+    """
+
+    def test_top_level_list_yaml_does_not_crash(
+        self,
+        validator: DockerValidator,
+        tmp_project: Path,
+        project_ctx: ProjectContext,
+    ) -> None:
+        """Compose-named YAML with top-level list is skipped, not crashed."""
+        _write_compose(tmp_project, "- not\n- a\n- compose\n")
+        # Must not raise. Implicit assertion via successful call.
+        result = validator.run(project_ctx)
+        # Malformed file contributes no findings.
+        assert not any(f.file == str(tmp_project / "docker-compose.yaml") for f in result.findings)
+
+    def test_top_level_scalar_yaml_does_not_crash(
+        self,
+        validator: DockerValidator,
+        tmp_project: Path,
+        project_ctx: ProjectContext,
+    ) -> None:
+        """Top-level scalar string is skipped without crash."""
+        _write_compose(tmp_project, "just a string\n")
+        result = validator.run(project_ctx)
+        assert not any(f.file == str(tmp_project / "docker-compose.yaml") for f in result.findings)

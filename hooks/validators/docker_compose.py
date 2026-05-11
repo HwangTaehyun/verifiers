@@ -149,6 +149,17 @@ class DockerValidator(BaseValidator):
             except (yaml.YAMLError, OSError):
                 continue
 
+            # Defensive: top-level must be a mapping. A file matching the
+            # `docker-compose*.yaml` glob can still parse to a list or scalar
+            # if it's malformed or actually a different doc that just shares
+            # the name. Every downstream `_check_*` assumes `data.get(...)`,
+            # which raises `AttributeError: 'list' object has no attribute
+            # 'get'` on non-dict shapes. Skip rather than crash — mirrors the
+            # per-service `isinstance(svc_def, dict)` guard pattern used
+            # throughout this module.
+            if not isinstance(data, dict):
+                continue
+
             findings.extend(self._check_port_conflicts(data, compose_file))
             findings.extend(self._check_virtual_host_network(data, compose_file))
             findings.extend(self._check_network_references(data, compose_file))
@@ -903,6 +914,12 @@ class DockerValidator(BaseValidator):
                     error=exc,
                     context={"compose_file": str(compose_file)},
                 )
+                continue
+
+            # Same defensive guard as validate_project's loop — _load_compose_file
+            # can return a list/scalar for malformed compose YAML; downstream
+            # `data.get(...)` would raise AttributeError on non-dict.
+            if not isinstance(data, dict):
                 continue
 
             for svc_name, svc_def in (data.get("services") or {}).items():
